@@ -523,6 +523,9 @@ async function handleRequest(req: Request): Promise<Response> {
       await sb.from("request_logs").insert({
         user_id: keyRow.user_id, api_key_id: keyRow.id, provider: keyRow.provider,
         model, messages: body.messages,
+        // Throttle fires before the intent classifier runs, so we record
+        // "unknown" rather than leaving the audit field null.
+        detected_intent: "unknown",
         status: "throttled", verdict: "block", block_reason: reason,
         verdict_layers: [{
           layer: "behavioral", verdict: "block", rule: "throttle",
