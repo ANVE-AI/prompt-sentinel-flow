@@ -15,6 +15,7 @@ const Policies = () => {
           </Button>
         }
       />
+      <PolicyTemplatesSection />
       <PoliciesV2Crud />
     </div>
   );
