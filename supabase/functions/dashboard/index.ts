@@ -19,6 +19,10 @@ Deno.serve(async (req) => {
     const sb = service();
 
     switch (action) {
+      case "list_providers": {
+        return json({ providers: PROVIDERS });
+      }
+
       case "list_keys": {
         const { data } = await sb.from("api_keys")
           .select("id,name,key_prefix,provider,model_default,is_active,created_at,last_used_at")
@@ -27,16 +31,17 @@ Deno.serve(async (req) => {
       }
 
       case "create_key": {
-        const { name, provider, model, openai_key } = body;
-        if (!name || !["lovable", "openai"].includes(provider)) return json({ error: "Invalid input" }, 400);
-        if (provider === "openai" && !openai_key) return json({ error: "OpenAI key required" }, 400);
+        const { name, provider, model, provider_key } = body;
+        const def = getProvider(provider);
+        if (!name || !def) return json({ error: "Invalid provider" }, 400);
+        if (!def.managed && !provider_key) return json({ error: `${def.label} key required` }, 400);
         const plain = generateApiKey();
         const key_hash = await sha256Hex(plain);
         const key_prefix = plain.slice(0, 16);
-        const provider_key_encrypted = provider === "openai" ? await encryptString(openai_key) : null;
+        const provider_key_encrypted = !def.managed ? await encryptString(provider_key) : null;
         const { data, error } = await sb.from("api_keys").insert({
           user_id: userId, name, key_hash, key_prefix, provider,
-          model_default: model || "google/gemini-3-flash-preview",
+          model_default: model || def.default_model,
           provider_key_encrypted,
         }).select("id").single();
         if (error) return json({ error: error.message }, 400);
