@@ -269,18 +269,18 @@ Deno.serve(async (req) => {
   const isCustom = keyRow.provider === "custom";
   const provider = isCustom ? null : getProvider(keyRow.provider);
   if (!isCustom && !provider) {
-    return json(errorForShape(reqShape, `Unknown provider: ${keyRow.provider}`, "server_error"), 500);
+    return errorResponse(reqShape, 500, `Unknown provider: ${keyRow.provider}`, { code: "unknown_provider" });
   }
 
   // Resolve upstream credentials for the *default* (no-route) path.
   let upstreamKey: string | null = null;
   if (provider?.managed) {
     upstreamKey = Deno.env.get("LOVABLE_API_KEY") || null;
-    if (!upstreamKey) return json(errorForShape(reqShape, "LOVABLE_API_KEY not configured", "server_error"), 500);
+    if (!upstreamKey) return errorResponse(reqShape, 500, "LOVABLE_API_KEY not configured", { code: "upstream_not_configured" });
   } else if (keyRow.provider_key_encrypted) {
     upstreamKey = await decryptString(keyRow.provider_key_encrypted);
   } else if (!isCustom) {
-    return json(errorForShape(reqShape, `${provider!.label} key not stored`, "server_error"), 500);
+    return errorResponse(reqShape, 500, `${provider!.label} key not stored`, { code: "upstream_key_missing" });
   }
   // For custom + auth_scheme === 'none', upstreamKey remains null which is fine.
 
