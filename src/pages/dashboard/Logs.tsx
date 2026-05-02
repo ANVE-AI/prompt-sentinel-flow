@@ -121,7 +121,7 @@ const RequestLogs = () => {
           <div>Time</div><div>Prompt</div><div>Key</div><div className="text-right">Latency</div><div className="text-right">Tokens</div><div>Status</div>
         </div>
         {isLoading ? (
-          <Skeleton className="h-48 m-4" />
+          <SkeletonRows rows={8} cols={requestsCols} />
         ) : filtered.length === 0 ? (
           <EmptyState
             icon={<Inbox className="h-5 w-5" />}
