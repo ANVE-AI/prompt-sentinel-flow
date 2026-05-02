@@ -71,6 +71,10 @@ export interface PolicySettings {
   /** What the injection guard does on a hit. `sanitize` rewrites the offending
    *  spans to `[redacted]` before forwarding upstream. */
   injection_action?: "block" | "sanitize" | "flag";
+  /** Multi-turn behavioral analysis across the conversation history. */
+  enable_behavioral?: boolean;
+  /** Action when behavioral heuristics fire. */
+  behavioral_action?: "block" | "sanitize" | "flag";
 }
 
 export interface LegacyPolicy {
@@ -86,6 +90,10 @@ export interface EvaluateInput {
   rules: PolicyRule[];
   intents: PolicyIntent[];
   settings: PolicySettings;
+  /** Optional full conversation history (OpenAI message shape). When supplied,
+   *  the behavioral layer can reason about multi-turn patterns. The single
+   *  `text` field is still used by every other layer. */
+  conversation?: { role: string; content: unknown }[];
 }
 
 export interface EvaluateResult {
