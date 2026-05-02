@@ -254,6 +254,41 @@ const Endpoints = () => {
     }
   };
 
+  const fetchModels = async () => {
+    setFetchingModels(true);
+    setModelsResult(null);
+    try {
+      const useStoredKey = isEdit && hasKeyOnRecord && !form.provider_key;
+      const r = await call<any>("list_endpoint_models", {
+        body: useStoredKey
+          ? { id: form.id, model_suggestions: form.model_suggestions.split(",").map((s) => s.trim()).filter(Boolean) }
+          : buildPayload(),
+      });
+      const models: string[] = Array.isArray(r.models) ? r.models : [];
+      setLiveModels(models);
+      if (r.source === "live" && models.length) {
+        setModelsResult({
+          ok: true,
+          msg: `Loaded ${models.length} model${models.length === 1 ? "" : "s"} from upstream (${r.latency_ms ?? "?"}ms).`,
+        });
+      } else if (models.length) {
+        setModelsResult({
+          ok: false,
+          msg: `${r.error || r.warning || "Upstream unavailable"} — showing ${models.length} fallback suggestion(s).`,
+        });
+      } else {
+        setModelsResult({
+          ok: false,
+          msg: r.error || "Upstream returned no models. Add fallback suggestions below.",
+        });
+      }
+    } catch (e: any) {
+      setModelsResult({ ok: false, msg: e.message || String(e) });
+    } finally {
+      setFetchingModels(false);
+    }
+  };
+
   const save = useMutation({
     mutationFn: () => call<any>("save_endpoint", { body: buildPayload() }),
     onSuccess: () => {
