@@ -758,6 +758,92 @@ Deno.serve(async (req) => {
         });
       }
 
+      case "endpoint_usage": {
+        // Returns, per custom endpoint owned by the user:
+        //   - the API keys bound to it (id, name, prefix, active, last_used_at, created_at)
+        //   - recent request_logs whose api_key_id resolves to one of those keys
+        //   - aggregate counts (total requests, blocked, avg latency, last_request_at)
+        // Optional `endpoint_id` filters to a single endpoint; otherwise returns all.
+        const filterId = url.searchParams.get("endpoint_id") || body.endpoint_id || null;
+        const limit = Math.min(Number(url.searchParams.get("limit") ?? body.limit ?? 25), 200);
+
+        let epQ = sb.from("endpoints")
+          .select("id,name,base_url,kind,response_format,default_model,created_at")
+          .eq("user_id", userId).order("created_at", { ascending: false });
+        if (filterId) epQ = epQ.eq("id", filterId);
+        const { data: endpoints, error: epErr } = await epQ;
+        if (epErr) return json({ error: epErr.message }, 400);
+        if (!endpoints || endpoints.length === 0) return json({ usage: [] });
+
+        const epIds = endpoints.map((e: any) => e.id);
+
+        // All API keys for this user that are bound to one of these endpoints.
+        const { data: keys } = await sb.from("api_keys")
+          .select("id,name,key_prefix,endpoint_id,is_active,last_used_at,created_at,model_default,custom_kind")
+          .eq("user_id", userId).in("endpoint_id", epIds);
+
+        const keysByEndpoint = new Map<string, any[]>();
+        const keyIdToEndpoint = new Map<string, string>();
+        const allKeyIds: string[] = [];
+        for (const k of keys ?? []) {
+          if (!k.endpoint_id) continue;
+          if (!keysByEndpoint.has(k.endpoint_id)) keysByEndpoint.set(k.endpoint_id, []);
+          keysByEndpoint.get(k.endpoint_id)!.push(k);
+          keyIdToEndpoint.set(k.id, k.endpoint_id);
+          allKeyIds.push(k.id);
+        }
+
+        // Recent logs for those keys. Pull a generous batch then bucket per endpoint.
+        // Cap at ~1000 rows total to stay within Supabase row defaults.
+        const fetchCap = Math.min(1000, Math.max(limit * Math.max(epIds.length, 1) * 4, 100));
+        let logs: any[] = [];
+        if (allKeyIds.length > 0) {
+          const { data: rows } = await sb.from("request_logs")
+            .select("id,api_key_id,provider,model,status,block_reason,latency_ms,tokens_in,tokens_out,created_at")
+            .eq("user_id", userId).in("api_key_id", allKeyIds)
+            .order("created_at", { ascending: false })
+            .limit(fetchCap);
+          logs = rows ?? [];
+        }
+
+        const keyNameById = new Map((keys ?? []).map((k: any) => [k.id, k.name]));
+        const usage = endpoints.map((ep: any) => {
+          const epKeys = keysByEndpoint.get(ep.id) ?? [];
+          const epKeyIds = new Set(epKeys.map((k: any) => k.id));
+          const epLogs = logs.filter((l) => l.api_key_id && epKeyIds.has(l.api_key_id));
+          const total = epLogs.length;
+          const blocked = epLogs.filter((l) => typeof l.status === "string" && l.status.startsWith("blocked")).length;
+          const errored = epLogs.filter((l) => l.status === "error").length;
+          const sumLatency = epLogs.reduce((s, l) => s + (l.latency_ms ?? 0), 0);
+          const avg_latency_ms = total ? Math.round(sumLatency / total) : 0;
+          const last_request_at = epLogs[0]?.created_at ?? null;
+          const recent = epLogs.slice(0, limit).map((l) => ({
+            ...l, api_key_name: keyNameById.get(l.api_key_id) ?? "—",
+          }));
+          return {
+            endpoint: ep,
+            keys: epKeys.map((k: any) => ({
+              id: k.id, name: k.name, key_prefix: k.key_prefix,
+              is_active: k.is_active, last_used_at: k.last_used_at,
+              created_at: k.created_at, model_default: k.model_default,
+              custom_kind: k.custom_kind,
+            })),
+            stats: {
+              key_count: epKeys.length,
+              active_key_count: epKeys.filter((k: any) => k.is_active).length,
+              request_count: total,
+              blocked_count: blocked,
+              error_count: errored,
+              avg_latency_ms,
+              last_request_at,
+            },
+            recent_requests: recent,
+          };
+        });
+
+        return json({ usage });
+      }
+
       default:
         return json({ error: "Unknown action" }, 400);
     }
