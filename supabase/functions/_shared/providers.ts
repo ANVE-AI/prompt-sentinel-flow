@@ -141,6 +141,9 @@ export function getProvider(id: string): ProviderDef | undefined {
 
 export type AuthScheme = "bearer" | "header" | "x-api-key" | "query" | "none";
 
+/** Wire format the upstream server speaks. We translate request/response shapes per format. */
+export type ResponseFormat = "chat_completions" | "responses" | "anthropic_messages";
+
 export interface CustomEndpointInput {
   base_url: string;
   models_url?: string | null;
@@ -148,6 +151,14 @@ export interface CustomEndpointInput {
   auth_scheme: AuthScheme;
   auth_header?: string | null;
   extra_headers?: Record<string, string> | null;
+  /** e.g. "/v1", "/openai/v1" — appended to base_url before the chat/models suffix. */
+  path_prefix?: string | null;
+  /** Explicit chat path (overrides default suffix). e.g. "/chat/completions", "/responses". */
+  chat_path?: string | null;
+  /** Explicit models path (overrides default "/models"). */
+  models_path?: string | null;
+  /** Wire format. Defaults to chat_completions for openai_compatible, anthropic_messages for anthropic. */
+  response_format?: ResponseFormat | null;
 }
 
 export interface ResolvedEndpoint {
@@ -158,6 +169,7 @@ export interface ResolvedEndpoint {
   extra_headers: Record<string, string>;
   auth_scheme: AuthScheme;
   auth_header: string;
+  response_format: ResponseFormat;
 }
 
 /** Provider-form choices we expose to the UI so it stays data-driven. */
