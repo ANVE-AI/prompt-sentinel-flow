@@ -105,6 +105,7 @@ export function TemplateWizardDialog({
     setPickedRuleIds({});
     setIntentScope([]);
     setCustomIntent("");
+    setUnknownFallback("apply_no_rules");
   }, [open]);
 
   // Default-select all live rules once they load.
