@@ -213,6 +213,8 @@ Deno.serve(async (req) => {
     provider: keyRow.provider,
     model,
     messages: body.messages,
+    detected_intent: inputEval.detected_intent ?? null,
+    intent_confidence: inputEval.intent_confidence ?? null,
   };
 
   if (inputEval.verdict === "block") {
