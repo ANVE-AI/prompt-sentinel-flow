@@ -1302,41 +1302,7 @@ Deno.serve(async (req) => {
         return json({ rules: data ?? [] });
       }
 
-      case "save_policy_rule": {
-        const id = body?.id ? String(body.id) : null;
-        const kind = String(body?.kind ?? "");
-        const name = String(body?.name ?? "").trim();
-        const severity = String(body?.severity ?? "high");
-        const direction = String(body?.direction ?? "both");
-        const enabled = body?.enabled !== false;
-        const config = body?.config && typeof body.config === "object" ? body.config : {};
-        const appliesToIntents = Array.isArray(body?.applies_to_intents)
-          ? body.applies_to_intents.map((s: unknown) => String(s)).filter(Boolean)
-          : [];
-        if (!name) return json({ error: "name is required" }, 400);
-        if (!["regex", "detector"].includes(kind)) return json({ error: "kind must be regex or detector" }, 400);
-        if (!["low", "med", "high"].includes(severity)) return json({ error: "invalid severity" }, 400);
-        if (!["input", "output", "both"].includes(direction)) return json({ error: "invalid direction" }, 400);
-        // Validate regex compiles before persisting.
-        if (kind === "regex") {
-          const pattern = String(config.pattern ?? "");
-          if (!pattern) return json({ error: "regex rule requires config.pattern" }, 400);
-          try { new RegExp(pattern, String(config.flags ?? "i")); }
-          catch (e) { return json({ error: `invalid regex: ${(e as Error).message}` }, 400); }
-        }
-        const row = {
-          user_id: userId, name, kind, severity, direction, enabled, config,
-          applies_to_intents: appliesToIntents,
-        };
-        if (id) {
-          const { error } = await sb.from("policy_rules").update(row).eq("id", id).eq("user_id", userId);
-          if (error) return json({ error: error.message }, 400);
-          return json({ ok: true, id });
-        }
-        const { data, error } = await sb.from("policy_rules").insert(row).select("id").single();
-        if (error) return json({ error: error.message }, 400);
-        return json({ ok: true, id: data?.id });
-      }
+      // (save_policy_rule handled above with upsert_policy_rule alias.)
 
       case "delete_policy_rule": {
         const id = String(body?.id ?? "");
