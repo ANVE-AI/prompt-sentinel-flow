@@ -420,14 +420,21 @@ export function PolicyTemplatesSection() {
                           </li>
                         ))}
                       </ul>
-                      <div className="mt-auto pt-1">
+                      <div className="mt-auto pt-1 flex gap-2">
                         <Button
                           size="sm"
-                          className="w-full"
+                          className="flex-1"
                           disabled={isPending || apply.isPending}
                           onClick={() => setConfirm(tpl)}
                         >
                           {isPending ? "Applying…" : "Apply template"}
+                        </Button>
+                        <Button
+                          size="sm" variant="outline"
+                          onClick={() => setTestTpl(tpl)}
+                          title="Test prompts"
+                        >
+                          <Beaker className="h-3.5 w-3.5" />
                         </Button>
                       </div>
                     </div>
