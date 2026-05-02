@@ -433,6 +433,7 @@ export type Database = {
           enable_normalizer: boolean
           enable_patterns: boolean
           enable_semantic_keywords: boolean
+          guardrail_system_prompt: string | null
           injection_action: string
           intent_shadow_mode: boolean
           semantic_threshold: number
@@ -458,6 +459,7 @@ export type Database = {
           enable_normalizer?: boolean
           enable_patterns?: boolean
           enable_semantic_keywords?: boolean
+          guardrail_system_prompt?: string | null
           injection_action?: string
           intent_shadow_mode?: boolean
           semantic_threshold?: number
@@ -483,6 +485,7 @@ export type Database = {
           enable_normalizer?: boolean
           enable_patterns?: boolean
           enable_semantic_keywords?: boolean
+          guardrail_system_prompt?: string | null
           injection_action?: string
           intent_shadow_mode?: boolean
           semantic_threshold?: number
