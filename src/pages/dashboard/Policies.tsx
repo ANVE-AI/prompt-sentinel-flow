@@ -17,6 +17,7 @@ const Policies = () => {
           </Button>
         }
       />
+      <GuardrailsSection />
       <PolicyTemplatesSection />
       <KnownIntentsSection />
       <PoliciesV2Crud />
