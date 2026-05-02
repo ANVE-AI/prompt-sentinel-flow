@@ -577,11 +577,17 @@ const Keys = () => {
                     {k.name}
                     <span className="text-meta text-muted-foreground font-mono">{k.key_prefix}…</span>
                   </div>
-                  {k.provider === "custom" && k.custom_base_url && (
-                    <div className="text-meta text-muted-foreground font-mono truncate">
-                      {(() => { try { return new URL(k.custom_base_url).host; } catch { return k.custom_base_url; } })()}
-                    </div>
-                  )}
+                  <div className="text-meta text-muted-foreground font-mono truncate flex items-center gap-1">
+                    <span className="truncate">{PROXY_URL}</span>
+                    <button
+                      type="button"
+                      title="Copy base URL"
+                      onClick={() => { navigator.clipboard.writeText(PROXY_URL); toast.success("Base URL copied"); }}
+                      className="shrink-0 hover:text-foreground"
+                    >
+                      <Copy className="h-3 w-3" />
+                    </button>
+                  </div>
                 </div>
                 <div className="min-w-0 text-meta text-muted-foreground font-mono truncate">
                   {k.provider} · {k.model_default}
