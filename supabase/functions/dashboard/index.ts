@@ -1235,6 +1235,12 @@ Deno.serve(async (req) => {
           const wp = body.workspace_purpose;
           patch.workspace_purpose = typeof wp === "string" && wp.trim() ? wp.trim().slice(0, 2000) : null;
         }
+        if ("guardrail_system_prompt" in (body ?? {})) {
+          // Capped at 8000 chars — long enough for substantial guardrails
+          // without bloating every upstream request payload.
+          const gp = body.guardrail_system_prompt;
+          patch.guardrail_system_prompt = typeof gp === "string" && gp.trim() ? gp.trim().slice(0, 8000) : null;
+        }
         if ("injection_action" in (body ?? {})) {
           const a = String(body.injection_action);
           if (!["block", "sanitize", "flag"].includes(a)) {
