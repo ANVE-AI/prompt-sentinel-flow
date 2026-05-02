@@ -32,7 +32,15 @@ const Playground = () => {
   const [prompt, setPrompt] = useState("Write a haiku about firewalls.");
   const [stream, setStream] = useState(true);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{ blocked: boolean; text: string; reason?: string } | null>(null);
+  const [result, setResult] = useState<{
+    blocked: boolean;
+    text: string;
+    reason?: string;
+    verdict?: string;
+    layers?: any[];
+    detectedIntent?: string;
+    intentConfidence?: number;
+  } | null>(null);
 
   const selectedKey = activeKeys.find((k: any) => k.id === keyId);
 
@@ -75,21 +83,35 @@ const Playground = () => {
       // even if the client requested streaming. Handle both shapes here so
       // blocked responses surface in the UI instead of looking "allowed".
       if (!stream || !isSSE) {
+        let parsed: any = null;
         if (!res.ok) {
           const txt = await res.text();
-          let parsed: any = null;
           try { parsed = JSON.parse(txt); } catch { /* not JSON */ }
           const blocked = !!parsed?.anveguard?.blocked;
           const text = parsed?.choices?.[0]?.message?.content
             ?? parsed?.error?.message ?? txt;
-          setResult({ blocked, text, reason: parsed?.anveguard?.reason });
+          setResult({
+            blocked, text,
+            reason: parsed?.anveguard?.reason,
+            verdict: parsed?.anveguard?.blocked ? "block" : undefined,
+            layers: parsed?.anveguard?.layers,
+            detectedIntent: parsed?.anveguard?.detected_intent,
+            intentConfidence: parsed?.anveguard?.intent_confidence,
+          });
           return;
         }
         const data = await res.json();
         const blocked = !!data?.anveguard?.blocked;
         const text = data?.choices?.[0]?.message?.content
           ?? data?.error?.message ?? JSON.stringify(data);
-        setResult({ blocked, text, reason: data?.anveguard?.reason });
+        setResult({
+          blocked, text,
+          reason: data?.anveguard?.reason,
+          verdict: blocked ? "block" : "allow",
+          layers: data?.anveguard?.layers,
+          detectedIntent: data?.anveguard?.detected_intent,
+          intentConfidence: data?.anveguard?.intent_confidence,
+        });
         return;
       }
 
@@ -101,6 +123,9 @@ const Playground = () => {
       const decoder = new TextDecoder();
       let buf = "", acc = "", blocked = false;
       let reason: string | undefined;
+      let layers: any[] | undefined;
+      let detectedIntent: string | undefined;
+      let intentConfidence: number | undefined;
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -118,14 +143,22 @@ const Playground = () => {
             const delta = obj?.choices?.[0]?.delta?.content;
             if (typeof delta === "string") {
               acc += delta;
-              setResult({ blocked, text: acc, reason });
+              setResult({ blocked, text: acc, reason, layers, detectedIntent, intentConfidence,
+                verdict: blocked ? "block" : "allow" });
             }
-            if (obj?.anveguard?.blocked) { blocked = true; reason = obj.anveguard.reason; }
+            if (obj?.anveguard?.blocked) {
+              blocked = true;
+              reason = obj.anveguard.reason;
+              layers = obj.anveguard.layers ?? layers;
+              detectedIntent = obj.anveguard.detected_intent ?? detectedIntent;
+              intentConfidence = obj.anveguard.intent_confidence ?? intentConfidence;
+            }
             if (obj?.choices?.[0]?.finish_reason === "content_filter") blocked = true;
           } catch { /* partial */ }
         }
       }
-      setResult({ blocked, text: acc, reason });
+      setResult({ blocked, text: acc, reason, layers, detectedIntent, intentConfidence,
+        verdict: blocked ? "block" : "allow" });
     } catch (e: any) {
       toast.error(e.message);
     } finally {
@@ -228,12 +261,49 @@ const Playground = () => {
             ) : (
               <div className="space-y-3">
                 {result.blocked && (
-                  <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-body text-status-block flex items-start gap-2">
-                    <ShieldAlert className="h-4 w-4 mt-0.5 shrink-0" />
-                    <div>
-                      <div className="font-medium">This request was blocked by your organization's AI policy.</div>
-                      {result.reason && <div className="text-meta mt-1 opacity-80">{result.reason}</div>}
+                  <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 space-y-2.5">
+                    <div className="flex items-start gap-2 text-body text-status-block">
+                      <ShieldAlert className="h-4 w-4 mt-0.5 shrink-0" />
+                      <div className="flex-1">
+                        <div className="font-medium">This request was blocked by your organization's AI policy.</div>
+                        {result.reason && <div className="text-meta mt-1 opacity-80">{result.reason}</div>}
+                      </div>
                     </div>
+                    <div className="flex flex-wrap gap-1.5 pl-6">
+                      <Badge status="block" className="font-mono">verdict: {result.verdict ?? "block"}</Badge>
+                      {result.detectedIntent && (
+                        <Badge status="info" className="font-mono">
+                          intent: {result.detectedIntent}
+                          {typeof result.intentConfidence === "number" &&
+                            ` · ${(result.intentConfidence * 100).toFixed(0)}%`}
+                        </Badge>
+                      )}
+                    </div>
+                    {Array.isArray(result.layers) && result.layers.filter((l: any) => l.verdict !== "allow").length > 0 && (
+                      <div className="pl-6 space-y-1.5">
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Fired layers</div>
+                        <div className="space-y-1">
+                          {result.layers.filter((l: any) => l.verdict !== "allow").map((l: any, i: number) => (
+                            <div key={i} className="rounded border border-border bg-surface-2 px-2.5 py-1.5 text-meta">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-mono text-[11px] text-foreground">
+                                  {l.layer}{l.rule ? ` · ${l.rule}` : ""}
+                                </span>
+                                <Badge
+                                  status={l.verdict === "block" ? "block" : "warn"}
+                                  className="font-mono text-[10px]"
+                                >
+                                  {l.verdict}
+                                </Badge>
+                              </div>
+                              {l.reason && (
+                                <div className="text-[11px] text-muted-foreground mt-0.5">{l.reason}</div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
                 <pre className="rounded-md border border-border bg-surface-2 p-4 text-xs whitespace-pre-wrap font-mono leading-relaxed min-h-[280px]">
