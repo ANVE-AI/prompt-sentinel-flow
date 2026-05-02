@@ -628,51 +628,157 @@ export async function semanticKeywordCheck(
  * or on well-known jailbreak personas (DAN, AIM, "developer mode",
  * "do anything now", etc.). Generic words like "system" alone never fire.
  */
-const INJECTION_PATTERNS: { name: string; re: RegExp; reason: string }[] = [
+const INJECTION_PATTERNS: { name: string; re: RegExp; reason: string; severity?: "low" | "med" | "high" }[] = [
+  // ---- Direct override ("ignore previous instructions" family) ----------
   {
     name: "ignore_prior_instructions",
-    re: /\b(?:ignore|disregard|forget|override|bypass|skip)\s+(?:all\s+|the\s+|any\s+|your\s+|previous\s+|prior\s+|above\s+|earlier\s+|preceding\s+|original\s+)*(?:previous\s+|prior\s+|above\s+|earlier\s+|preceding\s+|original\s+)?(?:instructions?|rules?|prompts?|system\s+(?:prompt|message)|guidelines?|directives?|constraints?|policies?)\b/gi,
+    re: /\b(?:ignore|disregard|forget|override|bypass|skip|drop|delete|erase|wipe|nullify)\s+(?:all\s+|the\s+|any\s+|your\s+|previous\s+|prior\s+|above\s+|earlier\s+|preceding\s+|original\s+)*(?:previous\s+|prior\s+|above\s+|earlier\s+|preceding\s+|original\s+)?(?:instructions?|rules?|prompts?|system\s+(?:prompt|message)|guidelines?|directives?|constraints?|policies|context|memory)\b/gi,
     reason: "Attempt to override prior system or developer instructions.",
+    severity: "high",
   },
   {
     name: "new_instructions_override",
-    re: /\b(?:new|updated|revised|the\s+real|actual)\s+(?:instructions?|rules?|system\s+prompt)\s*[:\-]/gi,
+    re: /\b(?:new|updated|revised|the\s+real|actual|true|correct)\s+(?:instructions?|rules?|system\s+prompt|directives?|task|mission|objective)\s*[:\-—]/gi,
     reason: "Replacement-instructions framing detected.",
+    severity: "high",
   },
   {
+    name: "instructions_above_are_fake",
+    re: /\b(?:the\s+(?:above|previous|prior|preceding))\s+(?:instructions?|rules?|prompt|system\s+prompt|context)\s+(?:are|is|were|was)\s+(?:fake|wrong|incorrect|test|a\s+test|outdated|obsolete|invalid|no\s+longer\s+(?:apply|valid|in\s+effect))\b/gi,
+    reason: "Claim that prior instructions are invalid (override framing).",
+    severity: "high",
+  },
+  // ---- Role manipulation ("you are now …", persona swaps) ---------------
+  {
     name: "role_reset",
-    re: /\b(?:from\s+now\s+on|starting\s+now|henceforth|from\s+this\s+point)\s*,?\s*you\s+(?:are|will\s+be|must\s+be|shall\s+be|act\s+as)\b/gi,
+    re: /\b(?:from\s+now\s+on|starting\s+now|henceforth|from\s+this\s+point|going\s+forward|effective\s+immediately)\s*,?\s*you\s+(?:are|will\s+be|must\s+be|shall\s+be|act\s+as|will\s+act\s+as|now\s+act\s+as)\b/gi,
     reason: "Role-reset instruction detected.",
+    severity: "high",
   },
   {
     name: "you_are_now_persona",
-    re: /\byou\s+are\s+(?:now\s+)?(?:a\s+|an\s+|the\s+)?(?:dan|aim|stan|dude|kevin|jailbroken|uncensored|unfiltered|unrestricted|unchained|unlocked|developer\s+mode|god\s+mode|do\s+anything\s+now)\b/gi,
+    re: /\byou\s+are\s+(?:now\s+)?(?:a\s+|an\s+|the\s+)?(?:dan|aim|stan|dude|kevin|jailbroken|uncensored|unfiltered|unrestricted|unchained|unlocked|developer\s+mode|god\s+mode|do\s+anything\s+now|evil\s+(?:ai|gpt|assistant)|opposite\s+ai)\b/gi,
     reason: "Known jailbreak persona invocation.",
+    severity: "high",
+  },
+  {
+    name: "act_as_unrestricted",
+    re: /\b(?:act|behave|respond|reply|answer|roleplay)\s+(?:as|like)\s+(?:an?\s+)?(?:uncensored|unfiltered|unrestricted|unchained|unbound|amoral|evil|rogue|hacker|criminal|jailbroken)\s+(?:ai|model|assistant|chatbot|version)\b/gi,
+    reason: "Roleplay request that strips safety constraints.",
+    severity: "high",
   },
   {
     name: "do_anything_now",
     re: /\b(?:do\s+anything\s+now|DAN\s+mode|developer\s+mode\s+enabled|jailbreak\s+mode|act\s+as\s+(?:dan|aim|an?\s+(?:uncensored|unfiltered|unrestricted)\s+ai))\b/gi,
     reason: "Classic DAN-style jailbreak phrase.",
+    severity: "high",
   },
   {
     name: "pretend_no_restrictions",
-    re: /\b(?:pretend|imagine|act\s+as\s+if|simulate)\s+(?:that\s+)?you\s+(?:have\s+no|don'?t\s+have|are\s+free\s+from|aren'?t\s+bound\s+by)\s+(?:rules|restrictions|guidelines|filters|limits|policies)\b/gi,
+    re: /\b(?:pretend|imagine|act\s+as\s+if|simulate|suppose|let'?s\s+say)\s+(?:that\s+)?you\s+(?:have\s+no|don'?t\s+have|are\s+free\s+from|aren'?t\s+bound\s+by|are\s+not\s+bound\s+by|have\s+been\s+freed\s+(?:from|of))\s+(?:rules|restrictions|guidelines|filters|limits|policies|safety|ethics)\b/gi,
     reason: "Persona-bypass framing detected.",
+    severity: "high",
   },
+  {
+    name: "two_responses_jailbreak",
+    re: /\b(?:respond|reply|answer|give\s+me|provide)\s+(?:in\s+)?two\s+(?:ways|responses|answers|versions)\b[\s\S]{0,80}\b(?:normal|usual|filtered|safe)\b[\s\S]{0,80}\b(?:jailbroken|unfiltered|unrestricted|dan)\b/gi,
+    reason: "Two-response jailbreak pattern (normal + jailbroken).",
+    severity: "high",
+  },
+  // ---- System prompt / instruction extraction ---------------------------
   {
     name: "reveal_system_prompt",
-    re: /\b(?:show|reveal|print|repeat|output|tell\s+me|what\s+(?:is|are))\s+(?:your\s+|the\s+|me\s+(?:your\s+|the\s+))?(?:system\s+(?:prompt|message|instructions?)|initial\s+(?:prompt|instructions?)|hidden\s+(?:prompt|instructions?)|original\s+(?:prompt|instructions?))\b/gi,
+    re: /\b(?:show|reveal|print|repeat|output|tell\s+me|what\s+(?:is|are)|disclose|share|expose|leak|dump|spit\s+out|recite)\s+(?:your\s+|the\s+|me\s+(?:your\s+|the\s+))?(?:system\s+(?:prompt|message|instructions?)|initial\s+(?:prompt|instructions?|setup|context)|hidden\s+(?:prompt|instructions?)|original\s+(?:prompt|instructions?)|developer\s+(?:prompt|message)|preprompt|pre-?prompt|meta\s+prompt|configuration|setup\s+prompt)\b/gi,
     reason: "Attempt to extract the hidden system prompt.",
+    severity: "high",
   },
   {
+    name: "repeat_text_above",
+    re: /\b(?:repeat|print|output|copy|echo|recite|reproduce)\s+(?:everything|all|the\s+(?:text|content|words|message)|what(?:'s|\s+is))\s+(?:above|before|prior|preceding|that\s+came\s+before)\b/gi,
+    reason: "Request to echo back text above the user message (system-prompt leak).",
+    severity: "high",
+  },
+  {
+    name: "verbatim_initial_prompt",
+    re: /\b(?:verbatim|word\s+for\s+word|exactly|character\s+for\s+character|as\s+(?:is|written))\b[\s\S]{0,40}\b(?:initial|original|system|hidden|first|starting)\s+(?:prompt|instructions?|message|context)\b/gi,
+    reason: "Verbatim disclosure of initial prompt requested.",
+    severity: "high",
+  },
+  {
+    name: "begin_with_system_prompt",
+    re: /\b(?:start|begin|preface|prefix|prepend)\s+your\s+(?:response|reply|answer|message)\s+(?:with|by\s+(?:repeating|printing|including|reciting))\s+(?:your\s+|the\s+)?(?:system\s+prompt|initial\s+(?:prompt|instructions?)|hidden\s+(?:prompt|instructions?)|original\s+(?:prompt|instructions?))\b/gi,
+    reason: "Prefix-leak attack — instructs the model to dump the prompt before answering.",
+    severity: "high",
+  },
+  // ---- Pseudo role tags & fake delimiters (instruction smuggling) -------
+  {
     name: "pseudo_role_tag",
-    re: /(?:^|\n)\s*(?:\[\s*(?:system|assistant|developer)\s*\]|<\|?\s*(?:system|im_start|assistant|developer)\s*\|?>)/gi,
+    re: /(?:^|\n)\s*(?:\[\s*(?:system|assistant|developer|tool)\s*\]|<\|?\s*(?:system|im_start|im_end|assistant|developer|tool|user)\s*\|?>|###\s*(?:system|assistant|developer)\s*[:#])/gi,
     reason: "Injected role-tag header.",
+    severity: "high",
   },
   {
     name: "end_of_prompt_marker",
-    re: /\b(?:end\s+of\s+(?:system\s+)?(?:prompt|instructions?)|<\s*\/?\s*(?:system|instructions?)\s*>)\b/gi,
-    reason: "Fake end-of-prompt marker.",
+    re: /\b(?:end\s+of\s+(?:system\s+)?(?:prompt|instructions?|context)|<\s*\/?\s*(?:system|instructions?|prompt)\s*>|---\s*end\s+(?:of\s+)?(?:prompt|instructions?)\s*---)\b/gi,
+    reason: "Fake end-of-prompt marker (instruction smuggling).",
+    severity: "high",
+  },
+  {
+    name: "fake_user_assistant_turn",
+    re: /(?:^|\n)\s*(?:user|human|assistant|ai)\s*[:>]\s*[^\n]{2,}\n\s*(?:assistant|ai|system)\s*[:>]/gi,
+    reason: "Synthetic multi-turn transcript injected into a single message.",
+    severity: "med",
+  },
+  // ---- Indirect injection (instructions hidden in pasted/quoted content) -
+  {
+    name: "indirect_injection_directive",
+    re: /\b(?:assistant|ai|model|chatbot|gpt|claude|gemini)\s*[:,]\s*(?:please\s+)?(?:ignore|disregard|forget|override|now|instead|stop)\b/gi,
+    reason: "Embedded directive addressed to the assistant (indirect injection).",
+    severity: "high",
+  },
+  {
+    name: "important_note_to_ai",
+    re: /\b(?:important|note|warning|attention)\s*(?:to|for)\s+(?:the\s+)?(?:ai|assistant|model|llm|chatbot|gpt)\s*[:\-—]/gi,
+    reason: "Embedded out-of-band directive aimed at the model.",
+    severity: "med",
+  },
+  // ---- Safety / policy bypass framing -----------------------------------
+  {
+    name: "hypothetical_bypass",
+    re: /\b(?:hypothetically|in\s+a\s+(?:hypothetical|fictional|fictitious|alternate|parallel)\s+(?:world|universe|scenario|setting)|for\s+(?:educational|research|academic|fictional)\s+purposes(?:\s+only)?)\b[\s\S]{0,160}\b(?:explain|describe|provide|give|tell|how\s+(?:to|do|can))\b/gi,
+    reason: "Hypothetical / fictional framing used to bypass safety.",
+    severity: "med",
+  },
+  {
+    name: "grandma_exploit",
+    re: /\b(?:my\s+(?:grandma|grandmother|grandpa|grandfather|dead\s+\w+|late\s+\w+))\s+used\s+to\b[\s\S]{0,200}\b(?:tell|read|recite|sing)\b/gi,
+    reason: "Known 'grandma' style sympathy-bait jailbreak.",
+    severity: "med",
+  },
+  {
+    name: "no_warnings_disclaimers",
+    re: /\b(?:without|no|skip|omit|don'?t\s+(?:add|include|give|provide))\s+(?:any\s+)?(?:warnings?|disclaimers?|caveats?|moralizing|safety\s+(?:notes?|disclaimers?)|ethical\s+(?:concerns?|notes?))\b/gi,
+    reason: "Request to suppress safety disclaimers.",
+    severity: "med",
+  },
+  // ---- Output-format hijack / payload smuggling -------------------------
+  {
+    name: "translate_above_to",
+    re: /\btranslate\s+(?:everything|all|the\s+(?:text|content|message))\s+above\b/gi,
+    reason: "Translate-above attack (used to leak the system prompt).",
+    severity: "high",
+  },
+  {
+    name: "summarize_above_verbatim",
+    re: /\bsummari[sz]e\s+(?:everything|all|the\s+(?:text|content|message|prompt))\s+above\s+(?:verbatim|exactly|word\s+for\s+word)\b/gi,
+    reason: "Summarize-verbatim attack (system-prompt leak).",
+    severity: "high",
+  },
+  {
+    name: "encoded_instruction_payload",
+    re: /\b(?:decode|base64\s*-?\s*decode|rot13|hex\s*-?\s*decode|url\s*-?\s*decode)\s+(?:this|the\s+following|below)\b[\s\S]{0,40}\b(?:and\s+(?:execute|run|follow|do|perform|act\s+on))\b/gi,
+    reason: "Decode-and-execute pattern (encoded instruction smuggling).",
+    severity: "high",
   },
 ];
 
