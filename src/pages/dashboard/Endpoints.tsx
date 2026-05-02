@@ -409,6 +409,69 @@ const Endpoints = () => {
               />
             </div>
 
+            {/* Request options — path prefix, explicit paths, response format */}
+            <div className="rounded-md border border-border/60 p-3 space-y-3 bg-muted/30">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium">Request options</Label>
+                <span className="text-xs text-muted-foreground">
+                  Advanced — leave blank for sane defaults
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Path prefix</Label>
+                  <Input
+                    value={form.path_prefix}
+                    onChange={(e) => setForm({ ...form, path_prefix: e.target.value })}
+                    placeholder="/v1, /openai/v1"
+                    className="mt-1 font-mono text-xs"
+                  />
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    Inserted between base URL and the chat/models path.
+                  </p>
+                </div>
+                <div>
+                  <Label className="text-xs">Response format</Label>
+                  <Select
+                    value={form.response_format}
+                    onValueChange={(v) => setForm({ ...form, response_format: v })}
+                  >
+                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="chat_completions">OpenAI Chat Completions</SelectItem>
+                      <SelectItem value="responses">OpenAI Responses API</SelectItem>
+                      <SelectItem value="anthropic_messages">Anthropic Messages</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    We translate to/from chat-completions automatically.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Chat path override</Label>
+                  <Input
+                    value={form.chat_path}
+                    onChange={(e) => setForm({ ...form, chat_path: e.target.value })}
+                    placeholder="/chat/completions"
+                    className="mt-1 font-mono text-xs"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Models path override</Label>
+                  <Input
+                    value={form.models_path}
+                    onChange={(e) => setForm({ ...form, models_path: e.target.value })}
+                    placeholder="/models"
+                    className="mt-1 font-mono text-xs"
+                  />
+                </div>
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label>Auth scheme</Label>
