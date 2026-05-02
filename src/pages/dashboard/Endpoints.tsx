@@ -1660,18 +1660,37 @@ const Endpoints = () => {
                         <span className="ml-auto text-xs text-muted-foreground">
                           {k.last_used_at ? `last used ${new Date(k.last_used_at).toLocaleString()}` : "never used"}
                         </span>
-                        {k.is_active && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10 shrink-0"
-                            onClick={() => setConfirmRevokeKey({ id: k.id, name: k.name, key_prefix: k.key_prefix })}
-                            title="Revoke this API key"
-                          >
-                            <Ban className="h-3.5 w-3.5 mr-1" />
-                            Revoke
-                          </Button>
-                        )}
+                        {k.is_active && (() => {
+                          // Guard against double submissions: disable the row's
+                          // Revoke button while the confirmation dialog is open
+                          // OR while a revocation is already in flight (regardless
+                          // of which key it targets, so users can't queue a second
+                          // revoke before the first resolves).
+                          const isTarget = confirmRevokeKey?.id === k.id;
+                          const disabled = !!confirmRevokeKey || revokeKeyMutation.isPending;
+                          return (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={disabled}
+                              aria-busy={isTarget && revokeKeyMutation.isPending}
+                              className="h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                              onClick={() => setConfirmRevokeKey({ id: k.id, name: k.name, key_prefix: k.key_prefix })}
+                              title={
+                                isTarget && revokeKeyMutation.isPending ? "Revoking…"
+                                  : disabled ? "Finish the current action first"
+                                  : "Revoke this API key"
+                              }
+                            >
+                              {isTarget && revokeKeyMutation.isPending ? (
+                                <RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin" />
+                              ) : (
+                                <Ban className="h-3.5 w-3.5 mr-1" />
+                              )}
+                              {isTarget && revokeKeyMutation.isPending ? "Revoking…" : "Revoke"}
+                            </Button>
+                          );
+                        })()}
                       </div>
                     ))}
                   </div>
