@@ -97,14 +97,6 @@ async function teardownKey(id: string) {
   await sb.from("request_logs").delete().eq("api_key_id", id);
   await sb.from("api_keys").delete().eq("id", id);
 }
-
-async function teardownKey(id: string) {
-  const sb = admin();
-  // Logs first (just in case something slipped through), then the key row.
-  await sb.from("request_logs").delete().eq("api_key_id", id);
-  await sb.from("api_keys").delete().eq("id", id);
-}
-
 async function countLogsForKey(id: string): Promise<number> {
   const sb = admin();
   const { count, error } = await sb
