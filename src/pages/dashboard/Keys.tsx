@@ -9,12 +9,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Copy, Plus, Trash2, Check, X, Plug, Beaker, Loader2, KeyRound } from "lucide-react";
+import { Copy, Plus, Trash2, Check, X, Plug, Beaker, Loader2, KeyRound, Tags } from "lucide-react";
 import { useDashboardApi } from "@/lib/api";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SkeletonRows } from "@/components/skeletons";
 import { EmptyState } from "@/components/empty-state";
+import { AliasesSheet } from "@/components/aliases-sheet";
 
 const PROXY_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proxy`;
 
@@ -82,6 +83,7 @@ const Keys = () => {
   // to `create_key` so the new key is bound to the same custom endpoint as
   // the one being revoked.
   const [prefilledEndpointId, setPrefilledEndpointId] = useState<string | null>(null);
+  const [aliasesFor, setAliasesFor] = useState<{ id: string; name: string } | null>(null);
 
   // ---- Deep-link: open the New Key dialog from a URL like
   //      /dashboard/keys?new=1&name=foo&endpoint=<uuid>
@@ -593,6 +595,13 @@ const Keys = () => {
                     <>
                       <Button
                         variant="ghost" size="sm"
+                        onClick={() => setAliasesFor({ id: k.id, name: k.name })}
+                        title="Manage model aliases for this key"
+                      >
+                        <Tags className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost" size="sm"
                         disabled={testKey.isPending && testingKey?.id === k.id}
                         onClick={() => { setTestingKey({ id: k.id, name: k.name }); testKey.mutate({ id: k.id, parallel: testParallel }); }}
                         title="Send a tiny test request through this key's upstream"
@@ -776,6 +785,13 @@ client = OpenAI(
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AliasesSheet
+        open={!!aliasesFor}
+        onOpenChange={(v) => !v && setAliasesFor(null)}
+        apiKeyId={aliasesFor?.id ?? null}
+        apiKeyName={aliasesFor?.name ?? ""}
+      />
     </div>
   );
 };

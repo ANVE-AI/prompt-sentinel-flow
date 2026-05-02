@@ -8,6 +8,8 @@ import {
   ScrollText,
   Terminal,
   Plug,
+  Server,
+  GitBranch,
   Menu,
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
@@ -23,7 +25,9 @@ const groups: { id: string; label: string; items: NavItem[] }[] = [
     items: [
       { to: "/dashboard", label: "Overview", icon: LayoutDashboard, end: true },
       { to: "/dashboard/keys", label: "API Keys", icon: KeyRound },
+      { to: "/dashboard/providers", label: "Providers", icon: Server },
       { to: "/dashboard/endpoints", label: "Endpoints", icon: Plug },
+      { to: "/dashboard/routes", label: "Routes", icon: GitBranch },
     ],
   },
   {
