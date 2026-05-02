@@ -223,6 +223,7 @@ const Endpoints = () => {
     setTestResult(null);
     setLiveModels(null);
     setModelsResult(null);
+    setLastRefreshOk(false);
   };
 
   // When auth scheme changes, give it a sensible default header/param name
