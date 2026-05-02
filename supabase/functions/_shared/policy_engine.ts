@@ -309,7 +309,12 @@ export function evaluatePatterns(
   rules: PolicyRule[],
   legacy: LegacyPolicy,
   direction: "input" | "output",
-  ctx: { systemPrompt?: string; toolsRequested?: boolean; detectedIntent?: string } = {},
+  ctx: {
+    systemPrompt?: string;
+    toolsRequested?: boolean;
+    detectedIntent?: string;
+    keywordFuzzy?: boolean;
+  } = {},
 ): LayerVerdict[] {
   const out: LayerVerdict[] = [];
 
@@ -318,9 +323,19 @@ export function evaluatePatterns(
     ...legacy.blocked_keywords,
     ...(legacy.use_global_defaults ? GLOBAL_DEFAULT_BLOCKED : []),
   ];
-  const kw = checkPolicy(text, legacyBlocked, legacy.allowed_keywords);
+  const kw = checkPolicy(text, legacyBlocked, legacy.allowed_keywords, {
+    fuzzy: ctx.keywordFuzzy !== false,
+    edit_distance: ctx.keywordFuzzy !== false,
+  });
   if (kw.blocked) {
-    out.push({ layer: "keywords", verdict: "block", reason: `Matched blocked keyword: "${kw.matched}"`, matched: kw.matched });
+    const modeNote = kw.mode && kw.mode !== "exact" ? ` (${kw.mode} match)` : "";
+    out.push({
+      layer: "keywords",
+      verdict: "block",
+      reason: `Matched blocked keyword: "${kw.matched}"${modeNote}`,
+      matched: kw.matched,
+      rule: kw.mode,
+    });
   }
 
   for (const rule of rules) {
