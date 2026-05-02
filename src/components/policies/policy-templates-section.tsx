@@ -296,6 +296,9 @@ export function PolicyTemplatesSection() {
       ((t.policy?.blocked_keywords?.length ?? 0) + (t.policy?.allowed_keywords?.length ?? 0))
         ? `${(t.policy?.blocked_keywords?.length ?? 0) + (t.policy?.allowed_keywords?.length ?? 0)} keywords`
         : "No keyword snapshot",
+      Array.isArray(t.applies_to_intents) && t.applies_to_intents.length
+        ? `Intents: ${t.applies_to_intents.slice(0, 3).join(", ")}${t.applies_to_intents.length > 3 ? "…" : ""}`
+        : "All intents",
     ],
     policy: t.policy ?? {},
     settings: t.settings ?? {},
