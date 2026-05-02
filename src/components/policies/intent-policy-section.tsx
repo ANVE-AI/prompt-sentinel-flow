@@ -86,6 +86,7 @@ export function IntentPolicySection() {
     setPurpose(s.workspace_purpose ?? "");
     setGuardrailPrompt(s.guardrail_system_prompt ?? "");
     setAllowClientPrompt(!!s.allow_client_system_prompt);
+    setSystemPromptMax(Number(s.system_prompt_max_length) || 16000);
   }, [settingsQ.data]);
 
   const saveSettings = useMutation({
