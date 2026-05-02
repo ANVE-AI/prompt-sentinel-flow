@@ -419,7 +419,9 @@ export type Database = {
       }
       policy_settings: {
         Row: {
+          behavioral_action: string
           created_at: string
+          enable_behavioral: boolean
           enable_heuristics: boolean
           enable_injection_guard: boolean
           enable_intent: boolean
@@ -428,12 +430,16 @@ export type Database = {
           injection_action: string
           intent_shadow_mode: boolean
           strict_mode: boolean
+          throttle_flag_threshold: number
+          throttle_window_minutes: number
           updated_at: string
           user_id: string
           workspace_purpose: string | null
         }
         Insert: {
+          behavioral_action?: string
           created_at?: string
+          enable_behavioral?: boolean
           enable_heuristics?: boolean
           enable_injection_guard?: boolean
           enable_intent?: boolean
@@ -442,12 +448,16 @@ export type Database = {
           injection_action?: string
           intent_shadow_mode?: boolean
           strict_mode?: boolean
+          throttle_flag_threshold?: number
+          throttle_window_minutes?: number
           updated_at?: string
           user_id: string
           workspace_purpose?: string | null
         }
         Update: {
+          behavioral_action?: string
           created_at?: string
+          enable_behavioral?: boolean
           enable_heuristics?: boolean
           enable_injection_guard?: boolean
           enable_intent?: boolean
@@ -456,6 +466,8 @@ export type Database = {
           injection_action?: string
           intent_shadow_mode?: boolean
           strict_mode?: boolean
+          throttle_flag_threshold?: number
+          throttle_window_minutes?: number
           updated_at?: string
           user_id?: string
           workspace_purpose?: string | null
