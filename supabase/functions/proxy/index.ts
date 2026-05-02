@@ -1,16 +1,57 @@
 // AnveGuard proxy — OpenAI-compatible /v1/chat/completions endpoint.
 // Public function; authenticated via AnveGuard API keys (Authorization: Bearer ag_live_...).
-import { corsHeaders, json, service, sha256Hex, decryptString,
-  GLOBAL_DEFAULT_BLOCKED, checkPolicy } from "../_shared/anveguard.ts";
+import { corsHeaders, json, service, sha256Hex, decryptString } from "../_shared/anveguard.ts";
 import { getProvider, resolveEndpoint } from "../_shared/providers.ts";
 import { openaiToAnthropicRequest, anthropicToOpenAIResponse,
   anthropicStreamToOpenAI } from "../_shared/anthropic.ts";
 import { chatToResponsesRequest, responsesToChatResponse,
   responsesStreamToChat } from "../_shared/responses_api.ts";
+import {
+  evaluate as evaluatePolicy, DEFAULT_SETTINGS,
+  type PolicyRule, type PolicyIntent, type PolicySettings, type EvaluateResult,
+} from "../_shared/policy_engine.ts";
 
 function openaiErrorShape(message: string, type = "policy_violation") {
   return { error: { message, type, code: type } };
 }
+
+/**
+ * Load all policy state for a workspace in one round trip.
+ * Falls back to safe defaults if rows are missing.
+ */
+async function loadWorkspacePolicy(sb: any, userId: string): Promise<{
+  legacy: { blocked_keywords: string[]; allowed_keywords: string[]; use_global_defaults: boolean };
+  rules: PolicyRule[];
+  intents: PolicyIntent[];
+  settings: PolicySettings;
+  blockMessage: string;
+}> {
+  const [legacyRes, settingsRes, rulesRes, intentsRes] = await Promise.all([
+    sb.from("policies").select("*").eq("user_id", userId).maybeSingle(),
+    sb.from("policy_settings").select("*").eq("user_id", userId).maybeSingle(),
+    sb.from("policy_rules").select("*").eq("user_id", userId).eq("enabled", true),
+    sb.from("policy_intents").select("*").eq("user_id", userId),
+  ]);
+  return {
+    legacy: {
+      blocked_keywords: legacyRes.data?.blocked_keywords ?? [],
+      allowed_keywords: legacyRes.data?.allowed_keywords ?? [],
+      use_global_defaults: legacyRes.data?.use_global_defaults !== false,
+    },
+    rules: (rulesRes.data ?? []) as PolicyRule[],
+    intents: (intentsRes.data ?? []) as PolicyIntent[],
+    settings: settingsRes.data ?? DEFAULT_SETTINGS,
+    blockMessage: legacyRes.data?.block_message || "This request was blocked by your organization's AI policy.",
+  };
+}
+
+/** Pull the first system-role message text out of an OpenAI-shape body. */
+function extractSystemPrompt(messages: any[]): string | undefined {
+  const sys = messages.find((m) => m?.role === "system");
+  if (!sys) return undefined;
+  return typeof sys.content === "string" ? sys.content : JSON.stringify(sys.content ?? "");
+}
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
