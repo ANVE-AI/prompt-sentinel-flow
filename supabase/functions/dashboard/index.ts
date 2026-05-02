@@ -1145,6 +1145,7 @@ Deno.serve(async (req) => {
           "24h": 24 * 60 * 60 * 1000,
           "7d": 7 * 24 * 60 * 60 * 1000,
           "30d": 30 * 24 * 60 * 60 * 1000,
+          "90d": 90 * 24 * 60 * 60 * 1000,
           "all": null,
         };
         const range = rangeRaw in RANGE_MS ? rangeRaw : "24h";
