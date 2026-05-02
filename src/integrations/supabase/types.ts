@@ -17,6 +17,13 @@ export type Database = {
       api_keys: {
         Row: {
           created_at: string
+          custom_auth_header: string | null
+          custom_auth_scheme: string | null
+          custom_base_url: string | null
+          custom_extra_headers: Json | null
+          custom_kind: string | null
+          custom_model_suggestions: string[] | null
+          custom_models_url: string | null
           id: string
           is_active: boolean
           key_hash: string
@@ -30,6 +37,13 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          custom_auth_header?: string | null
+          custom_auth_scheme?: string | null
+          custom_base_url?: string | null
+          custom_extra_headers?: Json | null
+          custom_kind?: string | null
+          custom_model_suggestions?: string[] | null
+          custom_models_url?: string | null
           id?: string
           is_active?: boolean
           key_hash: string
@@ -43,6 +57,13 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          custom_auth_header?: string | null
+          custom_auth_scheme?: string | null
+          custom_base_url?: string | null
+          custom_extra_headers?: Json | null
+          custom_kind?: string | null
+          custom_model_suggestions?: string[] | null
+          custom_models_url?: string | null
           id?: string
           is_active?: boolean
           key_hash?: string

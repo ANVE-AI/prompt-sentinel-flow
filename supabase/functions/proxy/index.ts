@@ -2,7 +2,7 @@
 // Public function; authenticated via AnveGuard API keys (Authorization: Bearer ag_live_...).
 import { corsHeaders, json, service, sha256Hex, decryptString,
   GLOBAL_DEFAULT_BLOCKED, checkPolicy } from "../_shared/anveguard.ts";
-import { getProvider } from "../_shared/providers.ts";
+import { getProvider, resolveEndpoint } from "../_shared/providers.ts";
 import { openaiToAnthropicRequest, anthropicToOpenAIResponse,
   anthropicStreamToOpenAI } from "../_shared/anthropic.ts";
 
@@ -25,14 +25,17 @@ Deno.serve(async (req) => {
   const key_hash = await sha256Hex(apiKeyPlain);
 
   const { data: keyRow } = await sb.from("api_keys")
-    .select("id,user_id,provider,provider_key_encrypted,model_default,is_active")
+    .select("id,user_id,provider,provider_key_encrypted,model_default,is_active,custom_base_url,custom_models_url,custom_kind,custom_auth_scheme,custom_auth_header,custom_extra_headers")
     .eq("key_hash", key_hash).maybeSingle();
   if (!keyRow || !keyRow.is_active) {
     return json(openaiErrorShape("Invalid or revoked API key", "invalid_request_error"), 401);
   }
 
-  const provider = getProvider(keyRow.provider);
-  if (!provider) return json(openaiErrorShape(`Unknown provider: ${keyRow.provider}`, "server_error"), 500);
+  const isCustom = keyRow.provider === "custom";
+  const provider = isCustom ? null : getProvider(keyRow.provider);
+  if (!isCustom && !provider) {
+    return json(openaiErrorShape(`Unknown provider: ${keyRow.provider}`, "server_error"), 500);
+  }
 
   // Body
   let body: any;
@@ -43,13 +46,15 @@ Deno.serve(async (req) => {
 
   // Resolve upstream credentials
   let upstreamKey: string | null = null;
-  if (provider.managed) {
+  if (provider?.managed) {
     upstreamKey = Deno.env.get("LOVABLE_API_KEY") || null;
     if (!upstreamKey) return json(openaiErrorShape("LOVABLE_API_KEY not configured", "server_error"), 500);
-  } else {
-    if (!keyRow.provider_key_encrypted) return json(openaiErrorShape(`${provider.label} key not stored`, "server_error"), 500);
+  } else if (keyRow.provider_key_encrypted) {
     upstreamKey = await decryptString(keyRow.provider_key_encrypted);
+  } else if (!isCustom) {
+    return json(openaiErrorShape(`${provider!.label} key not stored`, "server_error"), 500);
   }
+  // For custom + auth_scheme === 'none', upstreamKey remains null which is fine.
 
   // Load policies
   const { data: pol } = await sb.from("policies").select("*").eq("user_id", keyRow.user_id).maybeSingle();
@@ -94,22 +99,26 @@ Deno.serve(async (req) => {
     return json(responsePayload, 200);
   }
 
-  // Build forward request per provider kind
-  let forwardUrl = provider.url;
-  let forwardBody: any;
+  // Build forward request via resolveEndpoint (handles built-in + custom)
+  let forwardUrl: string;
+  let forwardKind: "openai_compatible" | "anthropic";
   let forwardHeaders: Record<string, string> = { "Content-Type": "application/json" };
+  try {
+    const resolved = resolveEndpoint(keyRow as any, upstreamKey);
+    forwardUrl = resolved.url;
+    forwardKind = resolved.kind;
+    forwardHeaders = { ...forwardHeaders, ...resolved.headers };
+  } catch (e) {
+    return json(openaiErrorShape(
+      `Endpoint resolution failed: ${e instanceof Error ? e.message : String(e)}`,
+      "server_error"), 500);
+  }
 
-  if (provider.kind === "anthropic") {
+  let forwardBody: any;
+  if (forwardKind === "anthropic") {
     forwardBody = openaiToAnthropicRequest({ ...body, model });
-    forwardHeaders["x-api-key"] = upstreamKey!;
-    forwardHeaders["anthropic-version"] = "2023-06-01";
   } else {
     forwardBody = { ...body, model, stream };
-    forwardHeaders.Authorization = `Bearer ${upstreamKey}`;
-    if (provider.id === "openrouter") {
-      forwardHeaders["HTTP-Referer"] = "https://anveguard.app";
-      forwardHeaders["X-Title"] = "AnveGuard";
-    }
   }
 
   let upstream: Response;
@@ -132,7 +141,7 @@ Deno.serve(async (req) => {
 
   // ===== Streaming =====
   if (stream && upstream.body) {
-    if (provider.kind === "anthropic") {
+    if (forwardKind === "anthropic") {
       const { stream: oaiStream, done } = anthropicStreamToOpenAI(upstream.body, model);
       done.then(async ({ assistantText, usage }) => {
         const outCheck = checkPolicy(assistantText, blocked, allowed);
@@ -207,7 +216,7 @@ Deno.serve(async (req) => {
 
   // ===== Non-streaming =====
   const rawData = await upstream.json();
-  const data = provider.kind === "anthropic" ? anthropicToOpenAIResponse(rawData) : rawData;
+  const data = forwardKind === "anthropic" ? anthropicToOpenAIResponse(rawData) : rawData;
   const assistantText = data?.choices?.[0]?.message?.content ?? "";
   const outCheck = typeof assistantText === "string"
     ? checkPolicy(assistantText, blocked, allowed) : { blocked: false };
