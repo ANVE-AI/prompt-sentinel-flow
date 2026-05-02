@@ -43,6 +43,9 @@ export interface PolicyRule {
   severity: "low" | "med" | "high";
   direction: "input" | "output" | "both";
   enabled: boolean;
+  /** Empty = applies to every request. Non-empty = only fire when the
+   *  classifier returned one of these intents (input direction only). */
+  applies_to_intents?: string[];
 }
 
 export interface PolicyIntent {
@@ -83,6 +86,9 @@ export interface EvaluateResult {
   decoded_segments: { kind: string; original: string; decoded: string }[];
   // True if the intent layer ran in shadow mode and would have changed the verdict.
   shadow_only?: boolean;
+  // The intent classifier's verdict (input direction only, when enabled).
+  detected_intent?: string;
+  intent_confidence?: number;
 }
 
 // ---------- 1. Normalizer --------------------------------------------------
