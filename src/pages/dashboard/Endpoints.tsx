@@ -23,6 +23,81 @@ import {
 import { Plus, Plug, Pencil, Trash2, X, Check, Beaker, KeyRound, RefreshCw, AlertTriangle, Activity, Ban, AlertCircle, Download, Upload, Save } from "lucide-react";
 import { useDashboardApi } from "@/lib/api";
 import { toast } from "sonner";
+import { z } from "zod";
+
+// -------- Endpoint form validation -----------------------------------------
+// Validates the fields a template prefills (and that the upstream actually
+// needs) BEFORE allowing Test or Save. Mirrors the server-side checks in the
+// `save_endpoint` action so users get instant inline feedback rather than a
+// generic API error after submitting.
+//
+// Rules:
+// - name + base_url required, base_url must parse as http(s) URL.
+// - For non-"none" auth schemes, an auth_header/param name is required.
+// - Path overrides (path_prefix, chat_path, models_path, models_url) must be
+//   either empty or syntactically valid (start with "/" or be absolute URL).
+// - default_model is recommended but not required (warning, not error).
+const PathOverride = z
+  .string()
+  .max(500, "Too long")
+  .refine(
+    (v) => v === "" || v.startsWith("/") || /^https?:\/\//i.test(v),
+    { message: "Must start with '/' or be a full http(s) URL" },
+  );
+
+const endpointFormSchema = z
+  .object({
+    name: z.string().trim().min(1, "Name is required").max(120, "Name must be ≤120 chars"),
+    base_url: z
+      .string()
+      .trim()
+      .min(1, "Base URL is required")
+      .max(500, "Base URL too long")
+      .refine((v) => {
+        try {
+          const u = new URL(v);
+          return u.protocol === "http:" || u.protocol === "https:";
+        } catch { return false; }
+      }, "Must be a valid http(s) URL"),
+    kind: z.string().min(1, "Kind is required"),
+    auth_scheme: z.string().min(1, "Auth scheme is required"),
+    auth_header: z.string().trim().max(120, "Header name too long"),
+    response_format: z.enum(["chat_completions", "responses", "anthropic_messages"], {
+      message: "Pick a response format",
+    }),
+    models_url: PathOverride,
+    path_prefix: PathOverride,
+    chat_path: PathOverride,
+    models_path: PathOverride,
+    default_model: z.string().trim().max(200, "Model id too long"),
+  })
+  .superRefine((v, ctx) => {
+    // Auth header/param name is mandatory for any scheme that uses one.
+    if (v.auth_scheme !== "none" && v.auth_scheme !== "bearer" && v.auth_scheme !== "x-api-key") {
+      if (!v.auth_header.trim()) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["auth_header"],
+          message: v.auth_scheme === "query"
+            ? "Query parameter name is required for 'query' auth"
+            : "Header name is required for 'header' auth",
+        });
+      }
+    }
+    // Anthropic kind only makes sense with anthropic_messages format.
+    if (v.kind === "anthropic" && v.response_format !== "anthropic_messages") {
+      ctx.addIssue({
+        code: "custom", path: ["response_format"],
+        message: "Anthropic kind requires the 'anthropic_messages' response format",
+      });
+    }
+  });
+
+type EndpointFormErrors = Partial<Record<
+  "name" | "base_url" | "kind" | "auth_scheme" | "auth_header" | "response_format"
+  | "models_url" | "path_prefix" | "chat_path" | "models_path" | "default_model",
+  string
+>>;
 
 interface CustomSchema {
   kinds: { id: string; label: string }[];
