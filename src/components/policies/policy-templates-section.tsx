@@ -47,6 +47,8 @@ type Template = {
     config: Record<string, unknown>;
     applies_to_intents?: string[];
   }>;
+  applies_to_intents?: string[];
+  unknown_intent_fallback?: "apply_no_rules" | "apply_default_rules" | "reject";
   custom?: boolean;
 };
 
