@@ -71,7 +71,7 @@ export function TemplateWizardDialog({
     queryFn: () => call("get_policies"),
     enabled: open,
   });
-  const settingsQ = useQuery<{ settings: any }>({
+  const settingsQ = useQuery<{ settings: any; known_intents?: string[] }>({
     queryKey: ["policy_settings"],
     queryFn: () => call("get_policy_settings"),
     enabled: open,
