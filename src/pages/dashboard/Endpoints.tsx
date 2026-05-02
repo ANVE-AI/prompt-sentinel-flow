@@ -193,6 +193,10 @@ const Endpoints = () => {
       default_model: form.default_model.trim() || undefined,
       provider_key: form.provider_key || undefined,
       clear_provider_key: form.clear_provider_key,
+      path_prefix: form.path_prefix.trim() || undefined,
+      chat_path: form.chat_path.trim() || undefined,
+      models_path: form.models_path.trim() || undefined,
+      response_format: form.response_format || undefined,
     };
   };
 
