@@ -699,10 +699,11 @@ function TestRunnerStep({
         applies_to_intents: intentScope,
         unknown_intent_fallback: unknownFallback,
       };
-      if (intent !== "__auto__") body.force_intent = intent;
-      else body.force_intent = "__unknown__"; // forces fallback simulation
-      // Special case: when "__auto__" is picked we don't force; clear it.
-      if (intent === "__auto__") delete body.force_intent;
+      if (intent === "__unknown__") {
+        body.simulate_unknown = true;
+      } else if (intent !== "__auto__") {
+        body.force_intent = intent;
+      }
       return await call("evaluate_template", { body }) as TestResult;
     },
     onSuccess: (r) => setResult(r),
