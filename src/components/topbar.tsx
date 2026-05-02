@@ -1,7 +1,7 @@
 import { useLocation, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { UserButton } from "@clerk/clerk-react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Search } from "lucide-react";
 import { useDashboardApi } from "@/lib/api";
 import { StatusDot } from "@/components/ui/status-dot";
 import { COMMAND_PALETTE_EVENT } from "@/components/command-palette";
