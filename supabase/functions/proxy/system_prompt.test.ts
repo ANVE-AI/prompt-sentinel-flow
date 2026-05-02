@@ -51,7 +51,7 @@ Deno.test("system_prompt: whitespace-only is rejected", () => {
 
 Deno.test("system_prompt: trims surrounding whitespace on success", () => {
   const r = validateSystemPrompt("  hello world  ");
-  assertEquals(r, { error: null, value: "hello world" });
+  assertEquals(r, { error: null, code: null, value: "hello world" });
 });
 
 Deno.test("system_prompt: at the max length is accepted", () => {
