@@ -279,6 +279,15 @@ export function TemplateWizardDialog({
               unknownFallback={unknownFallback}
               onUnknownFallbackChange={setUnknownFallback}
             />
+          ) : step === 5 ? (
+            <TestRunnerStep
+              knownIntents={knownIntents}
+              intentScope={intentScope}
+              unknownFallback={unknownFallback}
+              policy={policySnapshot}
+              settings={selectedSettings}
+              rules={selectedRules}
+            />
           ) : (
             <ReviewStep
               name={name}
