@@ -164,6 +164,7 @@ const Policies = () => {
         </CardContent>
       </Card>
 
+      <KeywordMatchingSection />
       <InjectionGuardSection />
       <BehavioralSection />
       <IntentPolicySection />
