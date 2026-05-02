@@ -11,6 +11,10 @@ import {
   evaluateInjection, applySanitization,
   type PolicyRule, type PolicyIntent, type PolicySettings, type EvaluateResult,
 } from "../_shared/policy_engine.ts";
+import {
+  detectRequestShape, translateRequestToOpenAI, translateResponseFromOpenAI,
+  type RequestShape,
+} from "../_shared/shape_translators.ts";
 
 function openaiErrorShape(message: string, type = "policy_violation") {
   return { error: { message, type, code: type } };
