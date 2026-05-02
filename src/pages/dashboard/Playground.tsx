@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Send, ShieldAlert, ShieldCheck } from "lucide-react";
@@ -21,6 +22,7 @@ const Playground = () => {
   const [keyId, setKeyId] = useState<string>("");
   const [apiKey, setApiKey] = useState("");
   const [prompt, setPrompt] = useState("Write a haiku about firewalls.");
+  const [stream, setStream] = useState(true);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ blocked: boolean; text: string; reason?: string } | null>(null);
 
@@ -30,17 +32,64 @@ const Playground = () => {
       return;
     }
     setLoading(true);
-    setResult(null);
+    setResult({ blocked: false, text: "" });
     try {
       const res = await fetch(PROXY_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ messages: [{ role: "user", content: prompt }] }),
+        body: JSON.stringify({ messages: [{ role: "user", content: prompt }], stream }),
       });
-      const data = await res.json();
-      const blocked = !!data?.anveguard?.blocked;
-      const text = data?.choices?.[0]?.message?.content ?? data?.error?.message ?? JSON.stringify(data);
-      setResult({ blocked, text, reason: data?.anveguard?.reason });
+
+      if (!stream) {
+        const data = await res.json();
+        const blocked = !!data?.anveguard?.blocked;
+        const text = data?.choices?.[0]?.message?.content ?? data?.error?.message ?? JSON.stringify(data);
+        setResult({ blocked, text, reason: data?.anveguard?.reason });
+        return;
+      }
+
+      // Streaming SSE
+      if (!res.ok || !res.body) {
+        const txt = await res.text();
+        setResult({ blocked: false, text: txt });
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let acc = "";
+      let blocked = false;
+      let reason: string | undefined;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf("\n")) !== -1) {
+          let line = buf.slice(0, idx);
+          buf = buf.slice(idx + 1);
+          if (line.endsWith("\r")) line = line.slice(0, -1);
+          if (!line.startsWith("data:")) continue;
+          const payload = line.slice(5).trim();
+          if (!payload || payload === "[DONE]") continue;
+          try {
+            const obj = JSON.parse(payload);
+            const delta = obj?.choices?.[0]?.delta?.content;
+            if (typeof delta === "string") {
+              acc += delta;
+              setResult({ blocked, text: acc, reason });
+            }
+            if (obj?.anveguard?.blocked) {
+              blocked = true;
+              reason = obj.anveguard.reason;
+            }
+            if (obj?.choices?.[0]?.finish_reason === "content_filter") {
+              blocked = true;
+            }
+          } catch { /* partial */ }
+        }
+      }
+      setResult({ blocked, text: acc, reason });
     } catch (e: any) {
       toast.error(e.message);
     } finally {
@@ -77,7 +126,11 @@ const Playground = () => {
             <p className="text-xs text-muted-foreground mt-1">Paste here — keys aren't stored client-side.</p>
           </div>
           <Textarea rows={6} value={prompt} onChange={(e) => setPrompt(e.target.value)} className="font-mono text-sm" />
-          <div className="flex justify-end">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Switch id="stream" checked={stream} onCheckedChange={setStream} />
+              <Label htmlFor="stream" className="text-sm cursor-pointer">Stream tokens</Label>
+            </div>
             <Button onClick={send} disabled={loading}>
               <Send className="h-4 w-4 mr-2" />
               {loading ? "Sending…" : "Send through proxy"}
