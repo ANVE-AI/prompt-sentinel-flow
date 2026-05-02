@@ -242,7 +242,10 @@ Deno.serve(async (req) => {
 
   // ===== Non-streaming =====
   const rawData = await upstream.json();
-  const data = forwardKind === "anthropic" ? anthropicToOpenAIResponse(rawData) : rawData;
+  const data =
+    forwardFormat === "anthropic_messages" ? anthropicToOpenAIResponse(rawData) :
+    forwardFormat === "responses" ? responsesToChatResponse(rawData, model) :
+    rawData;
   const assistantText = data?.choices?.[0]?.message?.content ?? "";
   const outCheck = typeof assistantText === "string"
     ? checkPolicy(assistantText, blocked, allowed) : { blocked: false };
