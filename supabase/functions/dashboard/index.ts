@@ -1259,7 +1259,34 @@ Deno.serve(async (req) => {
           }
           patch.throttle_flag_threshold = n;
         }
-        if ("semantic_threshold" in (body ?? {})) {
+        if ("behavioral_churn_threshold" in (body ?? {})) {
+          const n = Number(body.behavioral_churn_threshold);
+          if (!Number.isInteger(n) || n < 1 || n > 20) {
+            return json({ error: "behavioral_churn_threshold must be an integer 1-20" }, 400);
+          }
+          patch.behavioral_churn_threshold = n;
+        }
+        if ("behavioral_persona_threshold" in (body ?? {})) {
+          const n = Number(body.behavioral_persona_threshold);
+          if (!Number.isInteger(n) || n < 1 || n > 20) {
+            return json({ error: "behavioral_persona_threshold must be an integer 1-20" }, 400);
+          }
+          patch.behavioral_persona_threshold = n;
+        }
+        if ("behavioral_encoding_ratio_step" in (body ?? {})) {
+          const n = Number(body.behavioral_encoding_ratio_step);
+          if (!Number.isFinite(n) || n < 0 || n > 1) {
+            return json({ error: "behavioral_encoding_ratio_step must be 0..1" }, 400);
+          }
+          patch.behavioral_encoding_ratio_step = n;
+        }
+        if ("behavioral_length_multiplier" in (body ?? {})) {
+          const n = Number(body.behavioral_length_multiplier);
+          if (!Number.isFinite(n) || n < 1 || n > 100) {
+            return json({ error: "behavioral_length_multiplier must be 1..100" }, 400);
+          }
+          patch.behavioral_length_multiplier = n;
+        }
           const n = Number(body.semantic_threshold);
           if (!(n >= 0.5 && n <= 0.95)) {
             return json({ error: "semantic_threshold must be 0.5..0.95" }, 400);
