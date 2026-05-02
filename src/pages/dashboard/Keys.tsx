@@ -75,6 +75,31 @@ const Keys = () => {
   const [custom, setCustom] = useState<CustomState>(emptyCustom);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  // Endpoint to bind the new key to. Set when arriving from the Endpoints
+  // "Create replacement key" shortcut (URL has ?endpoint=<id>). Sent through
+  // to `create_key` so the new key is bound to the same custom endpoint as
+  // the one being revoked.
+  const [prefilledEndpointId, setPrefilledEndpointId] = useState<string | null>(null);
+
+  // ---- Deep-link: open the New Key dialog from a URL like
+  //      /dashboard/keys?new=1&name=foo&endpoint=<uuid>
+  // Used by the "Create replacement key" shortcut in the Revoke confirm
+  // dialog so users can rotate a lost/compromised key in one click.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get("new") !== "1") return;
+    const prefName = searchParams.get("name") ?? "";
+    const prefEndpoint = searchParams.get("endpoint");
+    if (prefName) setName(prefName);
+    if (prefEndpoint) setPrefilledEndpointId(prefEndpoint);
+    setOpen(true);
+    // Strip the params so a refresh doesn't re-open the dialog and the URL
+    // stays clean once the user starts editing.
+    const next = new URLSearchParams(searchParams);
+    next.delete("new"); next.delete("name"); next.delete("endpoint");
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const selected = providers.find((p) => p.id === providerId);
   const isCustom = providerId === "custom";
