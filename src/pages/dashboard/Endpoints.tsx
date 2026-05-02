@@ -111,6 +111,9 @@ const Endpoints = () => {
   const [confirmDelete, setConfirmDelete] = useState<EndpointRow | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [fetchingModels, setFetchingModels] = useState(false);
+  const [liveModels, setLiveModels] = useState<string[] | null>(null);
+  const [modelsResult, setModelsResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
   const isEdit = !!form.id;
 
