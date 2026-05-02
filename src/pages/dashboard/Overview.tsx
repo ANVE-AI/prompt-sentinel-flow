@@ -31,7 +31,7 @@ const Overview = () => {
   const totalKeys = data?.total_keys ?? 0;
 
   return (
-    <div className="px-6 py-5 space-y-6 max-w-[1200px] mx-auto">
+    <div className="px-4 md:px-6 py-5 space-y-6 max-w-[1200px] mx-auto">
       <PageHeader
         title="Overview"
         description="Live signal across every AnveGuard key in the last 14 days."
