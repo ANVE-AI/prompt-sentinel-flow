@@ -120,6 +120,8 @@ const Endpoints = () => {
   const startCreate = () => {
     setForm(emptyForm);
     setTestResult(null);
+    setLiveModels(null);
+    setModelsResult(null);
     setOpen(true);
   };
 
@@ -144,6 +146,8 @@ const Endpoints = () => {
       response_format: e.response_format ?? (e.kind === "anthropic" ? "anthropic_messages" : "chat_completions"),
     });
     setTestResult(null);
+    setLiveModels(null);
+    setModelsResult(null);
     setOpen(true);
   };
 
