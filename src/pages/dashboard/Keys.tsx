@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Copy, Plus, Trash2, Check, X, Plug } from "lucide-react";
+import { Copy, Plus, Trash2, Check, X, Plug, Beaker, Loader2 } from "lucide-react";
 import { useDashboardApi } from "@/lib/api";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -156,6 +156,25 @@ const Keys = () => {
   const revoke = useMutation({
     mutationFn: (id: string) => call("revoke_key", { body: { id } }),
     onSuccess: () => { toast.success("Key revoked"); qc.invalidateQueries({ queryKey: ["keys"] }); },
+  });
+
+  // -------- Live API key test ---------------------------------------------
+  // Sends a tiny real chat request through the upstream the key is bound to
+  // and shows the result in a dialog: ok/fail, latency, reply, tokens, error.
+  const [testingKey, setTestingKey] = useState<{ id: string; name: string } | null>(null);
+  const [testKeyResult, setTestKeyResult] = useState<any | null>(null);
+  const testKey = useMutation({
+    mutationFn: (id: string) => call<any>("test_api_key", { body: { api_key_id: id } }),
+    onMutate: () => setTestKeyResult(null),
+    onSuccess: (r) => {
+      setTestKeyResult(r);
+      if (r?.ok) toast.success(`Key works · ${r.latency_ms}ms`);
+      else toast.error(r?.error || "Test failed");
+    },
+    onError: (e: any) => {
+      setTestKeyResult({ ok: false, error: e?.message || "Request failed" });
+      toast.error(e?.message || "Test failed");
+    },
   });
 
   const reset = () => {
@@ -460,9 +479,21 @@ const Keys = () => {
                       </div>
                     </div>
                     {k.is_active && (
-                      <Button variant="ghost" size="icon" onClick={() => revoke.mutate(k.id)}>
-                        <Trash2 className="h-4 w-4 text-muted-foreground" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="outline" size="sm"
+                          disabled={testKey.isPending && testingKey?.id === k.id}
+                          onClick={() => { setTestingKey({ id: k.id, name: k.name }); testKey.mutate(k.id); }}
+                          title="Send a tiny test request through this key's upstream"
+                        >
+                          {testKey.isPending && testingKey?.id === k.id
+                            ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Testing…</>
+                            : <><Beaker className="h-3.5 w-3.5 mr-1.5" />Test</>}
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => revoke.mutate(k.id)} title="Revoke key">
+                          <Trash2 className="h-4 w-4 text-muted-foreground" />
+                        </Button>
+                      </div>
                     )}
                   </div>
                 ))}
@@ -487,6 +518,83 @@ client = OpenAI(
           </pre>
         </CardContent>
       </Card>
+
+      {/* Test result dialog — opened by clicking "Test" on any key row. */}
+      <Dialog
+        open={!!testingKey}
+        onOpenChange={(o) => { if (!o) { setTestingKey(null); setTestKeyResult(null); } }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {testKey.isPending
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : testKeyResult?.ok
+                  ? <Check className="h-4 w-4 text-primary" />
+                  : <X className="h-4 w-4 text-destructive" />}
+              Test · {testingKey?.name}
+            </DialogTitle>
+          </DialogHeader>
+
+          {testKey.isPending ? (
+            <div className="py-6 text-sm text-muted-foreground">
+              Sending a tiny request through this key's upstream…
+            </div>
+          ) : testKeyResult ? (
+            <div className="space-y-3 text-sm">
+              <div className={`rounded-md border px-3 py-2 ${
+                testKeyResult.ok
+                  ? "border-primary/30 bg-primary/5 text-primary"
+                  : "border-destructive/40 bg-destructive/5 text-destructive"
+              }`}>
+                {testKeyResult.ok
+                  ? <>Upstream responded <strong>{testKeyResult.status}</strong> in <strong>{testKeyResult.latency_ms}ms</strong>.</>
+                  : <>{testKeyResult.error || "Test failed."}{typeof testKeyResult.status === "number" && <> · status {testKeyResult.status}</>}{typeof testKeyResult.latency_ms === "number" && <> · {testKeyResult.latency_ms}ms</>}</>}
+              </div>
+
+              {testKeyResult.target && (
+                <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs space-y-1">
+                  <div><span className="text-muted-foreground">URL:</span> <code className="break-all">{testKeyResult.target.url}</code></div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1">
+                    <span><span className="text-muted-foreground">Model:</span> <code>{testKeyResult.target.model}</code></span>
+                    <span><span className="text-muted-foreground">Format:</span> <code>{testKeyResult.target.format}</code></span>
+                    {testKeyResult.tokens_in != null && (
+                      <span><span className="text-muted-foreground">Tokens:</span> {testKeyResult.tokens_in}/{testKeyResult.tokens_out}</span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {testKeyResult.ok && testKeyResult.reply && (
+                <div>
+                  <div className="text-xs text-muted-foreground mb-1">Reply preview</div>
+                  <pre className="rounded-md border bg-muted/30 p-3 text-xs whitespace-pre-wrap break-words max-h-48 overflow-y-auto">{testKeyResult.reply}</pre>
+                </div>
+              )}
+
+              {!testKeyResult.ok && testKeyResult.detail !== undefined && (
+                <div>
+                  <div className="text-xs text-muted-foreground mb-1">Upstream error detail</div>
+                  <pre className="rounded-md border bg-muted/30 p-3 text-xs whitespace-pre-wrap break-words max-h-48 overflow-y-auto">{typeof testKeyResult.detail === "string" ? testKeyResult.detail : JSON.stringify(testKeyResult.detail, null, 2)}</pre>
+                </div>
+              )}
+            </div>
+          ) : null}
+
+          <DialogFooter>
+            {testingKey && (
+              <Button
+                variant="outline"
+                disabled={testKey.isPending}
+                onClick={() => testKey.mutate(testingKey.id)}
+              >
+                {testKey.isPending ? "Testing…" : "Run again"}
+              </Button>
+            )}
+            <Button onClick={() => { setTestingKey(null); setTestKeyResult(null); }}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
