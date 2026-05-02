@@ -103,13 +103,11 @@ Deno.serve(async (req) => {
 
   // Build forward request via resolveEndpoint (handles built-in + custom)
   let forwardUrl: string;
-  let forwardKind: "openai_compatible" | "anthropic";
   let forwardFormat: "chat_completions" | "responses" | "anthropic_messages" = "chat_completions";
   let forwardHeaders: Record<string, string> = { "Content-Type": "application/json" };
   try {
     const resolved = resolveEndpoint(keyRow as any, upstreamKey);
     forwardUrl = resolved.url;
-    forwardKind = resolved.kind;
     forwardFormat = resolved.response_format;
     forwardHeaders = { ...forwardHeaders, ...resolved.headers };
   } catch (e) {
