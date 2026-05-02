@@ -1090,6 +1090,9 @@ Deno.serve(async (req) => {
             behavioral_action: "flag",
             throttle_window_minutes: 5,
             throttle_flag_threshold: 10,
+            enable_fuzzy_keywords: true,
+            enable_semantic_keywords: false,
+            semantic_threshold: 0.78,
           },
           known_intents: [
             "jailbreak", "prompt_injection", "data_exfiltration",
@@ -1103,6 +1106,7 @@ Deno.serve(async (req) => {
           "enable_normalizer", "enable_patterns", "enable_heuristics",
           "enable_intent", "intent_shadow_mode", "strict_mode",
           "enable_injection_guard", "enable_behavioral",
+          "enable_fuzzy_keywords", "enable_semantic_keywords",
         ] as const;
         const patch: Record<string, unknown> = { user_id: userId };
         for (const k of allowedKeys) {
@@ -1139,6 +1143,13 @@ Deno.serve(async (req) => {
             return json({ error: "throttle_flag_threshold must be a non-negative integer" }, 400);
           }
           patch.throttle_flag_threshold = n;
+        }
+        if ("semantic_threshold" in (body ?? {})) {
+          const n = Number(body.semantic_threshold);
+          if (!(n >= 0.5 && n <= 0.95)) {
+            return json({ error: "semantic_threshold must be 0.5..0.95" }, 400);
+          }
+          patch.semantic_threshold = n;
         }
         await sb.from("policy_settings").upsert(patch, { onConflict: "user_id" });
         return json({ ok: true });

@@ -422,13 +422,16 @@ export type Database = {
           behavioral_action: string
           created_at: string
           enable_behavioral: boolean
+          enable_fuzzy_keywords: boolean
           enable_heuristics: boolean
           enable_injection_guard: boolean
           enable_intent: boolean
           enable_normalizer: boolean
           enable_patterns: boolean
+          enable_semantic_keywords: boolean
           injection_action: string
           intent_shadow_mode: boolean
+          semantic_threshold: number
           strict_mode: boolean
           throttle_flag_threshold: number
           throttle_window_minutes: number
@@ -440,13 +443,16 @@ export type Database = {
           behavioral_action?: string
           created_at?: string
           enable_behavioral?: boolean
+          enable_fuzzy_keywords?: boolean
           enable_heuristics?: boolean
           enable_injection_guard?: boolean
           enable_intent?: boolean
           enable_normalizer?: boolean
           enable_patterns?: boolean
+          enable_semantic_keywords?: boolean
           injection_action?: string
           intent_shadow_mode?: boolean
+          semantic_threshold?: number
           strict_mode?: boolean
           throttle_flag_threshold?: number
           throttle_window_minutes?: number
@@ -458,13 +464,16 @@ export type Database = {
           behavioral_action?: string
           created_at?: string
           enable_behavioral?: boolean
+          enable_fuzzy_keywords?: boolean
           enable_heuristics?: boolean
           enable_injection_guard?: boolean
           enable_intent?: boolean
           enable_normalizer?: boolean
           enable_patterns?: boolean
+          enable_semantic_keywords?: boolean
           injection_action?: string
           intent_shadow_mode?: boolean
+          semantic_threshold?: number
           strict_mode?: boolean
           throttle_flag_threshold?: number
           throttle_window_minutes?: number
