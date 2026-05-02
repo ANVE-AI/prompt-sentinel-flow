@@ -14,7 +14,175 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      api_keys: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          key_hash: string
+          key_prefix: string
+          last_used_at: string | null
+          model_default: string
+          name: string
+          provider: string
+          provider_key_encrypted: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          key_hash: string
+          key_prefix: string
+          last_used_at?: string | null
+          model_default?: string
+          name: string
+          provider: string
+          provider_key_encrypted?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          key_hash?: string
+          key_prefix?: string
+          last_used_at?: string | null
+          model_default?: string
+          name?: string
+          provider?: string
+          provider_key_encrypted?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_keys_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["clerk_user_id"]
+          },
+        ]
+      }
+      policies: {
+        Row: {
+          allowed_keywords: string[]
+          block_message: string
+          blocked_keywords: string[]
+          updated_at: string
+          use_global_defaults: boolean
+          user_id: string
+        }
+        Insert: {
+          allowed_keywords?: string[]
+          block_message?: string
+          blocked_keywords?: string[]
+          updated_at?: string
+          use_global_defaults?: boolean
+          user_id: string
+        }
+        Update: {
+          allowed_keywords?: string[]
+          block_message?: string
+          blocked_keywords?: string[]
+          updated_at?: string
+          use_global_defaults?: boolean
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "policies_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["clerk_user_id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          clerk_user_id: string
+          created_at: string
+          email: string | null
+          updated_at: string
+        }
+        Insert: {
+          clerk_user_id: string
+          created_at?: string
+          email?: string | null
+          updated_at?: string
+        }
+        Update: {
+          clerk_user_id?: string
+          created_at?: string
+          email?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      request_logs: {
+        Row: {
+          api_key_id: string | null
+          block_reason: string | null
+          created_at: string
+          id: string
+          latency_ms: number | null
+          messages: Json | null
+          model: string | null
+          provider: string
+          response: Json | null
+          status: string
+          tokens_in: number | null
+          tokens_out: number | null
+          user_id: string
+        }
+        Insert: {
+          api_key_id?: string | null
+          block_reason?: string | null
+          created_at?: string
+          id?: string
+          latency_ms?: number | null
+          messages?: Json | null
+          model?: string | null
+          provider: string
+          response?: Json | null
+          status: string
+          tokens_in?: number | null
+          tokens_out?: number | null
+          user_id: string
+        }
+        Update: {
+          api_key_id?: string | null
+          block_reason?: string | null
+          created_at?: string
+          id?: string
+          latency_ms?: number | null
+          messages?: Json | null
+          model?: string | null
+          provider?: string
+          response?: Json | null
+          status?: string
+          tokens_in?: number | null
+          tokens_out?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "request_logs_api_key_id_fkey"
+            columns: ["api_key_id"]
+            isOneToOne: false
+            referencedRelation: "api_keys"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "request_logs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["clerk_user_id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
