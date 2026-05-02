@@ -68,17 +68,33 @@ const Playground = () => {
         }),
       });
 
-      if (!stream) {
+      const contentType = res.headers.get("content-type") ?? "";
+      const isSSE = contentType.includes("text/event-stream");
+
+      // The proxy returns a regular JSON 200 (not SSE) when input is blocked,
+      // even if the client requested streaming. Handle both shapes here so
+      // blocked responses surface in the UI instead of looking "allowed".
+      if (!stream || !isSSE) {
+        if (!res.ok) {
+          const txt = await res.text();
+          let parsed: any = null;
+          try { parsed = JSON.parse(txt); } catch { /* not JSON */ }
+          const blocked = !!parsed?.anveguard?.blocked;
+          const text = parsed?.choices?.[0]?.message?.content
+            ?? parsed?.error?.message ?? txt;
+          setResult({ blocked, text, reason: parsed?.anveguard?.reason });
+          return;
+        }
         const data = await res.json();
         const blocked = !!data?.anveguard?.blocked;
-        const text = data?.choices?.[0]?.message?.content ?? data?.error?.message ?? JSON.stringify(data);
+        const text = data?.choices?.[0]?.message?.content
+          ?? data?.error?.message ?? JSON.stringify(data);
         setResult({ blocked, text, reason: data?.anveguard?.reason });
         return;
       }
 
-      if (!res.ok || !res.body) {
-        const txt = await res.text();
-        setResult({ blocked: false, text: txt });
+      if (!res.body) {
+        setResult({ blocked: false, text: "" });
         return;
       }
       const reader = res.body.getReader();
