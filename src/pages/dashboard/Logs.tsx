@@ -10,6 +10,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Search, ShieldAlert, Ban, ShieldCheck, Inbox } from "lucide-react";
 import { useDashboardApi } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SkeletonRows } from "@/components/skeletons";
 import { PageHeader } from "@/components/page-header";
 import { KeyValue } from "@/components/key-value";
 import { EmptyState } from "@/components/empty-state";
