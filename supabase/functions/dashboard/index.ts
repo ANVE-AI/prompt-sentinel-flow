@@ -1598,9 +1598,10 @@ Deno.serve(async (req) => {
       case "stats": {
         const since = new Date(Date.now() - 14 * 86400000).toISOString();
         const { data: logs } = await sb.from("request_logs")
-          .select("status,latency_ms,created_at,verdict_layers").eq("user_id", userId).gte("created_at", since);
+          .select("id,status,latency_ms,created_at,verdict_layers,block_reason,model,api_key_id,messages").eq("user_id", userId).gte("created_at", since);
         const { data: keys } = await sb.from("api_keys")
-          .select("id,is_active").eq("user_id", userId);
+          .select("id,name,key_prefix,is_active").eq("user_id", userId);
+        const keyMap = new Map((keys ?? []).map((k: any) => [k.id, k]));
         const total = logs?.length ?? 0;
         const blocked = (logs ?? []).filter((l) => l.status?.startsWith("blocked")).length;
         const errors = (logs ?? []).filter((l) => l.status === "error").length;
@@ -1613,6 +1614,12 @@ Deno.serve(async (req) => {
         const ruleCounts = new Map<string, {
           key: string; layer: string; rule: string; verdict: string;
           count: number; blocks: number; last_at: string | null;
+        }>();
+        // Common matched snippets across blocks — what literally tripped
+        // the policy. Lowercased + trimmed so case/whitespace dupes merge.
+        const patternCounts = new Map<string, {
+          pattern: string; layer: string; rule: string | null;
+          count: number; last_at: string | null;
         }>();
         for (const l of (logs ?? []) as any[]) {
           const layers = Array.isArray(l.verdict_layers) ? l.verdict_layers : [];
@@ -1630,10 +1637,60 @@ Deno.serve(async (req) => {
             r.count += 1;
             if (v === "block") r.blocks += 1;
             if (!r.last_at || (l.created_at && l.created_at > r.last_at)) r.last_at = l.created_at;
+
+            const matchedRaw = lay?.matched ?? lay?.snippet ?? lay?.keyword ?? null;
+            if (matchedRaw && typeof matchedRaw === "string") {
+              const norm = matchedRaw.trim().toLowerCase().slice(0, 80);
+              if (norm.length >= 2) {
+                const pk = `${layer}::${norm}`;
+                let p = patternCounts.get(pk);
+                if (!p) {
+                  p = { pattern: matchedRaw.trim().slice(0, 80), layer, rule: lay?.rule ?? lay?.intent ?? null, count: 0, last_at: null };
+                  patternCounts.set(pk, p);
+                }
+                p.count += 1;
+                if (!p.last_at || (l.created_at && l.created_at > p.last_at)) p.last_at = l.created_at;
+              }
+            }
           }
         }
         const top_rules = Array.from(ruleCounts.values())
           .sort((a, b) => b.count - a.count).slice(0, 8);
+        const block_patterns = Array.from(patternCounts.values())
+          .sort((a, b) => b.count - a.count).slice(0, 8);
+
+        // Most recent blocked requests with the reason metadata pre-extracted
+        // so the dashboard can render them without re-parsing verdict_layers.
+        const recent_blocks = ((logs ?? []) as any[])
+          .filter((l) => typeof l.status === "string" && l.status.startsWith("blocked"))
+          .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+          .slice(0, 6)
+          .map((l) => {
+            const layers = Array.isArray(l.verdict_layers) ? l.verdict_layers : [];
+            const fired = layers.find((x: any) => x?.verdict === "block")
+              ?? layers.find((x: any) => x?.verdict === "sanitize")
+              ?? layers.find((x: any) => x?.verdict === "flag")
+              ?? null;
+            const lastMsg = Array.isArray(l.messages) && l.messages.length
+              ? String(l.messages[l.messages.length - 1]?.content ?? "")
+              : "";
+            const k = l.api_key_id ? keyMap.get(l.api_key_id) as any : null;
+            return {
+              id: l.id,
+              created_at: l.created_at,
+              status: l.status,
+              model: l.model,
+              api_key_id: l.api_key_id,
+              api_key_name: k?.name ?? null,
+              api_key_prefix: k?.key_prefix ?? null,
+              reason: l.block_reason ?? fired?.reason ?? "Blocked by policy",
+              rule: fired?.rule ?? fired?.intent ?? null,
+              layer: fired?.layer ?? null,
+              matched: fired?.matched ?? fired?.snippet ?? fired?.keyword ?? null,
+              prompt_preview: lastMsg.slice(0, 160),
+            };
+          });
+
         // Bucket by day
         const buckets: Record<string, { requests: number; blocked: number }> = {};
         for (let i = 13; i >= 0; i--) {
@@ -1653,7 +1710,7 @@ Deno.serve(async (req) => {
           blocked_pct: total ? Number(((blocked / total) * 100).toFixed(2)) : 0,
           active_keys: (keys ?? []).filter((k) => k.is_active).length,
           total_keys: keys?.length ?? 0,
-          chart, top_rules,
+          chart, top_rules, block_patterns, recent_blocks,
         });
       }
 
