@@ -202,12 +202,13 @@ const emptyForm: FormState = {
 
 // Time-range presets for the endpoint usage dialog. Mirrors the values
 // accepted by the `endpoint_usage` action's `range` parameter.
-type UsageRange = "1h" | "24h" | "7d" | "30d" | "all";
+type UsageRange = "1h" | "24h" | "7d" | "30d" | "90d" | "all";
 const USAGE_RANGES: { value: UsageRange; label: string; longLabel: string }[] = [
   { value: "1h", label: "1h", longLabel: "the last 1 hour" },
   { value: "24h", label: "24h", longLabel: "the last 24 hours" },
   { value: "7d", label: "7d", longLabel: "the last 7 days" },
   { value: "30d", label: "30d", longLabel: "the last 30 days" },
+  { value: "90d", label: "90d", longLabel: "the last 90 days" },
   { value: "all", label: "All", longLabel: "all time" },
 ];
 

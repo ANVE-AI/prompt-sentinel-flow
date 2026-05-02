@@ -1136,7 +1136,7 @@ Deno.serve(async (req) => {
         //   - aggregate counts (total requests, blocked, avg latency, last_request_at)
         // Optional `endpoint_id` filters to a single endpoint; otherwise returns all.
         // Optional `range` restricts both the recent list AND the aggregate
-        // stats to a rolling window: "1h" | "24h" | "7d" | "30d" | "all".
+        // stats to a rolling window: "1h" | "24h" | "7d" | "30d" | "90d" | "all".
         const filterId = url.searchParams.get("endpoint_id") || body.endpoint_id || null;
         const limit = Math.min(Number(url.searchParams.get("limit") ?? body.limit ?? 25), 200);
         const rangeRaw = (url.searchParams.get("range") || body.range || "24h").toString();
@@ -1145,6 +1145,7 @@ Deno.serve(async (req) => {
           "24h": 24 * 60 * 60 * 1000,
           "7d": 7 * 24 * 60 * 60 * 1000,
           "30d": 30 * 24 * 60 * 60 * 1000,
+          "90d": 90 * 24 * 60 * 60 * 1000,
           "all": null,
         };
         const range = rangeRaw in RANGE_MS ? rangeRaw : "24h";
