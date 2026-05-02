@@ -55,7 +55,11 @@ const Playground = () => {
       const res = await fetch(PROXY_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ messages: [{ role: "user", content: prompt }], stream }),
+        body: JSON.stringify({
+          messages: [{ role: "user", content: prompt }],
+          stream,
+          ...(model ? { model } : {}),
+        }),
       });
 
       if (!stream) {
