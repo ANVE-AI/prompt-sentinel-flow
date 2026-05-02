@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -74,6 +75,31 @@ const Keys = () => {
   const [custom, setCustom] = useState<CustomState>(emptyCustom);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  // Endpoint to bind the new key to. Set when arriving from the Endpoints
+  // "Create replacement key" shortcut (URL has ?endpoint=<id>). Sent through
+  // to `create_key` so the new key is bound to the same custom endpoint as
+  // the one being revoked.
+  const [prefilledEndpointId, setPrefilledEndpointId] = useState<string | null>(null);
+
+  // ---- Deep-link: open the New Key dialog from a URL like
+  //      /dashboard/keys?new=1&name=foo&endpoint=<uuid>
+  // Used by the "Create replacement key" shortcut in the Revoke confirm
+  // dialog so users can rotate a lost/compromised key in one click.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get("new") !== "1") return;
+    const prefName = searchParams.get("name") ?? "";
+    const prefEndpoint = searchParams.get("endpoint");
+    if (prefName) setName(prefName);
+    if (prefEndpoint) setPrefilledEndpointId(prefEndpoint);
+    setOpen(true);
+    // Strip the params so a refresh doesn't re-open the dialog and the URL
+    // stays clean once the user starts editing.
+    const next = new URLSearchParams(searchParams);
+    next.delete("new"); next.delete("name"); next.delete("endpoint");
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const selected = providers.find((p) => p.id === providerId);
   const isCustom = providerId === "custom";
@@ -148,6 +174,9 @@ const Keys = () => {
         model: model || selected?.default_model,
         provider_key: providerKey || undefined,
         custom: isCustom ? customPayload : undefined,
+        // Bind to the same custom endpoint as the key being replaced when
+        // the user arrived via the "Create replacement key" shortcut.
+        endpoint_id: prefilledEndpointId ?? undefined,
       },
     }),
     onSuccess: (res) => { setNewKey(res.full_key); qc.invalidateQueries({ queryKey: ["keys"] }); },
@@ -192,6 +221,7 @@ const Keys = () => {
     setOpen(false); setNewKey(null); setName("");
     setProviderId("lovable"); setModel(""); setProviderKey("");
     setCustom(emptyCustom); setTestResult(null);
+    setPrefilledEndpointId(null);
   };
   const copy = (val: string) => { navigator.clipboard.writeText(val); toast.success("Copied"); };
 
@@ -222,6 +252,15 @@ const Keys = () => {
             {!newKey ? (
               <>
                 <DialogHeader><DialogTitle>Create a new API key</DialogTitle></DialogHeader>
+                {prefilledEndpointId && (
+                  <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs flex items-start gap-2">
+                    <Plug className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
+                    <div className="text-muted-foreground">
+                      Replacement key — will be bound to the same endpoint as the
+                      key you're rotating.
+                    </div>
+                  </div>
+                )}
                 <div className="space-y-4 py-2">
                   <div>
                     <Label htmlFor="name">Name</Label>

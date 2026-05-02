@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Plus, Plug, Pencil, Trash2, X, Check, Beaker, KeyRound, RefreshCw, AlertTriangle, Activity, Ban, AlertCircle, Download, Upload, Save, ChevronRight, Copy } from "lucide-react";
 import { useDashboardApi } from "@/lib/api";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -215,6 +216,7 @@ const USAGE_RANGES: { value: UsageRange; label: string; longLabel: string }[] = 
 const Endpoints = () => {
   const { call } = useDashboardApi();
   const qc = useQueryClient();
+  const navigate = useNavigate();
 
   const { data, isLoading } = useQuery({
     queryKey: ["endpoints"],
@@ -1892,22 +1894,47 @@ const Endpoints = () => {
             </div>
           )}
 
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={revokeKeyMutation.isPending}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
+          <AlertDialogFooter className="sm:justify-between gap-2">
+            {/* Shortcut: jump straight to the New key flow on /dashboard/keys
+                with the suggested name + endpoint binding prefilled via the
+                URL. Useful for "lost or compromised key" rotation — user can
+                provision the replacement first, then come back and revoke. */}
+            <Button
+              type="button"
+              variant="outline"
               disabled={revokeKeyMutation.isPending}
-              onClick={(e) => {
-                e.preventDefault();
-                if (confirmRevokeKey) revokeKeyMutation.mutate(confirmRevokeKey.id);
+              onClick={() => {
+                if (!confirmRevokeKey) return;
+                const params = new URLSearchParams({ new: "1" });
+                if (confirmRevokeKey.name) {
+                  params.set("name", `${confirmRevokeKey.name} (replacement)`);
+                }
+                if (usageEndpoint?.id) params.set("endpoint", usageEndpoint.id);
+                setConfirmRevokeKey(null);
+                navigate(`/dashboard/keys?${params.toString()}`);
               }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="sm:mr-auto"
             >
-              {revokeKeyMutation.isPending ? (
-                <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Revoking…</>
-              ) : (
-                <><Ban className="h-4 w-4 mr-2" />Revoke key</>
-              )}
-            </AlertDialogAction>
+              <Plus className="h-4 w-4 mr-2" />
+              Create replacement key
+            </Button>
+            <div className="flex gap-2">
+              <AlertDialogCancel disabled={revokeKeyMutation.isPending}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={revokeKeyMutation.isPending}
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (confirmRevokeKey) revokeKeyMutation.mutate(confirmRevokeKey.id);
+                }}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {revokeKeyMutation.isPending ? (
+                  <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Revoking…</>
+                ) : (
+                  <><Ban className="h-4 w-4 mr-2" />Revoke key</>
+                )}
+              </AlertDialogAction>
+            </div>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
