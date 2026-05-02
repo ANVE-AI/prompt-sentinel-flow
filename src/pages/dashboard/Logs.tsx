@@ -113,6 +113,9 @@ const RequestLogs = () => {
 
 
       <Card className="surface-1 border-border overflow-hidden">
+        {/* Mobile: horizontal scroll preserves dense column layout. */}
+        <div className="overflow-x-auto">
+        <div className="min-w-[760px]">
         <div className={`grid ${requestsCols} gap-3 px-4 h-9 items-center border-b border-border bg-surface-2/60 text-[10px] font-medium text-muted-foreground uppercase tracking-[0.1em]`}>
           <div>Time</div><div>Prompt</div><div>Key</div><div className="text-right">Latency</div><div className="text-right">Tokens</div><div>Status</div>
         </div>
@@ -153,6 +156,8 @@ const RequestLogs = () => {
             })}
           </ul>
         )}
+        </div>
+        </div>
       </Card>
 
       <Sheet open={!!selected} onOpenChange={(v) => !v && setSelected(null)}>
@@ -238,6 +243,8 @@ const AuditLog = () => {
       </div>
 
       <Card className="surface-1 border-border overflow-hidden">
+        <div className="overflow-x-auto">
+        <div className="min-w-[720px]">
         <div className={`grid ${auditCols} gap-3 px-4 h-9 items-center border-b border-border bg-surface-2/60 text-[10px] font-medium text-muted-foreground uppercase tracking-[0.1em]`}>
           <div>Time</div><div>Action</div><div>Target</div><div>Actor</div>
         </div>
@@ -277,6 +284,8 @@ const AuditLog = () => {
             })}
           </ul>
         )}
+        </div>
+        </div>
       </Card>
 
       <Sheet open={!!selected} onOpenChange={(v) => !v && setSelected(null)}>

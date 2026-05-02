@@ -118,7 +118,7 @@ const Playground = () => {
   };
 
   return (
-    <div className="px-6 py-5 space-y-5 max-w-[1320px] mx-auto">
+    <div className="px-4 md:px-6 py-5 space-y-5 max-w-[1320px] mx-auto">
       <PageHeader
         title="Playground"
         description="Send a prompt through your proxy and watch policy decisions live."

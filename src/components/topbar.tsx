@@ -1,7 +1,7 @@
 import { useLocation, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { UserButton } from "@clerk/clerk-react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Search } from "lucide-react";
 import { useDashboardApi } from "@/lib/api";
 import { StatusDot } from "@/components/ui/status-dot";
 import { COMMAND_PALETTE_EVENT } from "@/components/command-palette";
@@ -51,6 +51,16 @@ export const Topbar = ({ onMenuClick }: { onMenuClick: () => void }) => {
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3">
+        {/* Mobile: icon-only trigger so users can still open the ⌘K palette
+            without a hardware keyboard. md+: full hint chip. */}
+        <button
+          onClick={openPalette}
+          className="md:hidden inline-flex items-center justify-center h-8 w-8 rounded-md border border-border bg-surface-2 text-muted-foreground hover:text-foreground"
+          aria-label="Open command palette"
+          title="Search"
+        >
+          <Search className="h-4 w-4" />
+        </button>
         <button
           onClick={openPalette}
           className="hidden md:inline-flex items-center gap-2 px-2.5 h-7 rounded-md border border-border bg-surface-2 text-meta text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors"
