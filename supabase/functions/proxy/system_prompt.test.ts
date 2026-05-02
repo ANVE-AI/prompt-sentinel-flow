@@ -1,7 +1,11 @@
 import { assertEquals, assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   validateSystemPrompt,
+  resolveSystemPromptMax,
   SYSTEM_PROMPT_MAX,
+  SYSTEM_PROMPT_MAX_DEFAULT,
+  SYSTEM_PROMPT_MIN_LIMIT,
+  SYSTEM_PROMPT_ABSOLUTE_MAX,
 } from "../_shared/system_prompt.ts";
 
 // The validator returns plain `{ error, value }`; the proxy wraps `error` in an
