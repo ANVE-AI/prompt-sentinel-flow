@@ -150,6 +150,7 @@ export function TemplateWizardDialog({
           policy: policySnapshot,
           settings: selectedSettings,
           rules: selectedRules.map(({ id: _id, ...rest }) => rest),
+          applies_to_intents: intentScope,
         },
       }),
     onSuccess: () => {
@@ -160,18 +161,26 @@ export function TemplateWizardDialog({
     onError: (e: any) => toast.error(e?.message ?? "Failed to save template"),
   });
 
+  const knownIntents = useMemo(() => {
+    const fromServer = settingsQ.data?.known_intents ?? [];
+    const merged = Array.from(new Set([...FALLBACK_INTENTS, ...fromServer, ...intentScope]));
+    return merged;
+  }, [settingsQ.data, intentScope]);
+
   const isLoading = policiesQ.isLoading || settingsQ.isLoading || rulesQ.isLoading;
   const canNext =
     (step === 1 && name.trim().length > 0) ||
     (step === 2) ||
     (step === 3) ||
-    (step === 4);
+    (step === 4) ||
+    (step === 5);
 
   const stepTitles: Record<Step, string> = {
     1: "Name your template",
     2: "Choose rules",
     3: "Choose settings",
-    4: "Review & save",
+    4: "Intent routing",
+    5: "Review & save",
   };
 
   return (
@@ -186,7 +195,7 @@ export function TemplateWizardDialog({
 
         {/* Step indicator */}
         <div className="flex items-center gap-1.5 px-1">
-          {[1, 2, 3, 4].map((n) => (
+          {[1, 2, 3, 4, 5].map((n) => (
             <div
               key={n}
               className={cn(
