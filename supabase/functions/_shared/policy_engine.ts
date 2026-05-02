@@ -21,9 +21,10 @@ export type LayerName =
   | "keywords"
   | "patterns"
   | "heuristics"
-  | "intent";
+  | "intent"
+  | "injection";
 
-export type Verdict = "allow" | "flag" | "block";
+export type Verdict = "allow" | "flag" | "block" | "sanitize";
 
 export interface LayerVerdict {
   layer: LayerName;
@@ -33,6 +34,8 @@ export interface LayerVerdict {
   intent?: string;   // for intent layer
   confidence?: number;
   matched?: string;  // matched text, for debugging
+  /** Substring spans (in the raw text) the injection guard wants to redact. */
+  spans?: { start: number; end: number; match: string }[];
 }
 
 export interface PolicyRule {
