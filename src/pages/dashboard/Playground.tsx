@@ -32,7 +32,15 @@ const Playground = () => {
   const [prompt, setPrompt] = useState("Write a haiku about firewalls.");
   const [stream, setStream] = useState(true);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{ blocked: boolean; text: string; reason?: string } | null>(null);
+  const [result, setResult] = useState<{
+    blocked: boolean;
+    text: string;
+    reason?: string;
+    verdict?: string;
+    layers?: any[];
+    detectedIntent?: string;
+    intentConfidence?: number;
+  } | null>(null);
 
   const selectedKey = activeKeys.find((k: any) => k.id === keyId);
 
