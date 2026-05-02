@@ -302,6 +302,10 @@ function PolicyVerdictPanel({ log }: { log: any }) {
   const behavioral = fired.filter((l) => l.layer === "behavioral");
 
   // Nothing meaningful to show — skip the panel entirely.
+  // Intent is now always present (defaults to "unknown" on every proxied
+  // call), so the panel is meaningful as long as we have either a verdict,
+  // fired layers, or any non-null intent value (including "unknown").
+  const intentLabel = log.detected_intent ?? "unknown";
   if (!verdict && fired.length === 0 && !log.detected_intent) return null;
 
   const Icon =
