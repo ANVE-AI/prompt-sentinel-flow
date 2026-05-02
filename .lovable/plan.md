@@ -1,89 +1,57 @@
 ## Goal
 
-Make AnveGuard work the way you described:
+Add Perplexity to the provider catalog and a real **Model selector** in the Playground, so users can pick any model exposed by their chosen AnveGuard key — fetched live from the upstream provider's `/models` endpoint when possible.
 
-1. User pastes upstream provider API keys (OpenRouter, Anthropic Claude, OpenAI, Moonshot/Kimi, DashScope/Qwen, plus the built-in Lovable AI).
-2. User configures policies (blocked / allowed keywords, global defaults, custom block message).
-3. User generates an AnveGuard key (`ag_live_…`) bound to one upstream provider+credential.
-4. Their app calls AnveGuard's `/proxy` endpoint with that key — AnveGuard enforces policies, forwards to the right upstream, and logs every request for tracking.
+## Research summary (verified against current docs)
 
-The skeleton already exists (Lovable + OpenAI). This plan extends it cleanly to the rest.
+| Provider | Chat endpoint | Auth header | Models endpoint | Notes |
+|---|---|---|---|---|
+| OpenRouter | `https://openrouter.ai/api/v1/chat/completions` | `Bearer` | `GET /api/v1/models` (no auth) | OpenAI-compatible |
+| Perplexity | `https://api.perplexity.ai/chat/completions` | `Bearer` | `GET /v1/models` (no auth) | OpenAI-compatible. Current models: `sonar`, `sonar-pro`, `sonar-reasoning-pro`, `sonar-deep-research` |
+| Anthropic | `https://api.anthropic.com/v1/messages` | `x-api-key` + `anthropic-version: 2023-06-01` | `GET /v1/models` (auth required) | Not OpenAI-shaped — already has adapter. Current: `claude-opus-4-6`, `claude-sonnet-4-5`, `claude-haiku-4-5` |
+| Kimi (Moonshot) | `https://api.moonshot.ai/v1/chat/completions` (international; `.cn` is mainland) | `Bearer` | `GET /v1/models` | OpenAI-compatible |
+| Qwen (DashScope) | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions` | `Bearer` | `GET /compatible-mode/v1/models` | OpenAI-compatible |
+| OpenAI | `https://api.openai.com/v1/chat/completions` | `Bearer` | `GET /v1/models` | Native |
+| Lovable AI (managed) | `https://ai.gateway.lovable.dev/v1/chat/completions` | `Bearer LOVABLE_API_KEY` | — (use static suggestions) | OpenAI-compatible |
 
-## What changes
+## Changes
 
-### 1. Provider catalog (single source of truth)
+### 1. `supabase/functions/_shared/providers.ts`
 
-New file `supabase/functions/_shared/providers.ts` describing each supported upstream:
+- **Add Perplexity** entry (`id: "perplexity"`, OpenAI-compatible, sonar models).
+- **Refresh Anthropic suggestions** to current Claude 4.x family (`claude-opus-4-6`, `claude-sonnet-4-5`, `claude-haiku-4-5`, `claude-opus-4-5`).
+- Add a `models_url?: string` field on each provider pointing to its `/models` endpoint (omit for `lovable` since it has none).
 
-```text
-lovable     → https://ai.gateway.lovable.dev/v1/chat/completions   (OpenAI-compatible, uses LOVABLE_API_KEY, no user key)
-openai      → https://api.openai.com/v1/chat/completions           (OpenAI-compatible, user key)
-openrouter  → https://openrouter.ai/api/v1/chat/completions        (OpenAI-compatible, user key)
-kimi        → https://api.moonshot.ai/v1/chat/completions          (OpenAI-compatible, user key)
-qwen        → https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions (OpenAI-compatible, user key)
-anthropic   → https://api.anthropic.com/v1/messages                (NOT OpenAI-compatible — needs adapter)
-```
+### 2. `supabase/functions/dashboard/index.ts` — new action `list_models`
 
-Each entry stores: id, label, base URL, auth header style, default model suggestions, and a `kind` of `openai_compatible` or `anthropic`.
+- Input: `{ api_key_id }` (the user's AnveGuard key id).
+- Look up the key, get provider + decrypt provider key.
+- Fetch the provider's `models_url` with the right auth (`Bearer` for most, `x-api-key`+`anthropic-version` for Anthropic, no auth for OpenRouter/Perplexity but sending the key doesn't hurt).
+- Return `{ models: string[] }` (parse `data[].id` from OpenAI-format responses, `data[].id` from Anthropic too).
+- For `lovable` (no `/models` endpoint): return the static `model_suggestions` from the catalog.
+- Cache in-memory per provider+key for ~5 min to avoid hammering upstreams.
 
-### 2. Database
+### 3. `src/pages/dashboard/Playground.tsx`
 
-Schema-compatible — `api_keys.provider` is already `text`, so no migration needed for the new IDs. We will add one optional column for clarity:
+- Add `keyId` (already exists for "reference") become the **primary** input — required, drives:
+  - Auto-fill of the AnveGuard key field is impossible (we don't store plaintext), but we can store the key in `sessionStorage` keyed by `keyId` once the user pastes it the first time.
+  - Loading the model list via `list_models({ api_key_id: keyId })`.
+- New `<Select>` for **Model**, defaulting to the key's `model_default`. When a user picks one, send `model: <picked>` in the proxy request body.
+- Show a loading skeleton while models fetch; fall back to free-text input if `list_models` fails (e.g. invalid upstream key).
 
-- `api_keys.provider_label` (text, nullable) — display name shown in dashboard if user gave one.
+### 4. `src/pages/dashboard/Keys.tsx`
 
-(Optional, can be skipped — not strictly required.)
-
-### 3. Edge function: `proxy`
-
-Refactor `supabase/functions/proxy/index.ts`:
-
-- Replace the hard-coded `lovable | openai` branching with a lookup in the provider catalog.
-- For `openai_compatible` providers: forward the OpenAI-shaped body straight through with `Authorization: Bearer <decrypted user key>`.
-- For `anthropic`: translate request/response between OpenAI Chat Completions shape and Anthropic Messages shape, including streaming SSE deltas, so user apps keep using one consistent client.
-- Keep policy enforcement (input + output keyword scan, block message, logging) exactly as today — it runs before/after the upstream call regardless of provider.
-- Keep usage tracking (`tokens_in`, `tokens_out`, `latency_ms`, `status`, `block_reason`) in `request_logs`.
-
-### 4. Edge function: `dashboard`
-
-Update `create_key` in `supabase/functions/dashboard/index.ts`:
-
-- Accept any `provider` from the catalog (not just `lovable | openai`).
-- Require `provider_key` for every provider except `lovable`.
-- Encrypt with existing `encryptString` and store in `provider_key_encrypted`.
-
-Add a tiny new action `list_providers` returning the catalog so the frontend stays in sync.
-
-### 5. Frontend: Keys page
-
-`src/pages/dashboard/Keys.tsx`:
-
-- Replace the 2-item Select with the full provider list fetched from `list_providers`.
-- Conditionally show the "Provider API key" input for any provider other than `lovable`, with provider-specific placeholder (`sk-…`, `sk-or-…`, `sk-ant-…`, etc.) and a "where to get it" helper link.
-- Suggest a sensible default model per provider (e.g. `anthropic/claude-3-5-sonnet-latest`, `openrouter/auto`, `moonshot-v1-8b`, `qwen-plus`).
-- Code-snippet card stays the same — the AnveGuard key + proxy URL is the only thing the end app needs.
-
-### 6. Policies, Logs, Playground, Overview
-
-No structural changes — they already work off `user_id` and `api_key_id`, so they automatically cover new providers. Logs page will start showing the new provider names in its existing column.
-
-## Technical notes
-
-- Anthropic adapter lives entirely inside `proxy/index.ts` (or a small `_shared/anthropic.ts`) — no new dependencies. Streaming uses Anthropic's `event: content_block_delta` SSE frames mapped to OpenAI `choices[0].delta.content`.
-- The provider catalog is defined once and imported by both edge functions and the frontend (frontend gets it via `list_providers` to avoid duplicating the list in TS).
-- Encryption for stored upstream keys already uses `KEY_ENCRYPTION_SECRET` via `encryptString` / `decryptString` — reused unchanged.
-- Policy engine, request logging, key hashing, and Clerk auth are untouched.
+- The "Default model" `<Input>` becomes a combobox/select once `list_models` succeeds: pick from real upstream models, with free-text fallback. Keep current free-text behavior if the call fails.
+- This requires the key to already exist before fetching models — so on the **create** dialog we keep the current static `model_suggestions`. On the **list** view, add an inline "Change default model" affordance per key that fetches live models.
 
 ## Files touched
 
-- `supabase/functions/_shared/providers.ts` (new)
-- `supabase/functions/_shared/anthropic.ts` (new, small adapter)
-- `supabase/functions/proxy/index.ts` (refactor branching)
-- `supabase/functions/dashboard/index.ts` (open up `create_key`, add `list_providers`)
-- `src/pages/dashboard/Keys.tsx` (dynamic provider select + per-provider key input)
+- `supabase/functions/_shared/providers.ts` (add Perplexity, refresh Anthropic, add `models_url`)
+- `supabase/functions/dashboard/index.ts` (new `list_models` action)
+- `src/pages/dashboard/Playground.tsx` (Key dropdown drives Model dropdown; per-request model override)
+- `src/pages/dashboard/Keys.tsx` (live model list for default-model edit, optional polish)
 
-## Out of scope (can do later)
+## Out of scope
 
-- Image / embeddings endpoints — current proxy is chat-completions only.
-- Per-key spend limits / rate limits — easy follow-up once usage tracking data is there.
-- Fine-grained "which models are allowed" policies (today policy = keyword filter only).
+- Per-key allowed-model whitelist policy (good follow-up — would slot into `policies` table).
+- Pricing / context-length display (could come from the same `/models` payload later).
