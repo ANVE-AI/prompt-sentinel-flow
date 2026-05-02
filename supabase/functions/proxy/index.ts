@@ -109,7 +109,7 @@ Deno.serve(async (req) => {
     return json(openaiErrorShape(`Unknown provider: ${keyRow.provider}`, "server_error"), 500);
   }
 
-  // Resolve upstream credentials
+  // Resolve upstream credentials for the *default* (no-route) path.
   let upstreamKey: string | null = null;
   if (provider?.managed) {
     upstreamKey = Deno.env.get("LOVABLE_API_KEY") || null;
@@ -164,38 +164,145 @@ Deno.serve(async (req) => {
     return json(responsePayload, 200);
   }
 
-  // Build forward request via resolveEndpoint (handles built-in + custom)
-  let forwardUrl: string;
-  let forwardFormat: "chat_completions" | "responses" | "anthropic_messages" = "chat_completions";
-  let forwardHeaders: Record<string, string> = { "Content-Type": "application/json" };
-  try {
-    const resolved = resolveEndpoint(keyRow as any, upstreamKey);
-    forwardUrl = resolved.url;
-    forwardFormat = resolved.response_format;
-    forwardHeaders = { ...forwardHeaders, ...resolved.headers };
-  } catch (e) {
-    return json(openaiErrorShape(
-      `Endpoint resolution failed: ${e instanceof Error ? e.message : String(e)}`,
-      "server_error"), 500);
-  }
+  // ---- Build attempt list -------------------------------------------------
+  // Each attempt is (synthetic keyRow shape, model, upstreamKey). For routes
+  // we get N attempts in priority order; for the non-route path it's exactly
+  // one attempt, optionally swapped to alias_target_endpoint.
+  type Attempt = { keyRowLike: any; model: string; upstreamKey: string | null; label: string };
+  const endpointToKeyRowShape = (ep: any): any => ({
+    provider: "custom",
+    custom_base_url: ep.base_url,
+    custom_models_url: ep.models_url,
+    custom_kind: ep.kind,
+    custom_auth_scheme: ep.auth_scheme,
+    custom_auth_header: ep.auth_header,
+    custom_extra_headers: ep.extra_headers ?? {},
+    custom_path_prefix: ep.path_prefix,
+    custom_chat_path: ep.chat_path,
+    custom_models_path: ep.models_path,
+    custom_response_format: ep.response_format,
+  });
 
-  let forwardBody: any;
-  if (forwardFormat === "anthropic_messages") {
-    forwardBody = openaiToAnthropicRequest({ ...body, model });
-  } else if (forwardFormat === "responses") {
-    forwardBody = chatToResponsesRequest({ ...body, model, stream });
+  let attempts: Attempt[];
+  if (routeSteps && routeConfig) {
+    attempts = routeSteps.map((s) => ({
+      keyRowLike: endpointToKeyRowShape(s.endpointRow),
+      model: s.model,
+      upstreamKey: s.upstreamKey,
+      label: `route step → ${s.endpointRow.name}`,
+    }));
+  } else if (aliasTargetEndpoint) {
+    const k = aliasTargetEndpoint.provider_key_encrypted
+      ? await decryptString(aliasTargetEndpoint.provider_key_encrypted)
+      : null;
+    attempts = [{
+      keyRowLike: endpointToKeyRowShape(aliasTargetEndpoint),
+      model,
+      upstreamKey: k,
+      label: `alias → ${aliasTargetEndpoint.name}`,
+    }];
   } else {
-    forwardBody = { ...body, model, stream };
+    attempts = [{ keyRowLike: keyRow, model, upstreamKey, label: "default" }];
   }
 
-  let upstream: Response;
-  try {
-    upstream = await fetch(forwardUrl, { method: "POST", headers: forwardHeaders, body: JSON.stringify(forwardBody) });
-  } catch (e) {
-    const reason = `Upstream fetch failed: ${e instanceof Error ? e.message : String(e)}`;
-    await sb.from("request_logs").insert({ ...logBase, status: "error", block_reason: reason, latency_ms: Date.now() - start });
-    return json(openaiErrorShape(reason, "server_error"), 502);
+  // ---- Try attempts in order ----------------------------------------------
+  let upstream: Response | null = null;
+  let forwardFormat: "chat_completions" | "responses" | "anthropic_messages" = "chat_completions";
+  let lastErrorReason = "";
+  let lastErrorStatus = 502;
+  let chosenModel = model;
+
+  for (let i = 0; i < attempts.length; i++) {
+    const a = attempts[i];
+    let resolved;
+    try {
+      resolved = resolveEndpoint(a.keyRowLike, a.upstreamKey);
+    } catch (e) {
+      lastErrorReason = `Endpoint resolution failed (${a.label}): ${e instanceof Error ? e.message : String(e)}`;
+      lastErrorStatus = 500;
+      if (routeConfig && i < attempts.length - 1) continue;
+      break;
+    }
+    forwardFormat = resolved.response_format;
+    const forwardHeaders: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...resolved.headers,
+    };
+    chosenModel = a.model;
+
+    let forwardBody: any;
+    if (forwardFormat === "anthropic_messages") {
+      forwardBody = openaiToAnthropicRequest({ ...body, model: a.model });
+    } else if (forwardFormat === "responses") {
+      forwardBody = chatToResponsesRequest({ ...body, model: a.model, stream });
+    } else {
+      forwardBody = { ...body, model: a.model, stream };
+    }
+
+    const ctrl = new AbortController();
+    const timeoutMs = routeConfig?.timeout_ms ?? 0;
+    const tid = timeoutMs > 0 ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
+    let resp: Response;
+    try {
+      resp = await fetch(resolved.url, {
+        method: "POST", headers: forwardHeaders,
+        body: JSON.stringify(forwardBody),
+        signal: ctrl.signal,
+      });
+    } catch (e) {
+      if (tid) clearTimeout(tid);
+      const isAbort = e instanceof Error && (e.name === "AbortError" || /abort|timeout/i.test(e.message));
+      lastErrorReason = `Upstream fetch failed (${a.label}): ${isAbort ? "timeout" : (e instanceof Error ? e.message : String(e))}`;
+      lastErrorStatus = 502;
+      const canFallback = !!routeConfig && (
+        (isAbort && routeConfig.fallback_on_timeout) ||
+        (!isAbort && routeConfig.fallback_on_5xx)
+      );
+      if (canFallback && i < attempts.length - 1) continue;
+      await sb.from("request_logs").insert({
+        ...logBase, model: chosenModel, status: "error", block_reason: lastErrorReason,
+        latency_ms: Date.now() - start,
+      });
+      return json(openaiErrorShape(lastErrorReason, "server_error"), lastErrorStatus);
+    }
+    if (tid) clearTimeout(tid);
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      lastErrorReason = `Upstream ${resp.status} (${a.label}): ${text.slice(0, 500)}`;
+      lastErrorStatus = resp.status;
+      const is5xx = resp.status >= 500 && resp.status <= 599;
+      const is429 = resp.status === 429;
+      const canFallback = !!routeConfig && (
+        (is5xx && routeConfig.fallback_on_5xx) ||
+        (is429 && routeConfig.fallback_on_429)
+      );
+      if (canFallback && i < attempts.length - 1) continue;
+      await sb.from("request_logs").insert({
+        ...logBase, model: chosenModel, status: "error", block_reason: lastErrorReason,
+        latency_ms: Date.now() - start,
+      });
+      return new Response(text, {
+        status: resp.status,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    upstream = resp;
+    break;
   }
+
+  if (!upstream) {
+    await sb.from("request_logs").insert({
+      ...logBase, status: "error", block_reason: lastErrorReason || "All route attempts failed",
+      latency_ms: Date.now() - start,
+    });
+    return json(openaiErrorShape(lastErrorReason || "All route attempts failed", "server_error"), lastErrorStatus);
+  }
+
+  // Reflect what actually ran in subsequent code paths and logs.
+  (logBase as any).model = chosenModel;
+  model = chosenModel;
 
   if (!upstream.ok) {
     const text = await upstream.text();
