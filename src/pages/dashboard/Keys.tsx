@@ -216,6 +216,18 @@ const Keys = () => {
     mutationFn: (id: string) => call("revoke_key", { body: { id } }),
     onSuccess: () => { toast.success("Key revoked"); qc.invalidateQueries({ queryKey: ["keys"] }); },
   });
+  // Toggle the per-key admin flag. Admin keys are the only ones allowed to
+  // pass a custom `system_prompt` alongside the workspace guardrail; everyone
+  // else is rejected at the proxy with 403.
+  const setKeyAdmin = useMutation({
+    mutationFn: ({ id, is_admin }: { id: string; is_admin: boolean }) =>
+      call("set_key_admin", { body: { id, is_admin } }),
+    onSuccess: (_r, vars) => {
+      toast.success(vars.is_admin ? "Admin permission granted" : "Admin permission revoked");
+      qc.invalidateQueries({ queryKey: ["keys"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
 
   // -------- Live API key test ---------------------------------------------
   // Sends a tiny real chat request through the upstream the key is bound to
