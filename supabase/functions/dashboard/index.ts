@@ -1083,6 +1083,21 @@ Deno.serve(async (req) => {
         return json({ logs: (data ?? []).map((l) => ({ ...l, api_key_name: keyMap.get(l.api_key_id) ?? "—" })) });
       }
 
+      // Audit trail of sensitive account actions (e.g. API key revocations).
+      // Server-only table; the dashboard function is the sole writer/reader,
+      // so this endpoint is the only way the UI surfaces these events.
+      case "list_audit_logs": {
+        const limit = Math.min(Number(url.searchParams.get("limit") ?? 100), 500);
+        const action = url.searchParams.get("action");
+        let q = sb.from("audit_logs")
+          .select("id,action,target_type,target_id,actor_user_id,metadata,created_at")
+          .eq("user_id", userId).order("created_at", { ascending: false }).limit(limit);
+        if (action && action !== "all") q = q.eq("action", action);
+        const { data, error } = await q;
+        if (error) return json({ error: error.message }, 400);
+        return json({ entries: data ?? [] });
+      }
+
       case "stats": {
         const since = new Date(Date.now() - 14 * 86400000).toISOString();
         const { data: logs } = await sb.from("request_logs")
