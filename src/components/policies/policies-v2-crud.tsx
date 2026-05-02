@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Activity, Brain, Pencil, Plus, Save, ShieldAlert, Sparkles, Trash2, X } from "lucide-react";
@@ -249,7 +249,7 @@ export function PoliciesV2Crud() {
       </div>
 
       <Tabs defaultValue="keywords" className="space-y-4">
-        <TabsList className="grid grid-cols-5 w-full surface-1 border border-border h-auto p-1">
+        <TabsList className="grid grid-cols-2 sm:grid-cols-5 w-full surface-1 border border-border h-auto p-1">
           <TabsTrigger value="keywords">Keywords</TabsTrigger>
           <TabsTrigger value="regex">Regex rules</TabsTrigger>
           <TabsTrigger value="detectors">Detectors</TabsTrigger>
@@ -532,7 +532,7 @@ export function PoliciesV2Crud() {
   );
 }
 
-function PolicyCard({ eyebrow, title, icon, action, children }: { eyebrow: string; title: string; icon: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) {
+function PolicyCard({ eyebrow, title, icon, action, children }: { eyebrow: string; title: string; icon: ReactNode; action?: ReactNode; children: ReactNode }) {
   return (
     <Card className="surface-1 border-border">
       <div className="px-5 pt-4 pb-3 border-b border-border flex items-start justify-between gap-3">
