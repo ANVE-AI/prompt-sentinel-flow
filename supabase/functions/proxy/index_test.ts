@@ -137,8 +137,8 @@ Deno.test("proxy rejects revoked API key with 401 before calling provider", asyn
     // 1. Auth gate returns the standard 401 + OpenAI-shaped error.
     assertEquals(status, 401, "revoked key must return HTTP 401");
     assert(body?.error, "response must use OpenAI-style error envelope");
-    assertEquals(body.error.type, "invalid_request_error");
-    assertEquals(body.error.code, "invalid_request_error");
+    assertEquals(body.error.type, "authentication_error");
+    assertEquals(body.error.code, "invalid_api_key");
     assertStringIncludes(
       String(body.error.message),
       "Invalid or revoked API key",
