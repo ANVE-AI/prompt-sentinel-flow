@@ -990,4 +990,16 @@ const Endpoints = () => {
   );
 };
 
+function StatTile({
+  label, value, hint, tone,
+}: { label: string; value: React.ReactNode; hint?: string; tone?: "warn" }) {
+  return (
+    <div className={`rounded-md border p-3 ${tone === "warn" ? "border-destructive/30 bg-destructive/5" : ""}`}>
+      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className={`mt-1 text-lg font-semibold tabular-nums ${tone === "warn" ? "text-destructive" : ""}`}>{value}</div>
+      {hint && <div className="text-[10px] text-muted-foreground mt-0.5">{hint}</div>}
+    </div>
+  );
+}
+
 export default Endpoints;
