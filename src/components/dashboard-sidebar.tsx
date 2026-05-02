@@ -225,3 +225,46 @@ export function DashboardSidebar() {
     </Sidebar>
   );
 }
+
+function NavItemRow({ item }: { item: NavItem }) {
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        asChild
+        tooltip={{ children: item.label, side: "right", align: "center" }}
+      >
+        <NavLink
+          to={item.to}
+          end={item.end}
+          className={({ isActive }) =>
+            cn(
+              "relative",
+              isActive && "bg-sidebar-accent text-sidebar-accent-foreground font-medium",
+            )
+          }
+        >
+          {({ isActive }) => (
+            <>
+              <span
+                aria-hidden
+                className={cn(
+                  "absolute left-0 top-1 bottom-1 w-[2px] rounded-r-full transition-opacity",
+                  isActive ? "opacity-100 bg-primary" : "opacity-0",
+                )}
+              />
+              <item.icon
+                className={cn(
+                  "h-[15px] w-[15px] shrink-0 transition-colors",
+                  isActive ? "text-primary" : "text-muted-foreground",
+                )}
+              />
+              <span className={cn(isActive ? "text-foreground" : "text-sidebar-foreground/80")}>
+                {item.label}
+              </span>
+            </>
+          )}
+        </NavLink>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
