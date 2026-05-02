@@ -49,6 +49,23 @@ const DashboardLayout = () => {
     return () => window.removeEventListener(SIDEBAR_RESET_EVENT, onReset);
   }, []);
 
+  // Cross-tab sync: when another tab toggles or resets the sidebar, mirror
+  // that change here immediately. The `storage` event only fires in *other*
+  // tabs (not the one that wrote the value), which is exactly what we want.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== null && e.key !== SIDEBAR_STORAGE_KEY) return;
+      // key === null means storage was cleared entirely; treat as reset.
+      if (e.key === null || e.newValue === null) {
+        setSidebarOpen(SIDEBAR_DEFAULT_OPEN);
+        return;
+      }
+      setSidebarOpen(e.newValue !== "false");
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
   return (
     <SidebarProvider open={sidebarOpen} onOpenChange={handleSidebarOpenChange}>
       <div className="min-h-screen flex w-full bg-background">
