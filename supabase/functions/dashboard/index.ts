@@ -1233,6 +1233,7 @@ Deno.serve(async (req) => {
             // API regardless of what the calling client sends.
             guardrail_system_prompt: null,
             allow_client_system_prompt: false,
+            system_prompt_max_length: 16000,
             enable_injection_guard: true,
             injection_action: "block",
             enable_behavioral: true,
