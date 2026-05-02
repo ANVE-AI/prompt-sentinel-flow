@@ -455,11 +455,11 @@ Deno.serve(async (req) => {
           }
         } finally {
           controller.close();
-          const outCheck = checkPolicy(assistantText, blocked, allowed);
-          const status = outCheck.blocked ? "blocked_output" : "allowed";
+          const out = await evaluateOutput(assistantText, policyState, { systemPrompt, toolsRequested });
           await sb.from("request_logs").insert({
-            ...logBase, model: finalModel, status,
-            block_reason: outCheck.blocked ? `Output matched: "${outCheck.matched}"` : null,
+            ...logBase, model: finalModel, status: out.status, block_reason: out.blockReason,
+            verdict: out.status === "blocked_output" ? "block" : "allow",
+            verdict_layers: out.layers,
             response: { streamed: true, content: assistantText },
             latency_ms: Date.now() - start,
             tokens_in: finalUsage?.prompt_tokens ?? null,
