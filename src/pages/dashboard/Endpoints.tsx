@@ -196,6 +196,7 @@ const Endpoints = () => {
     setModelsResult(null);
     setLastRefreshOk(false);
     setSavedDefaultModel(e.default_model ?? "");
+    setPreviewTemplateId("");
     setOpen(true);
   };
 
