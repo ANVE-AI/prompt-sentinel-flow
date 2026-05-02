@@ -1322,6 +1322,65 @@ Deno.serve(async (req) => {
         return json({ summary, results });
       }
 
+      // Run a single ad-hoc input (and optional output) through the live policy
+      // engine using the caller's actual settings/rules/intents/legacy keywords.
+      // Powers the Policy sandbox per-layer breakdown.
+      case "evaluate_policy": {
+        const inputText = typeof body?.input === "string" ? body.input : "";
+        const outputText = typeof body?.output === "string" ? body.output : "";
+        const checkOutput = !!body?.check_output && outputText.length > 0;
+
+        const [legacyRes, settingsRes, rulesRes, intentsRes] = await Promise.all([
+          sb.from("policies").select("*").eq("user_id", userId).maybeSingle(),
+          sb.from("policy_settings").select("*").eq("user_id", userId).maybeSingle(),
+          sb.from("policy_rules").select("*").eq("user_id", userId).eq("enabled", true),
+          sb.from("policy_intents").select("*").eq("user_id", userId),
+        ]);
+        const legacy = {
+          blocked_keywords: legacyRes.data?.blocked_keywords ?? [],
+          allowed_keywords: legacyRes.data?.allowed_keywords ?? [],
+          use_global_defaults: legacyRes.data?.use_global_defaults !== false,
+        };
+        const rules = (rulesRes.data ?? []) as PolicyRule[];
+        const intents = (intentsRes.data ?? []) as PolicyIntent[];
+        const settings = (settingsRes.data ?? DEFAULT_SETTINGS) as PolicySettings;
+
+        const blockMessage = legacyRes.data?.block_message ?? "Request blocked by policy.";
+
+        const runOne = async (text: string, direction: "input" | "output") => {
+          const t0 = Date.now();
+          try {
+            const r = await evaluatePolicy({
+              text, direction, legacy, rules, intents, settings,
+            });
+            return { ok: true as const, result: r, latency_ms: Date.now() - t0 };
+          } catch (e) {
+            return { ok: false as const, error: (e as Error).message, latency_ms: Date.now() - t0 };
+          }
+        };
+
+        const input = inputText ? await runOne(inputText, "input") : null;
+        const output = checkOutput ? await runOne(outputText, "output") : null;
+
+        return json({
+          input, output,
+          block_message: blockMessage,
+          settings_summary: {
+            enable_normalizer: settings.enable_normalizer,
+            enable_patterns: settings.enable_patterns,
+            enable_heuristics: settings.enable_heuristics,
+            enable_intent: settings.enable_intent,
+            enable_injection_guard: settings.enable_injection_guard,
+            enable_behavioral: settings.enable_behavioral,
+            enable_fuzzy_keywords: settings.enable_fuzzy_keywords,
+            enable_semantic_keywords: settings.enable_semantic_keywords,
+            strict_mode: settings.strict_mode,
+            intent_shadow_mode: settings.intent_shadow_mode,
+          },
+          counts: { rules: rules.length, intents: intents.length, blocked_keywords: legacy.blocked_keywords.length },
+        });
+      }
+
       case "list_logs": {
         const limit = Math.min(Number(url.searchParams.get("limit") ?? 100), 500);
         const status = url.searchParams.get("status");
