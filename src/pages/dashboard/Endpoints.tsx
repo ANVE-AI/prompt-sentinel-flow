@@ -166,17 +166,32 @@ const Endpoints = () => {
   const applyTemplate = (templateId: string) => {
     const t = customSchema?.templates.find((x) => x.id === templateId);
     if (!t) return;
+    const v = t.values;
+    const fmt = v.response_format
+      || (v.kind === "anthropic" ? "anthropic_messages" : "chat_completions");
     setForm((c) => ({
       ...c,
       template: templateId,
-      kind: t.values.kind,
-      base_url: t.values.base_url,
-      auth_scheme: t.values.auth_scheme,
-      auth_header: t.values.auth_header || (t.values.auth_scheme === "query" ? "key" : "Authorization"),
-      default_model: t.values.default_model || c.default_model,
-      model_suggestions: t.values.model_suggestions || c.model_suggestions,
+      // Preserve user's chosen Name if they already typed one; otherwise prefill from label.
+      name: c.name.trim() ? c.name : t.label,
+      kind: v.kind,
+      base_url: v.base_url,
+      models_url: v.models_url ?? "",
+      auth_scheme: v.auth_scheme,
+      auth_header: v.auth_header || (v.auth_scheme === "query" ? "key" : "Authorization"),
+      default_model: v.default_model || c.default_model,
+      model_suggestions: v.model_suggestions || c.model_suggestions,
+      path_prefix: v.path_prefix ?? "",
+      chat_path: v.chat_path ?? "",
+      models_path: v.models_path ?? "",
+      response_format: fmt,
+      extra_headers: v.extra_headers
+        ? Object.entries(v.extra_headers).map(([key, value]) => ({ key, value }))
+        : c.extra_headers,
     }));
     setTestResult(null);
+    setLiveModels(null);
+    setModelsResult(null);
   };
 
   // When auth scheme changes, give it a sensible default header/param name
