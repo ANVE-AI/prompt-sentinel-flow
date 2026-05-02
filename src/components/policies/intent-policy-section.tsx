@@ -82,6 +82,7 @@ export function IntentPolicySection() {
     setStrict(s.strict_mode);
     setPurpose(s.workspace_purpose ?? "");
     setGuardrailPrompt(s.guardrail_system_prompt ?? "");
+    setAllowClientPrompt(!!s.allow_client_system_prompt);
   }, [settingsQ.data]);
 
   const saveSettings = useMutation({
