@@ -1,109 +1,95 @@
-# Custom endpoints in AnveGuard
+## Endpoint audit — what I checked
 
-Today AnveGuard supports a fixed registry of providers (Lovable, OpenAI, OpenRouter, Anthropic, Perplexity, Kimi, Qwen). Many users run their own gateways (Ollama, vLLM, LM Studio), use Azure OpenAI, or want a provider we haven't shipped yet (Groq, Together, Fireworks, DeepInfra, Cerebras…). We'll add a first‑class **Custom endpoint** provider so any OpenAI‑ or Anthropic‑compatible API can be used behind an AnveGuard key, with full policy enforcement, logging, model listing, and streaming.
+I cross-referenced every entry in `supabase/functions/_shared/providers.ts` against each upstream's official documentation (OpenAI, Anthropic, Groq, xAI, Perplexity, Moonshot/Kimi, Alibaba DashScope, OpenRouter, Together, Fireworks, Mistral, DeepSeek, Azure OpenAI, Ollama, vLLM/LM Studio).
 
-## Research summary (what custom endpoints actually need)
+### What's correct ✅
 
-From the docs of the most common targets:
+| Provider | Base URL / paths | Auth | Notes |
+|---|---|---|---|
+| Lovable (managed) | `ai.gateway.lovable.dev/v1/chat/completions` | server-injected | OK |
+| OpenAI | `api.openai.com/v1/chat/completions` + `/v1/models` | Bearer | OK |
+| Anthropic | `api.anthropic.com/v1/messages` + `/v1/models`, `anthropic-version: 2023-06-01` | x-api-key | OK |
+| OpenRouter | `openrouter.ai/api/v1/...`, optional `HTTP-Referer` + `X-Title` | Bearer | OK |
+| Moonshot Kimi | `api.moonshot.ai/v1/...` | Bearer | OK (intl host; `.cn` is China-only) |
+| Qwen DashScope | `dashscope-intl.aliyuncs.com/compatible-mode/v1/...` | Bearer | OK for OpenAI-compat path |
+| Perplexity | `api.perplexity.ai/chat/completions` (no `/v1`) + `/v1/models` | Bearer | OK — Perplexity accepts `/chat/completions` as alias for `/v1/sonar` per OpenAI-SDK compat doc |
+| Custom: Ollama | `http://localhost:11434/v1/...`, `none` auth | — | OK |
+| Custom: vLLM/LM Studio/TGI | `http://localhost:8000/v1/...`, Bearer | — | OK |
+| Custom: Azure OpenAI | `path_prefix: /openai/v1`, `api-key` header, `api-version` extra header | header | OK (works for both legacy + v1 GA) |
+| Custom: Groq | `api.groq.com/openai/v1/...` | Bearer | OK |
+| Custom: Anthropic | `api.anthropic.com/v1/...`, `anthropic_messages` | x-api-key | OK |
+| Custom: OpenRouter | `openrouter.ai/api/v1/...` | Bearer | OK |
+| Custom: Together | `api.together.xyz/v1/...` | Bearer | OK |
+| Custom: Mistral | `api.mistral.ai/v1/...` | Bearer | OK |
+| Custom: DeepSeek | `api.deepseek.com/v1/...` | Bearer | OK |
+| Custom: OpenAI Responses | `api.openai.com/v1/responses`, `responses` format | Bearer | OK |
 
-- **Ollama** — `http://host:11434/v1/chat/completions`, OpenAI‑compatible, models at `GET /v1/models`, auth ignored.
-- **vLLM / LM Studio / TGI / llama.cpp server** — `http://host:8000/v1/chat/completions`, `Authorization: Bearer <token>` (often `EMPTY`), models at `/v1/models`.
-- **Groq / Together / Fireworks / DeepInfra / Cerebras / xAI / Mistral** — OpenAI‑compatible `/v1/chat/completions` + `/v1/models`, `Authorization: Bearer …`.
-- **Azure OpenAI** — non‑standard URL `https://<resource>.openai.azure.com/openai/deployments/<deployment>/chat/completions?api-version=YYYY‑MM‑DD`, auth via `api-key: <key>` header (not Bearer). Newer "OpenAI v1" surface: `https://<resource>.openai.azure.com/openai/v1/chat/completions` with `api-key` header — much simpler.
-- **Self‑hosted Anthropic‑compatible** (e.g. Claude on Bedrock proxies) — `/v1/messages`, `x-api-key`, `anthropic-version`.
+### What needs fixing ⚠️
 
-So a custom endpoint needs to capture: **kind** (openai‑compatible vs anthropic), **base URL** (we append the chat path if missing), optional **models URL**, **auth scheme** (`bearer` / `api-key header` / `x-api-key` / `none`), **custom auth header name**, optional **extra headers** (e.g. `api-version`, `HTTP-Referer`), and an optional **default model**.
+These are real mismatches with upstream — they will cause `model_not_found` or 404s today.
 
-## Plan
+**1. Built-in `lovable` provider — model suggestions stale**
+- Missing the actual current Lovable Gateway models from the system prompt: `google/gemini-3.1-pro-preview`, `google/gemini-3-flash-preview`, `google/gemini-3-pro-image-preview`, `google/gemini-3.1-flash-image-preview`, `openai/gpt-5.2`.
+- `google/gemini-3-flash-preview` as default is fine, but the suggestion list should match what's documented.
 
-### 1. Schema (migration)
+**2. Built-in `openai` provider — default model**
+- `default_model: "gpt-4o-mini"` is still valid but stale. Recommend `gpt-5-mini` (cheap, current). Add `gpt-5`, `gpt-5-mini`, `gpt-5-nano`, `gpt-4.1-mini` to suggestions; keep `gpt-4o-mini` for back-compat.
 
-Add nullable columns to `api_keys` to hold per‑key custom config (only used when `provider = 'custom'`):
+**3. Built-in `openrouter` provider — model suggestions stale**
+- `anthropic/claude-3.5-sonnet` is two generations old. Refresh: `anthropic/claude-sonnet-4-5`, `anthropic/claude-opus-4-7`, `openai/gpt-5-mini`, `meta-llama/llama-3.3-70b-instruct`, `google/gemini-2.5-flash`.
 
-```text
-custom_base_url            text         -- e.g. https://my-host/v1
-custom_models_url          text         -- optional; defaults to base_url + /models
-custom_kind                text         -- 'openai_compatible' | 'anthropic'
-custom_auth_scheme         text         -- 'bearer' | 'header' | 'x-api-key' | 'none'
-custom_auth_header         text         -- header name when scheme='header' (default 'Authorization')
-custom_extra_headers       jsonb        -- { "api-version": "2024-10-21", ... }
-```
+**4. Built-in `anthropic` provider — `claude-opus-4-6` is gone**
+- Per Anthropic docs (Nov 2025 + later), current line is **Opus 4.7 / Sonnet 4.5 / Haiku 4.5**.
+- `default_model: "claude-sonnet-4-5"` ✅ keep.
+- Suggestions: replace `claude-opus-4-6` and `claude-opus-4-5` with `claude-opus-4-7` (and keep aliases like `claude-sonnet-4-5`, `claude-haiku-4-5`).
 
-No data backfill needed; existing rows stay on the built‑in providers.
+**5. Custom `anthropic` template — same fix**
+- `model_suggestions: "claude-opus-4-6, claude-sonnet-4-5, claude-haiku-4-5"` → `"claude-opus-4-7, claude-sonnet-4-5, claude-haiku-4-5"`.
 
-### 2. Provider registry (`supabase/functions/_shared/providers.ts`)
+**6. Custom `groq` template — model suggestions partly broken**
+- `mixtral-8x7b-32768` was deprecated by Groq earlier this year.
+- Replace with current production Groq IDs: `llama-3.3-70b-versatile`, `llama-3.1-8b-instant`, `openai/gpt-oss-20b`, `openai/gpt-oss-120b`, `gemma2-9b-it`, `deepseek-r1-distill-llama-70b`.
 
-Add a sentinel provider:
+**7. Custom `xai` template — Grok 4 is live; suggestions stale**
+- xAI now ships `grok-4`, `grok-4-fast-reasoning`, `grok-4-fast-non-reasoning`, plus `grok-4.20-*` reasoning variants. `grok-2-*` is legacy.
+- `default_model: "grok-2-latest"` → `grok-4`.
+- `model_suggestions: "grok-2-latest, grok-2-mini, grok-2-vision-latest"` → `"grok-4, grok-4-fast-reasoning, grok-4-fast-non-reasoning, grok-3"`.
 
-```ts
-{
-  id: "custom",
-  label: "Custom endpoint",
-  kind: "openai_compatible",        // overridden per-key by custom_kind
-  url: "",                          // resolved per-key from custom_base_url
-  default_model: "",
-  model_suggestions: [],
-  key_placeholder: "your provider key (or leave blank)",
-  get_key_url: "https://docs.anveguard.app/custom-endpoints",
-}
-```
+**8. Custom `fireworks` template — wrong llama version in id**
+- Registry uses `accounts/fireworks/models/llama-v3p1-70b-instruct`. Fireworks now serves Llama **3.3** as `accounts/fireworks/models/llama-v3p3-70b-instruct` (verified on Fireworks app page); `v3p1` is being deprecated.
+- `default_model` and first suggestion should be `accounts/fireworks/models/llama-v3p3-70b-instruct`. Keep `v3p1-8b-instruct` only if confirmed live; safer to switch to `llama-v3p3-70b-instruct` + `qwen2p5-72b-instruct` + `deepseek-v3`.
 
-Add a helper `resolveEndpoint(keyRow)` that, for `provider === 'custom'`, returns `{ url, models_url, kind, headers }` built from the row's custom_* fields. URL normalization: if `custom_base_url` ends with `/v1` we append `/chat/completions` (or `/messages` for anthropic); if it already ends in `/chat/completions` we use it verbatim. Same for models URL.
+**9. Custom `mistral` template — `ministral-8b-latest` is deprecated; add Mistral Medium 3.5**
+- Per Mistral models page: current frontier is **Mistral Medium 3.5** (open-weight) plus the existing `mistral-large-latest`/`mistral-small-latest`/`codestral-latest` aliases.
+- Update suggestions: `mistral-large-latest, mistral-medium-latest, mistral-small-latest, codestral-latest, open-mistral-nemo`.
 
-### 3. Dashboard backend (`supabase/functions/dashboard/index.ts`)
+**10. Built-in `perplexity` — `models_url` host quirk**
+- Endpoint exists (`GET /v1/models`), but it returns Agent-API model presets, not the Sonar model list. Will still populate the dropdown with usable IDs (`sonar`, `sonar-pro`, etc.); leaving as-is is fine. No change needed — just documenting.
 
-- **`list_providers`** — include the new `custom` entry plus a `custom_schema` block describing the form fields (kinds, auth schemes) so the UI is data‑driven.
-- **`create_key`** — when `provider === 'custom'`, validate `custom_base_url` (https only, except localhost/127.0.0.1/.local for self‑hosted), validate `custom_kind` and `custom_auth_scheme`, persist all `custom_*` columns. The provider key is still encrypted in `provider_key_encrypted` (may be empty for `none`).
-- **`list_models`** — for `custom`, use the resolved models URL with the resolved auth headers; same 5‑minute cache, same fallback to the user's own `model_suggestions` (we'll let them paste a comma‑separated list at create time, stored as part of `custom_extra_headers.__suggestions` or a tiny `custom_model_suggestions text[]` column — see Technical details).
-- **`list_keys`** — also return the `custom_base_url` and `custom_kind` so the UI can show "Custom · ollama.local" badges.
-- **Test endpoint (new action `test_custom_endpoint`)** — given the form values (without saving), make one tiny `GET /models` request and report `ok / status / sample-model`. Lets users validate before saving.
+### Optional polish (not bugs, but nice)
 
-### 4. Proxy (`supabase/functions/proxy/index.ts`)
+- **Azure OpenAI template description**: mention that `default_model` should be the **deployment name**, not the model name. Today's description doesn't say this and it's the #1 source of "model not found" errors with Azure.
+- **vLLM template `default_model: ""`**: leaving empty is correct (depends on what user serves), but the description could hint to run `curl http://localhost:8000/v1/models` to discover it.
+- **Custom `anthropic` template** could include the `extra_headers: { "anthropic-version": "2023-06-01" }` explicitly so users see the convention even though the resolver auto-injects it.
 
-Replace the hard‑coded `provider.url`, `provider.kind`, and header logic with `resolveEndpoint(keyRow)`. The streaming + policy + logging code stays unchanged because it already branches on `kind`. Azure's `api-version` query param is handled by storing the full URL (with `?api-version=…`) in `custom_base_url`; the proxy preserves the query string when appending the chat path.
+## Implementation plan
 
-### 5. UI — Keys page (`src/pages/dashboard/Keys.tsx`)
+Single file edit: `supabase/functions/_shared/providers.ts`.
 
-When the user picks **Custom endpoint** in the provider dropdown, reveal an extra panel:
+1. Refresh `model_suggestions` and `default_model` for built-in providers: `lovable`, `openai`, `openrouter`, `anthropic`.
+2. Refresh model suggestions for custom templates: `anthropic`, `groq`, `xai` (also bump `default_model`), `fireworks` (bump `default_model`), `mistral`.
+3. Tighten descriptions for `azure_openai` (deployment name) and `vllm` (model discovery hint).
+4. Leave all base URLs, paths, auth schemes, and `models_url` values **unchanged** — they are correct.
 
-- Name, Default model (free text)
-- **Kind** select: OpenAI‑compatible / Anthropic‑compatible
-- **Base URL** input (`https://my-host/v1` or full chat URL; helper text shows what we'll call)
-- **Models URL** input (optional, auto‑filled)
-- **Auth scheme** select: Bearer token / Custom header / `x-api-key` / None
-- **Header name** input (visible only when scheme = Custom header)
-- **Provider API key** input (hidden when scheme = None)
-- **Extra headers** key/value rows (for Azure `api-version`, OpenRouter‑style `HTTP-Referer`, etc.)
-- **Model suggestions** textarea (comma‑separated; used as fallback if `/models` fails or returns nothing)
-- A **"Test connection"** button calling `test_custom_endpoint` that shows ✓ / error inline.
+No DB migration, no edge-function logic changes. After saving, the dashboard's `list_providers` action will serve the updated registry to the UI immediately on the next load (no deploy needed beyond the file write — Lovable redeploys edge functions automatically).
 
-A small "Templates" dropdown at the top of the panel pre‑fills the form for: **Ollama (local)**, **vLLM / LM Studio**, **Azure OpenAI**, **Groq**, **Together**, **Fireworks**, **xAI Grok**, **Mistral**, **DeepSeek**, **Anthropic‑compatible**.
+## Verification after applying
 
-### 6. UI — Playground (`src/pages/dashboard/Playground.tsx`)
+For each provider you actually have a key for, the existing **Test API key** button on the API Keys page (with Parallel = 1) will hit the upstream end-to-end and confirm:
+- Auth header is accepted (200 vs 401),
+- Default model resolves (200 vs `model_not_found`),
+- Latency + sample reply look sane.
 
-No changes needed beyond what already exists — model selector reads from `list_models`, which now works for `custom` too.
+For custom-endpoint templates, the **Test connection** + **Refresh from upstream** buttons in the endpoint editor will verify the `/models` URL and the `chat_path`. The "Save default model" flow will also re-validate against the live list before persisting.
 
-### 7. Live verification (do this after building, in default mode)
-
-1. Deploy `dashboard` and `proxy` edge functions.
-2. Create a custom key against `https://api.groq.com/openai/v1` with the user's Groq token (or an Ollama URL if available), confirm `list_models` returns live IDs, run a streaming completion in the Playground, and confirm a row appears in `request_logs`.
-3. Create a key against an Azure OpenAI deployment URL with `api-key` auth and confirm chat works.
-4. Re‑run the Lovable / OpenAI / Anthropic flows to confirm we didn't regress them.
-
-## Technical details
-
-- **Why a column instead of a JSON blob:** queries (`list_keys`) and indexes stay simple, and `provider_key_encrypted` already exists for the upstream secret. We will use one extra `jsonb` column (`custom_extra_headers`) for arbitrary headers, and a `text[]` column (`custom_model_suggestions`) for fallback model IDs — both nullable.
-- **URL normalization rules** (in `resolveEndpoint`): strip trailing `/`; if path doesn't end in `/chat/completions` (openai) or `/messages` (anthropic), append it; preserve the original querystring (Azure). Models URL: if user left blank, derive `<origin><pathPrefix>/models`.
-- **Security:** disallow `http://` except for `localhost`, `127.0.0.1`, `0.0.0.0`, `*.local`, and RFC1918 ranges (so users can hit Ollama on their LAN but we don't accidentally exfiltrate to plaintext public endpoints). Reject URLs to AWS/GCP metadata IPs (`169.254.169.254`, `metadata.google.internal`) to prevent SSRF from edge functions.
-- **Header allow‑list:** custom_extra_headers may not override `Authorization`, `x-api-key`, `Content-Type`, or `Host` — those are computed by the proxy.
-- **Anthropic kind:** when the user picks anthropic kind, the proxy reuses the existing `openaiToAnthropicRequest` / `anthropicStreamToOpenAI` adapters unchanged.
-- **Caching:** `list_models` cache key becomes `${provider}:${custom_base_url ?? ''}:${provider_key_encrypted ?? ''}` so distinct custom endpoints don't collide.
-- **Migration:** simple `ALTER TABLE public.api_keys ADD COLUMN …` for the six new columns, all nullable, no defaults required.
-
-## Files to change
-
-- migration: add `custom_*` columns to `api_keys`
-- `supabase/functions/_shared/providers.ts` — add `custom` provider + `resolveEndpoint` helper + URL normalizer
-- `supabase/functions/dashboard/index.ts` — new fields in `create_key`, `list_keys`, `list_models`; new `test_custom_endpoint` action
-- `supabase/functions/proxy/index.ts` — use `resolveEndpoint` instead of hard‑coded provider config
-- `src/pages/dashboard/Keys.tsx` — custom endpoint form + templates + Test connection button
+Approve this plan and I'll apply the registry edits in one pass.
