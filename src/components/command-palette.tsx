@@ -63,6 +63,47 @@ export const CommandPalette = () => {
   const { signOut } = useClerk();
   const { isSignedIn } = useAuth();
   const { call } = useDashboardApi();
+  const qc = useQueryClient();
+
+  // ---- Quick actions on result rows -------------------------------------
+  // Stops Cmdk's row-select from firing the row's default deep-link when the
+  // user clicks an inline action button.
+  const stop = (e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const copy = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(`${label} copied`);
+    } catch {
+      toast.error("Could not access clipboard");
+    }
+  };
+
+  const testKeyMutation = useMutation({
+    mutationFn: (id: string) =>
+      call<{ success: boolean; error?: string; latency_ms?: number }>(
+        "test_api_key",
+        { body: { api_key_id: id } },
+      ),
+    onSuccess: (res) => {
+      if (res.success) toast.success(`Key OK · ${res.latency_ms ?? "—"}ms`);
+      else toast.error(res.error ?? "Key test failed");
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Key test failed"),
+  });
+
+  const revokeKeyMutation = useMutation({
+    mutationFn: (id: string) => call("revoke_key", { body: { id } }),
+    onSuccess: () => {
+      toast.success("Key revoked");
+      qc.invalidateQueries({ queryKey: ["keys"] });
+      qc.invalidateQueries({ queryKey: ["search", "keys"] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Failed to revoke"),
+  });
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
