@@ -189,6 +189,8 @@ const Endpoints = () => {
     setTestResult(null);
     setLiveModels(null);
     setModelsResult(null);
+    setLastRefreshOk(false);
+    setSavedDefaultModel(e.default_model ?? "");
     setOpen(true);
   };
 
