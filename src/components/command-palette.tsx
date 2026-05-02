@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth, useClerk } from "@clerk/clerk-react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   CommandDialog,
   CommandEmpty,
@@ -25,6 +26,10 @@ import {
   LogOut,
   Activity,
   Hash,
+  Copy,
+  PlayCircle,
+  Ban,
+  Eye,
 } from "lucide-react";
 
 /**
@@ -58,6 +63,47 @@ export const CommandPalette = () => {
   const { signOut } = useClerk();
   const { isSignedIn } = useAuth();
   const { call } = useDashboardApi();
+  const qc = useQueryClient();
+
+  // ---- Quick actions on result rows -------------------------------------
+  // Stops Cmdk's row-select from firing the row's default deep-link when the
+  // user clicks an inline action button.
+  const stop = (e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const copy = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(`${label} copied`);
+    } catch {
+      toast.error("Could not access clipboard");
+    }
+  };
+
+  const testKeyMutation = useMutation({
+    mutationFn: (id: string) =>
+      call<{ success: boolean; error?: string; latency_ms?: number }>(
+        "test_api_key",
+        { body: { api_key_id: id } },
+      ),
+    onSuccess: (res) => {
+      if (res.success) toast.success(`Key OK · ${res.latency_ms ?? "—"}ms`);
+      else toast.error(res.error ?? "Key test failed");
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Key test failed"),
+  });
+
+  const revokeKeyMutation = useMutation({
+    mutationFn: (id: string) => call("revoke_key", { body: { id } }),
+    onSuccess: () => {
+      toast.success("Key revoked");
+      qc.invalidateQueries({ queryKey: ["keys"] });
+      qc.invalidateQueries({ queryKey: ["search", "keys"] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Failed to revoke"),
+  });
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -173,6 +219,37 @@ export const CommandPalette = () => {
   // dominate the surface. With an empty query we keep the original palette.
   const searching = q.length > 0;
 
+  // Compact icon button for inline row actions. Uses mousedown so the click
+  // fires before Cmdk's keyboard/select handlers, and stops propagation so
+  // the row's `onSelect` deep-link doesn't also run.
+  const RowAction = ({
+    icon,
+    label,
+    onRun,
+    tone = "default",
+  }: {
+    icon: ReactNode;
+    label: string;
+    onRun: () => void;
+    tone?: "default" | "danger";
+  }) => (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      onMouseDown={stop}
+      onClick={(e) => {
+        stop(e);
+        onRun();
+      }}
+      className={`inline-flex h-6 w-6 items-center justify-center rounded-md border border-transparent text-muted-foreground transition-colors hover:border-border hover:bg-surface-2 hover:text-foreground ${
+        tone === "danger" ? "hover:text-destructive" : ""
+      }`}
+    >
+      {icon}
+    </button>
+  );
+
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>
       <CommandInput
@@ -199,8 +276,36 @@ export const CommandPalette = () => {
                   </span>
                 )}
                 {k.is_active === false && (
-                  <span className="ml-auto text-xs text-muted-foreground">revoked</span>
+                  <span className="ml-2 text-xs text-muted-foreground">revoked</span>
                 )}
+                <div className="ml-auto flex items-center gap-1">
+                  {k.key_prefix && (
+                    <RowAction
+                      icon={<Copy className="h-3.5 w-3.5" />}
+                      label="Copy key prefix"
+                      onRun={() => copy(k.key_prefix!, "Prefix")}
+                    />
+                  )}
+                  {k.is_active !== false && (
+                    <>
+                      <RowAction
+                        icon={<PlayCircle className="h-3.5 w-3.5" />}
+                        label="Test key"
+                        onRun={() => testKeyMutation.mutate(k.id)}
+                      />
+                      <RowAction
+                        tone="danger"
+                        icon={<Ban className="h-3.5 w-3.5" />}
+                        label="Revoke key"
+                        onRun={() => {
+                          if (window.confirm(`Revoke "${k.name}"? This cannot be undone.`)) {
+                            revokeKeyMutation.mutate(k.id);
+                          }
+                        }}
+                      />
+                    </>
+                  )}
+                </div>
               </CommandItem>
             ))}
           </CommandGroup>
@@ -221,6 +326,23 @@ export const CommandPalette = () => {
                     {e.base_url}
                   </span>
                 )}
+                <div className="ml-auto flex items-center gap-1">
+                  {e.base_url && (
+                    <RowAction
+                      icon={<Copy className="h-3.5 w-3.5" />}
+                      label="Copy base URL"
+                      onRun={() => copy(e.base_url!, "Base URL")}
+                    />
+                  )}
+                  <RowAction
+                    icon={<Plus className="h-3.5 w-3.5" />}
+                    label="New key for this endpoint"
+                    onRun={() => {
+                      close();
+                      navigate(`/dashboard/keys?new=1&endpoint=${e.id}`);
+                    }}
+                  />
+                </div>
               </CommandItem>
             ))}
           </CommandGroup>
@@ -239,9 +361,24 @@ export const CommandPalette = () => {
                   {l.model ?? l.provider ?? "request"}
                 </span>
                 <span className="ml-2 text-xs text-muted-foreground">{l.status}</span>
-                <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+                <span className="ml-2 font-mono text-[10px] text-muted-foreground">
                   {l.id.slice(0, 8)}
                 </span>
+                <div className="ml-auto flex items-center gap-1">
+                  <RowAction
+                    icon={<Copy className="h-3.5 w-3.5" />}
+                    label="Copy request id"
+                    onRun={() => copy(l.id, "Request id")}
+                  />
+                  <RowAction
+                    icon={<Eye className="h-3.5 w-3.5" />}
+                    label="Open detail"
+                    onRun={() => {
+                      close();
+                      navigate(`/dashboard/logs?focus=${l.id}`);
+                    }}
+                  />
+                </div>
               </CommandItem>
             ))}
           </CommandGroup>
