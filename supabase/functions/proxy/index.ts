@@ -343,7 +343,7 @@ async function handleRequest(req: Request): Promise<Response> {
   const key_hash = await sha256Hex(apiKeyPlain);
 
   const { data: keyRow } = await sb.from("api_keys")
-    .select("id,user_id,provider,provider_key_encrypted,model_default,is_active,custom_base_url,custom_models_url,custom_kind,custom_auth_scheme,custom_auth_header,custom_extra_headers,custom_path_prefix,custom_chat_path,custom_models_path,custom_response_format")
+    .select("id,user_id,provider,provider_key_encrypted,model_default,is_active,is_admin,custom_base_url,custom_models_url,custom_kind,custom_auth_scheme,custom_auth_header,custom_extra_headers,custom_path_prefix,custom_chat_path,custom_models_path,custom_response_format")
     .eq("key_hash", key_hash).maybeSingle();
   if (!keyRow || !keyRow.is_active) {
     return errorResponse(reqShape, 401, "Invalid or revoked API key.", { code: "invalid_api_key" });
@@ -471,18 +471,29 @@ async function handleRequest(req: Request): Promise<Response> {
   }
 
   // ---- Caller-supplied custom system prompt -----------------------------
-  // Clients may pass an optional top-level `system_prompt` (string) in the
-  // request body. We inject it as a `system` message immediately AFTER the
-  // workspace guardrail and BEFORE the rest of the conversation (including
-  // any system message the caller already included in `messages`). This lets
-  // app developers ship per-request guardrails or persona instructions while
-  // still being subordinate to the workspace-level guardrail. The field is
-  // stripped from `body` before forwarding upstream so providers that reject
-  // unknown fields (strict OpenAI-compat servers) don't 400.
-  const customSystemPrompt = typeof (body as any)?.system_prompt === "string"
-    ? (body as any).system_prompt.trim()
+  // Clients may pass an optional top-level `system_prompt` (string). To prevent
+  // a compromised client (or a careless integration) from silently overriding
+  // the workspace guardrail, the field is gated by a per-key `is_admin` flag:
+  //
+  //   • Admin keys: the prompt is injected as a `system` message immediately
+  //     AFTER the workspace guardrail and BEFORE the rest of the conversation.
+  //     The guardrail still leads, so the model treats it as the highest-priority
+  //     instruction; the admin prompt augments rather than replaces it.
+  //   • Non-admin keys: any non-empty `system_prompt` is rejected with 403 so
+  //     callers fail loudly instead of getting a quietly-stripped payload.
+  //
+  // The field is always stripped from `body` before forwarding upstream so
+  // strict OpenAI-compat servers don't 400 on the unknown key.
+  const rawSystemPrompt = (body as any)?.system_prompt;
+  const customSystemPrompt = typeof rawSystemPrompt === "string"
+    ? rawSystemPrompt.trim()
     : "";
   if (customSystemPrompt) {
+    if (!keyRow.is_admin) {
+      return errorResponse(reqShape, 403,
+        "This API key is not permitted to send a custom system_prompt. Ask a workspace admin to enable the admin permission on this key, or remove the field from the request body.",
+        { code: "system_prompt_forbidden" });
+    }
     const insertAt = (typeof guardrail === "string" && guardrail.trim()) ? 1 : 0;
     body.messages = [
       ...body.messages.slice(0, insertAt),

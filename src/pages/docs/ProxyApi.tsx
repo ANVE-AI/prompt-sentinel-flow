@@ -55,6 +55,12 @@ Content-Type: application/json`}</Pre>
       guardrail prompt and <em>before</em> the rest of <code>messages</code>, then stripped
       from the payload before forwarding upstream.
     </P>
+    <Callout kind="note">
+      Only API keys with the <strong>admin</strong> permission may send <code>system_prompt</code>.
+      Requests from non-admin keys that include the field are rejected with{" "}
+      <code>403 system_prompt_forbidden</code>. Toggle the permission from the shield icon
+      next to each key on the <strong>Keys</strong> page.
+    </Callout>
     <Pre language="json">{`{
   "model": "gpt-4o-mini",
   "system_prompt": "You are a billing assistant. Refuse non-billing questions.",

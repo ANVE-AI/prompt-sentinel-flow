@@ -31,6 +31,7 @@ export type Database = {
           endpoint_id: string | null
           id: string
           is_active: boolean
+          is_admin: boolean
           key_hash: string
           key_prefix: string
           last_used_at: string | null
@@ -56,6 +57,7 @@ export type Database = {
           endpoint_id?: string | null
           id?: string
           is_active?: boolean
+          is_admin?: boolean
           key_hash: string
           key_prefix: string
           last_used_at?: string | null
@@ -81,6 +83,7 @@ export type Database = {
           endpoint_id?: string | null
           id?: string
           is_active?: boolean
+          is_admin?: boolean
           key_hash?: string
           key_prefix?: string
           last_used_at?: string | null

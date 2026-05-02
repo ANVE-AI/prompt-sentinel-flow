@@ -216,6 +216,18 @@ const Keys = () => {
     mutationFn: (id: string) => call("revoke_key", { body: { id } }),
     onSuccess: () => { toast.success("Key revoked"); qc.invalidateQueries({ queryKey: ["keys"] }); },
   });
+  // Toggle the per-key admin flag. Admin keys are the only ones allowed to
+  // pass a custom `system_prompt` alongside the workspace guardrail; everyone
+  // else is rejected at the proxy with 403.
+  const setKeyAdmin = useMutation({
+    mutationFn: ({ id, is_admin }: { id: string; is_admin: boolean }) =>
+      call("set_key_admin", { body: { id, is_admin } }),
+    onSuccess: (_r, vars) => {
+      toast.success(vars.is_admin ? "Admin permission granted" : "Admin permission revoked");
+      qc.invalidateQueries({ queryKey: ["keys"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
 
   // -------- Live API key test ---------------------------------------------
   // Sends a tiny real chat request through the upstream the key is bound to
@@ -595,8 +607,9 @@ const Keys = () => {
                 <div className="text-meta text-muted-foreground tabular-nums">
                   {k.last_used_at ? new Date(k.last_used_at).toLocaleDateString() : "never"}
                 </div>
-                <div>
+                <div className="flex items-center gap-1.5 flex-wrap">
                   <Badge status={k.is_active ? "ok" : "neutral"}>{k.is_active ? "active" : "revoked"}</Badge>
+                  {k.is_admin && <Badge status="warn" title="Allowed to send custom system_prompt">admin</Badge>}
                 </div>
                 <div className="flex items-center gap-1 justify-end">
                   {k.is_active && (
@@ -624,6 +637,17 @@ const Keys = () => {
                         {testKey.isPending && testingKey?.id === k.id
                           ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           : <Beaker className="h-3.5 w-3.5" />}
+                      </Button>
+                      <Button
+                        variant="ghost" size="sm"
+                        onClick={() => setKeyAdmin.mutate({ id: k.id, is_admin: !k.is_admin })}
+                        title={k.is_admin
+                          ? "Revoke admin permission (key can no longer send custom system_prompt)"
+                          : "Grant admin permission (allow this key to send a custom system_prompt)"}
+                      >
+                        {k.is_admin
+                          ? <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
+                          : <ShieldAlert className="h-3.5 w-3.5 text-muted-foreground" />}
                       </Button>
                       <Button variant="ghost" size="sm" onClick={() => revoke.mutate(k.id)} title="Revoke key">
                         <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
