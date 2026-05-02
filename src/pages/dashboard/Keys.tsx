@@ -785,6 +785,13 @@ client = OpenAI(
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AliasesSheet
+        open={!!aliasesFor}
+        onOpenChange={(v) => !v && setAliasesFor(null)}
+        apiKeyId={aliasesFor?.id ?? null}
+        apiKeyName={aliasesFor?.name ?? ""}
+      />
     </div>
   );
 };
