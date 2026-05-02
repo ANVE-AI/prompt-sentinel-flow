@@ -1,35 +1,38 @@
-## Add time-range filter to the endpoint usage dialog
+## Add "Top models" section to the endpoint usage dialog
 
-Add a **1h / 24h / 7d / 30d / All** range selector at the top of the Usage dialog. Both the **stats tiles** and the **Recent requests** list re-query and re-aggregate against the chosen window.
+Show which models actually got hit through this endpoint within the active time window, ranked by request count, with latency and error stats per model.
 
-### Backend — `supabase/functions/dashboard/index.ts`
+### Backend — `supabase/functions/dashboard/index.ts` (`endpoint_usage` action)
 
-Extend the existing `endpoint_usage` action with an optional `range` parameter.
+Compute a `top_models` array per endpoint from the same windowed `epLogs` set already in scope (no extra query, no schema changes):
 
-- Accepted values: `"1h" | "24h" | "7d" | "30d" | "all"`. Default: `"24h"`.
-- Map to a `since` timestamp; when not `"all"`, add `.gte("created_at", sinceIso)` to the `request_logs` query.
-- All downstream stats (`request_count`, `blocked_count`, `error_count`, `avg_latency_ms`, `last_request_at`) are computed from the windowed log set, so they automatically follow the filter.
-- Response shape stays the same plus echoes `{ range, since }` so the client can show "since X" hints.
-- `fetchCap` math is unchanged — it still bounds the query to ~1000 rows.
+- Group by `model` (skip rows where `model` is null/empty → bucket as `"(unknown)"`).
+- For each group: `request_count`, `blocked_count`, `error_count`, `avg_latency_ms`, `tokens_in_total`, `tokens_out_total`, `last_request_at`.
+- Sort by `request_count` desc, take top 8.
+- Add to the per-endpoint payload as `top_models`.
 
-Invalid `range` values fall back to `"24h"` instead of erroring.
+Response shape stays additive — existing fields untouched.
 
 ### Frontend — `src/pages/dashboard/Endpoints.tsx`
 
-- New state: `const [usageRange, setUsageRange] = useState<"1h"|"24h"|"7d"|"30d"|"all">("24h")`.
-- Include `usageRange` in the `usageQuery` `queryKey` and pass it via `query.range` so changing the selector triggers a refetch.
-- Reset `usageRange` back to `"24h"` whenever a new endpoint is opened (so the dialog opens in a predictable state).
-- UI: a small segmented control (5 ghost/outline buttons in a `border rounded-md` group) placed in the dialog header row — right next to the existing Refresh button. Active range gets `variant="default"`, others `variant="ghost"`.
-- Subtle helper text under the stats grid: `"Showing data from the last 24 hours"` (or `"Showing all-time data"`), driven by the active range and the response's `since` field.
-- Empty-state copy for **Recent requests** updates to mention the window: `"No requests in the last 1 hour."` / `"…all time."`.
+New section in the Usage dialog, placed **between "Bound API keys" and "Recent requests"**:
+
+- Heading: `Top models ({usageRow.top_models.length})`.
+- Empty state when zero (uses windowed copy: `"No model activity in the last 24 hours."`).
+- Otherwise a compact table-like list (`rounded-md border divide-y`):
+  - Left: rank dot · model id (truncated, monospace).
+  - Middle: small badges for blocked/error counts (only when > 0, destructive tinting).
+  - Right (right-aligned, tabular-nums): `{request_count} req · {avg_latency_ms}ms`.
+  - Optional second line under model id (text-[10px] muted): `tokens in/out` totals when present.
+- Reuses existing `Badge`, no new icons or shadcn components needed.
 
 ### Out of scope
 
-- No persistence of the chosen range across dialog opens (resets each time).
-- No custom date range picker — fixed presets only.
-- No change to `endpoint_request_detail` (drilldown still loads any historical request by id).
+- No clicking a model to filter the recent list.
+- No charting — text/list only.
+- No cost estimation.
 
 ### Files touched
 
-- `supabase/functions/dashboard/index.ts` — `endpoint_usage` accepts `range`, filters logs.
-- `src/pages/dashboard/Endpoints.tsx` — range state, segmented control in dialog header, refreshed empty/helper copy.
+- `supabase/functions/dashboard/index.ts` — compute + return `top_models` per endpoint in `endpoint_usage`.
+- `src/pages/dashboard/Endpoints.tsx` — render the new section in the Usage dialog.

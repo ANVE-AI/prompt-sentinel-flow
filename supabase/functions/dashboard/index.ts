@@ -1167,6 +1167,59 @@ Deno.serve(async (req) => {
           const recent = epLogs.slice(0, limit).map((l) => ({
             ...l, api_key_name: keyNameById.get(l.api_key_id) ?? "—",
           }));
+
+          // Per-model breakdown over the same windowed log set. Grouped by
+          // `model` (rows missing a model id are bucketed as "(unknown)"),
+          // sorted by request count desc, capped at 8 entries.
+          const modelBuckets = new Map<string, {
+            model: string;
+            request_count: number;
+            blocked_count: number;
+            error_count: number;
+            latency_sum: number;
+            latency_n: number;
+            tokens_in_total: number;
+            tokens_out_total: number;
+            last_request_at: string | null;
+          }>();
+          for (const l of epLogs) {
+            const key = (typeof l.model === "string" && l.model.trim()) ? l.model : "(unknown)";
+            let b = modelBuckets.get(key);
+            if (!b) {
+              b = {
+                model: key, request_count: 0, blocked_count: 0, error_count: 0,
+                latency_sum: 0, latency_n: 0, tokens_in_total: 0, tokens_out_total: 0,
+                last_request_at: null,
+              };
+              modelBuckets.set(key, b);
+            }
+            b.request_count += 1;
+            if (typeof l.status === "string" && l.status.startsWith("blocked")) b.blocked_count += 1;
+            if (l.status === "error") b.error_count += 1;
+            if (typeof l.latency_ms === "number") {
+              b.latency_sum += l.latency_ms;
+              b.latency_n += 1;
+            }
+            if (typeof l.tokens_in === "number") b.tokens_in_total += l.tokens_in;
+            if (typeof l.tokens_out === "number") b.tokens_out_total += l.tokens_out;
+            if (!b.last_request_at || (l.created_at && l.created_at > b.last_request_at)) {
+              b.last_request_at = l.created_at ?? b.last_request_at;
+            }
+          }
+          const top_models = Array.from(modelBuckets.values())
+            .map((b) => ({
+              model: b.model,
+              request_count: b.request_count,
+              blocked_count: b.blocked_count,
+              error_count: b.error_count,
+              avg_latency_ms: b.latency_n ? Math.round(b.latency_sum / b.latency_n) : 0,
+              tokens_in_total: b.tokens_in_total,
+              tokens_out_total: b.tokens_out_total,
+              last_request_at: b.last_request_at,
+            }))
+            .sort((a, b) => b.request_count - a.request_count)
+            .slice(0, 8);
+
           return {
             endpoint: ep,
             keys: epKeys.map((k: any) => ({
@@ -1185,6 +1238,7 @@ Deno.serve(async (req) => {
               last_request_at,
             },
             recent_requests: recent,
+            top_models,
           };
         });
 
