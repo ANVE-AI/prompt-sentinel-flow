@@ -1866,7 +1866,7 @@ Deno.serve(async (req) => {
         const limit = Math.min(Number(url.searchParams.get("limit") ?? 100), 500);
         const status = url.searchParams.get("status");
         let q = sb.from("request_logs")
-          .select("id,api_key_id,provider,model,status,block_reason,latency_ms,tokens_in,tokens_out,created_at,messages,response,verdict,verdict_layers,detected_intent,intent_confidence")
+          .select("id,api_key_id,provider,model,status,block_reason,latency_ms,tokens_in,tokens_out,created_at,messages,response,verdict,verdict_layers,detected_intent,intent_confidence,guardrail_prompt,client_system_prompt")
           .eq("user_id", userId).order("created_at", { ascending: false }).limit(limit);
         if (status && status !== "all") q = q.eq("status", status);
         const { data } = await q;
