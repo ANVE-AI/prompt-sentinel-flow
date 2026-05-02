@@ -924,6 +924,30 @@ msg = client.messages.create(
 )
 print(msg.content)`,
     },
+    // GET /v1/models — OpenAI-spec listing served by the proxy. Works for any
+    // upstream provider; the proxy normalizes the response shape.
+    models: {
+      curl: `curl ${baseUrl}/v1/models \\
+  -H "Authorization: Bearer ${apiKey}"`,
+      node: `import OpenAI from "openai";
+
+const client = new OpenAI({
+  baseURL: "${baseUrl}",
+  apiKey: "${apiKey}",
+});
+
+const list = await client.models.list();
+for (const m of list.data) console.log(m.id);`,
+      python: `from openai import OpenAI
+
+client = OpenAI(
+    base_url="${baseUrl}",
+    api_key="${apiKey}",
+)
+
+for m in client.models.list().data:
+    print(m.id)`,
+    },
   };
 }
 
