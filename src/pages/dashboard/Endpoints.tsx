@@ -876,6 +876,116 @@ const Endpoints = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Usage dialog */}
+      <Dialog open={!!usageEndpoint} onOpenChange={(o) => !o && setUsageEndpoint(null)}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Activity className="h-4 w-4" />
+              Usage · {usageEndpoint?.name}
+            </DialogTitle>
+          </DialogHeader>
+
+          {usageQuery.isLoading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-20" />
+              <Skeleton className="h-40" />
+            </div>
+          ) : !usageRow ? (
+            <div className="text-sm text-muted-foreground py-8 text-center">No data yet.</div>
+          ) : (
+            <div className="space-y-5">
+              {/* Stat tiles */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <StatTile label="API keys" value={`${usageRow.stats.active_key_count}/${usageRow.stats.key_count}`} hint="active / total" />
+                <StatTile label="Requests" value={usageRow.stats.request_count} />
+                <StatTile label="Blocked" value={usageRow.stats.blocked_count} tone={usageRow.stats.blocked_count ? "warn" : undefined} />
+                <StatTile label="Avg latency" value={`${usageRow.stats.avg_latency_ms}ms`} />
+              </div>
+              {usageRow.stats.last_request_at && (
+                <p className="text-xs text-muted-foreground">
+                  Last request {new Date(usageRow.stats.last_request_at).toLocaleString()}
+                </p>
+              )}
+
+              {/* Bound API keys */}
+              <div>
+                <h3 className="text-sm font-medium mb-2">Bound API keys ({usageRow.keys.length})</h3>
+                {usageRow.keys.length === 0 ? (
+                  <div className="text-xs text-muted-foreground py-3 px-3 rounded-md border border-dashed">
+                    No API keys are pointing to this endpoint yet.
+                  </div>
+                ) : (
+                  <div className="rounded-md border divide-y">
+                    {usageRow.keys.map((k: any) => (
+                      <div key={k.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+                        <span className="font-medium truncate">{k.name}</span>
+                        <code className="text-xs text-muted-foreground">{k.key_prefix}…</code>
+                        {k.is_active ? (
+                          <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30">active</Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px]">revoked</Badge>
+                        )}
+                        <span className="ml-auto text-xs text-muted-foreground">
+                          {k.last_used_at ? `last used ${new Date(k.last_used_at).toLocaleString()}` : "never used"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Recent requests */}
+              <div>
+                <h3 className="text-sm font-medium mb-2">Recent requests ({usageRow.recent_requests.length})</h3>
+                {usageRow.recent_requests.length === 0 ? (
+                  <div className="text-xs text-muted-foreground py-3 px-3 rounded-md border border-dashed">
+                    No requests have been routed through this endpoint yet.
+                  </div>
+                ) : (
+                  <div className="rounded-md border divide-y max-h-80 overflow-y-auto">
+                    {usageRow.recent_requests.map((r: any) => {
+                      const blocked = typeof r.status === "string" && r.status.startsWith("blocked");
+                      const errored = r.status === "error";
+                      return (
+                        <div key={r.id} className="flex items-center gap-3 px-3 py-2 text-xs">
+                          {blocked
+                            ? <Ban className="h-3.5 w-3.5 text-destructive shrink-0" />
+                            : errored
+                              ? <AlertCircle className="h-3.5 w-3.5 text-destructive shrink-0" />
+                              : <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+                          <span className="text-muted-foreground tabular-nums shrink-0">
+                            {new Date(r.created_at).toLocaleTimeString()}
+                          </span>
+                          <span className="font-medium truncate">{r.api_key_name}</span>
+                          <code className="text-muted-foreground truncate">{r.model ?? "—"}</code>
+                          <Badge variant="outline" className={`ml-auto text-[10px] ${
+                            blocked || errored ? "bg-destructive/10 text-destructive border-destructive/30" : ""
+                          }`}>
+                            {r.status}
+                          </Badge>
+                          <span className="text-muted-foreground tabular-nums shrink-0 w-14 text-right">
+                            {r.latency_ms ?? 0}ms
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => usageQuery.refetch()} disabled={usageQuery.isFetching}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${usageQuery.isFetching ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+            <Button onClick={() => setUsageEndpoint(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
