@@ -690,8 +690,8 @@ Deno.serve(async (req) => {
         let hasStoredKey = false;
 
         if (id) {
-          const { data: row } = await sb.from("endpoints").select("*")
-            .eq("id", id).eq("user_id", userId).maybeSingle();
+          // Allow shared recipients to test too — read-only, key never leaves the server.
+          const { row } = await loadReadableEndpoint(sb, id, userId);
           if (!row) return json({ ok: false, error: "Endpoint not found" }, 404);
           cfg = {
             base_url: row.base_url, models_url: row.models_url,
@@ -931,8 +931,7 @@ Deno.serve(async (req) => {
           : [];
 
         if (id) {
-          const { data: row } = await sb.from("endpoints").select("*")
-            .eq("id", id).eq("user_id", userId).maybeSingle();
+          const { row } = await loadReadableEndpoint(sb, id, userId);
           if (!row) return json({ ok: false, error: "Endpoint not found" }, 404);
           cfg = {
             base_url: row.base_url, models_url: row.models_url,
