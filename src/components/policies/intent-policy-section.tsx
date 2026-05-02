@@ -34,6 +34,8 @@ type Settings = {
   workspace_purpose: string | null;
   /** Workspace-wide system prompt the proxy prepends to every API call. */
   guardrail_system_prompt: string | null;
+  /** Allow API callers to inject their own per-request system_prompt. */
+  allow_client_system_prompt: boolean;
 };
 
 type IntentRow = { intent: string; action: "block" | "flag" | "allow"; min_confidence: number };
