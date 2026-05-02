@@ -6,11 +6,30 @@ import { CommandPalette } from "@/components/command-palette";
 import { MobileSidebar } from "@/components/mobile-sidebar";
 import { DashboardSidebar } from "@/components/dashboard-sidebar";
 
+const SIDEBAR_STORAGE_KEY = "dashboard:sidebar:open";
+
 const DashboardLayout = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      return window.localStorage.getItem(SIDEBAR_STORAGE_KEY) !== "false";
+    } catch {
+      return true;
+    }
+  });
+
+  const handleSidebarOpenChange = (open: boolean) => {
+    setSidebarOpen(open);
+    try {
+      window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(open));
+    } catch {
+      // ignore storage failures (private mode, quota, etc.)
+    }
+  };
 
   return (
-    <SidebarProvider defaultOpen>
+    <SidebarProvider open={sidebarOpen} onOpenChange={handleSidebarOpenChange}>
       <div className="min-h-screen flex w-full bg-background">
         <DashboardSidebar />
 
