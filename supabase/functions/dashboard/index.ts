@@ -176,6 +176,10 @@ Deno.serve(async (req) => {
             insert.custom_auth_header = ep.auth_header;
             insert.custom_extra_headers = ep.extra_headers ?? {};
             insert.custom_model_suggestions = ep.model_suggestions ?? [];
+            insert.custom_path_prefix = ep.path_prefix ?? null;
+            insert.custom_chat_path = ep.chat_path ?? null;
+            insert.custom_models_path = ep.models_path ?? null;
+            insert.custom_response_format = ep.response_format ?? null;
             insert.provider_key_encrypted = ep.provider_key_encrypted ?? null;
             if (!model && ep.default_model) insert.model_default = ep.default_model;
           } else {
@@ -191,6 +195,10 @@ Deno.serve(async (req) => {
                 auth_scheme: custom.auth_scheme,
                 auth_header: custom.auth_header || null,
                 extra_headers: custom.extra_headers || null,
+                path_prefix: custom.path_prefix || null,
+                chat_path: custom.chat_path || null,
+                models_path: custom.models_path || null,
+                response_format: custom.response_format || null,
               });
             } catch (e) {
               return json({ error: e instanceof Error ? e.message : String(e) }, 400);
@@ -204,6 +212,10 @@ Deno.serve(async (req) => {
             insert.custom_auth_scheme = resolved.auth_scheme;
             insert.custom_auth_header = resolved.auth_header;
             insert.custom_extra_headers = sanitizeExtraHeaders(custom.extra_headers || null);
+            insert.custom_path_prefix = custom.path_prefix || null;
+            insert.custom_chat_path = custom.chat_path || null;
+            insert.custom_models_path = custom.models_path || null;
+            insert.custom_response_format = resolved.response_format;
             if (Array.isArray(custom.model_suggestions)) {
               insert.custom_model_suggestions = custom.model_suggestions
                 .filter((x: unknown) => typeof x === "string" && x.trim())
