@@ -23,8 +23,8 @@ function envelopeFor(error: string) {
 }
 
 Deno.test("system_prompt: absent field is allowed", () => {
-  assertEquals(validateSystemPrompt(undefined), { error: null, value: "" });
-  assertEquals(validateSystemPrompt(null), { error: null, value: "" });
+  assertEquals(validateSystemPrompt(undefined), { error: null, code: null, value: "" });
+  assertEquals(validateSystemPrompt(null), { error: null, code: null, value: "" });
 });
 
 Deno.test("system_prompt: non-string types are rejected", () => {
