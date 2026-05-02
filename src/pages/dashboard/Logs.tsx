@@ -610,6 +610,25 @@ const SecurityEvents = () => {
                 </div>
                 <BlockReasonBlock log={selected} />
                 <PolicyVerdictPanel log={selected} />
+                {(selected.guardrail_prompt || selected.client_system_prompt) && (
+                  <div className="space-y-2">
+                    <div className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                      Injected system prompts
+                    </div>
+                    {selected.guardrail_prompt && (
+                      <div className="rounded-md border border-border bg-surface-2 p-3">
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Workspace guardrail</div>
+                        <pre className="text-xs whitespace-pre-wrap break-words">{selected.guardrail_prompt}</pre>
+                      </div>
+                    )}
+                    {selected.client_system_prompt && (
+                      <div className="rounded-md border border-border bg-surface-2 p-3">
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Client system_prompt</div>
+                        <pre className="text-xs whitespace-pre-wrap break-words">{selected.client_system_prompt}</pre>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div>
                   <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5">Input</div>
                   <pre className="rounded-md border border-border bg-surface-2 p-3 text-xs whitespace-pre-wrap overflow-x-auto">
