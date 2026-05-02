@@ -151,6 +151,20 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") {
     return json(openaiErrorShape("Method not allowed. Use POST.", typeForStatus(405), { code: "method_not_allowed" }), 405, { Allow: "POST, OPTIONS" });
   }
+  try {
+    return await handleRequest(req);
+  } catch (e) {
+    // Last-resort catch — anything that escapes the request handler. Keep the
+    // envelope identical to upstream-style 500s so SDKs handle it uniformly.
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[proxy] unhandled error:", msg);
+    let shape: RequestShape = "openai";
+    try { shape = detectRequestShape(new URL(req.url)).shape; } catch { /* ignore */ }
+    return errorResponse(shape, 500, "Internal proxy error", { code: "internal_error", anveguard: { detail: msg } });
+  }
+});
+
+async function handleRequest(req: Request): Promise<Response> {
 
   const start = Date.now();
   const sb = service();
