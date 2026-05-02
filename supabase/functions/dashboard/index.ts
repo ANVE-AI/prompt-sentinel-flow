@@ -1,8 +1,11 @@
 // AnveGuard dashboard API. Authenticates with a Clerk session JWT and exposes
 // CRUD for keys, policies, logs, and stats. Single function with action routing.
 import { corsHeaders, json, service, verifyClerkJwt, bearer, ensureProfile,
-  generateApiKey, sha256Hex, encryptString, GLOBAL_DEFAULT_BLOCKED } from "../_shared/anveguard.ts";
+  generateApiKey, sha256Hex, encryptString, decryptString, GLOBAL_DEFAULT_BLOCKED } from "../_shared/anveguard.ts";
 import { PROVIDERS, getProvider } from "../_shared/providers.ts";
+
+// In-memory cache for /models responses (per provider+key, 5 min TTL).
+const modelsCache = new Map<string, { models: string[]; exp: number }>();
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
