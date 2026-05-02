@@ -84,6 +84,8 @@ export function TemplateTestDialog({
         policy: template.policy,
         settings: template.settings,
         rules: template.rules ?? [],
+        applies_to_intents: template.applies_to_intents ?? [],
+        unknown_intent_fallback: template.unknown_intent_fallback ?? "apply_no_rules",
       },
     });
   };
