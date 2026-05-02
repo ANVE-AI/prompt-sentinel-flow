@@ -36,6 +36,8 @@ type Settings = {
   guardrail_system_prompt: string | null;
   /** Allow API callers to inject their own per-request system_prompt. */
   allow_client_system_prompt: boolean;
+  /** Max characters allowed for a per-request system_prompt (100..64000). */
+  system_prompt_max_length: number;
 };
 
 type IntentRow = { intent: string; action: "block" | "flag" | "allow"; min_confidence: number };
@@ -73,6 +75,7 @@ export function IntentPolicySection() {
   const [purpose, setPurpose] = useState("");
   const [guardrailPrompt, setGuardrailPrompt] = useState("");
   const [allowClientPrompt, setAllowClientPrompt] = useState(false);
+  const [systemPromptMax, setSystemPromptMax] = useState<number>(16000);
 
   useEffect(() => {
     const s = settingsQ.data?.settings;
@@ -83,6 +86,7 @@ export function IntentPolicySection() {
     setPurpose(s.workspace_purpose ?? "");
     setGuardrailPrompt(s.guardrail_system_prompt ?? "");
     setAllowClientPrompt(!!s.allow_client_system_prompt);
+    setSystemPromptMax(Number(s.system_prompt_max_length) || 16000);
   }, [settingsQ.data]);
 
   const saveSettings = useMutation({
@@ -93,6 +97,7 @@ export function IntentPolicySection() {
       workspace_purpose: purpose,
       guardrail_system_prompt: guardrailPrompt,
       allow_client_system_prompt: allowClientPrompt,
+      system_prompt_max_length: systemPromptMax,
     } }),
     onSuccess: () => { toast.success("Intent settings saved"); qc.invalidateQueries({ queryKey: ["policy_settings"] }); },
     onError: (e: any) => toast.error(e?.message ?? "Failed to save"),
@@ -211,6 +216,31 @@ export function IntentPolicySection() {
                 </p>
               </div>
               <Switch checked={allowClientPrompt} onCheckedChange={setAllowClientPrompt} />
+            </div>
+            <div className={`mt-3 flex items-center justify-between gap-4 ${allowClientPrompt ? "" : "opacity-50 pointer-events-none"}`}>
+              <div className="min-w-0">
+                <Label htmlFor="system-prompt-max" className="text-body">Max <code className="font-mono text-xs">system_prompt</code> length</Label>
+                <p className="text-meta text-muted-foreground mt-0.5">
+                  Caller prompts longer than this return <code className="font-mono">400 invalid_request_error</code>.
+                  Allowed range: 100–64,000 characters. Default is 16,000 (~4k tokens).
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="system-prompt-max"
+                  type="number"
+                  min={100}
+                  max={64000}
+                  step={100}
+                  value={systemPromptMax}
+                  onChange={(e) => {
+                    const n = Number(e.target.value);
+                    if (Number.isFinite(n)) setSystemPromptMax(Math.max(100, Math.min(64000, Math.floor(n))));
+                  }}
+                  className="w-28 text-right tabular-nums surface-2 border-border"
+                />
+                <span className="text-meta text-muted-foreground">chars</span>
+              </div>
             </div>
           </div>
         </CardContent>

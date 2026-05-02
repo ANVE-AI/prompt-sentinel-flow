@@ -1,7 +1,11 @@
 import { assertEquals, assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   validateSystemPrompt,
+  resolveSystemPromptMax,
   SYSTEM_PROMPT_MAX,
+  SYSTEM_PROMPT_MAX_DEFAULT,
+  SYSTEM_PROMPT_MIN_LIMIT,
+  SYSTEM_PROMPT_ABSOLUTE_MAX,
 } from "../_shared/system_prompt.ts";
 
 // The validator returns plain `{ error, value }`; the proxy wraps `error` in an
@@ -91,4 +95,44 @@ Deno.test("system_prompt: produces correct OpenAI error envelope on failure", ()
   assertEquals(env.error.param, "system_prompt");
   assertEquals(env.error.type, "invalid_request_error");
   assert(typeof env.error.message === "string" && env.error.message.length > 0);
+});
+
+Deno.test("resolveSystemPromptMax: invalid/missing falls back to secure default", () => {
+  assertEquals(resolveSystemPromptMax(undefined), SYSTEM_PROMPT_MAX_DEFAULT);
+  assertEquals(resolveSystemPromptMax(null), SYSTEM_PROMPT_MAX_DEFAULT);
+  assertEquals(resolveSystemPromptMax(0), SYSTEM_PROMPT_MAX_DEFAULT);
+  assertEquals(resolveSystemPromptMax(-50), SYSTEM_PROMPT_MAX_DEFAULT);
+  assertEquals(resolveSystemPromptMax("not a number"), SYSTEM_PROMPT_MAX_DEFAULT);
+  assertEquals(resolveSystemPromptMax(NaN), SYSTEM_PROMPT_MAX_DEFAULT);
+});
+
+Deno.test("resolveSystemPromptMax: clamps below minimum and above absolute max", () => {
+  assertEquals(resolveSystemPromptMax(50), SYSTEM_PROMPT_MIN_LIMIT);
+  assertEquals(resolveSystemPromptMax(99), SYSTEM_PROMPT_MIN_LIMIT);
+  assertEquals(resolveSystemPromptMax(SYSTEM_PROMPT_ABSOLUTE_MAX + 1), SYSTEM_PROMPT_ABSOLUTE_MAX);
+  assertEquals(resolveSystemPromptMax(1_000_000), SYSTEM_PROMPT_ABSOLUTE_MAX);
+});
+
+Deno.test("resolveSystemPromptMax: accepts numeric strings and floors", () => {
+  assertEquals(resolveSystemPromptMax("8000"), 8000);
+  assertEquals(resolveSystemPromptMax(8000.7), 8000);
+});
+
+Deno.test("validateSystemPrompt: honors a tighter workspace-configured cap", () => {
+  const r = validateSystemPrompt("a".repeat(501), 500);
+  assert(r.error?.includes("too long"));
+  assert(r.error?.includes("max 500"));
+});
+
+Deno.test("validateSystemPrompt: at the configured cap is accepted", () => {
+  const r = validateSystemPrompt("a".repeat(500), 500);
+  assertEquals(r.error, null);
+  assertEquals(r.value.length, 500);
+});
+
+Deno.test("validateSystemPrompt: default cap matches SYSTEM_PROMPT_MAX export", () => {
+  // The legacy export still works for callers that haven't migrated yet.
+  assertEquals(SYSTEM_PROMPT_MAX, SYSTEM_PROMPT_MAX_DEFAULT);
+  const r = validateSystemPrompt("a".repeat(SYSTEM_PROMPT_MAX_DEFAULT));
+  assertEquals(r.error, null);
 });

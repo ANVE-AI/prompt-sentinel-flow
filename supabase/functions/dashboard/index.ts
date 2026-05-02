@@ -1233,6 +1233,7 @@ Deno.serve(async (req) => {
             // API regardless of what the calling client sends.
             guardrail_system_prompt: null,
             allow_client_system_prompt: false,
+            system_prompt_max_length: 16000,
             enable_injection_guard: true,
             injection_action: "block",
             enable_behavioral: true,
@@ -1338,8 +1339,13 @@ Deno.serve(async (req) => {
         }
         await sb.from("policy_settings").upsert(patch, { onConflict: "user_id" });
         return json({ ok: true });
-      }
-
+        }
+        if ("system_prompt_max_length" in (body ?? {})) {
+          const n = Number(body.system_prompt_max_length);
+          if (!Number.isInteger(n) || n < 100 || n > 64000) {
+            return json({ error: "system_prompt_max_length must be an integer 100-64000" }, 400);
+          }
+          patch.system_prompt_max_length = n;
       // Per-intent action mapping (block / flag / allow + min_confidence).
       case "list_policy_intents": {
         const { data } = await sb.from("policy_intents").select("*").eq("user_id", userId).order("intent");

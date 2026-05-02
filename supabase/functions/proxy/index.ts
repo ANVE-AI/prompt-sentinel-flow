@@ -16,7 +16,7 @@ import {
   type RequestShape,
 } from "../_shared/shape_translators.ts";
 import { parseModelsResponse } from "../_shared/models_parsers.ts";
-import { validateSystemPrompt } from "../_shared/system_prompt.ts";
+import { validateSystemPrompt, resolveSystemPromptMax } from "../_shared/system_prompt.ts";
 
 // ---- Error envelope helpers ------------------------------------------------
 // Every error response goes through `errorResponse` so the public shape is
@@ -491,7 +491,8 @@ async function handleRequest(req: Request): Promise<Response> {
   // Validation: reject obviously malformed inputs with OpenAI-style errors so
   // SDKs surface a clean `param: "system_prompt"` rather than a generic 500.
   const rawSystemPrompt = (body as any)?.system_prompt;
-  const validation = validateSystemPrompt(rawSystemPrompt);
+  const systemPromptMax = resolveSystemPromptMax((settings as any)?.system_prompt_max_length);
+  const validation = validateSystemPrompt(rawSystemPrompt, systemPromptMax);
   if (validation.error) {
     return errorResponse(reqShape, 400, validation.error,
       { code: "invalid_request_error", param: "system_prompt" });

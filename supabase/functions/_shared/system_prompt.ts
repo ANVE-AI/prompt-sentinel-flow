@@ -2,9 +2,22 @@
 // include in /v1/chat/completions requests. Lives in _shared so the proxy and
 // the unit tests can both import it without duplicating limits or messages.
 
-/** Hard cap. ~4k tokens — enough for real guardrails, small enough to deter
- *  prompt-stuffing abuse. */
-export const SYSTEM_PROMPT_MAX = 16_000;
+/** Hard cap default. ~4k tokens — enough for real guardrails, small enough
+ *  to deter prompt-stuffing abuse. Workspaces can override via
+ *  `policy_settings.system_prompt_max_length` within [MIN, ABSOLUTE_MAX]. */
+export const SYSTEM_PROMPT_MAX_DEFAULT = 16_000;
+export const SYSTEM_PROMPT_MIN_LIMIT = 100;
+export const SYSTEM_PROMPT_ABSOLUTE_MAX = 64_000;
+/** Backwards-compat alias used by tests written against the original constant. */
+export const SYSTEM_PROMPT_MAX = SYSTEM_PROMPT_MAX_DEFAULT;
+
+/** Clamp a workspace-supplied limit into the safe range. Falsy/invalid input
+ *  falls back to the secure default rather than disabling the cap. */
+export function resolveSystemPromptMax(raw: unknown): number {
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return SYSTEM_PROMPT_MAX_DEFAULT;
+  return Math.min(SYSTEM_PROMPT_ABSOLUTE_MAX, Math.max(SYSTEM_PROMPT_MIN_LIMIT, Math.floor(n)));
+}
 
 /** Disallowed control characters: NUL + C0 controls except \t (\u0009),
  *  \n (\u000A), and \r (\u000D), which are commonly present in prompts. */
@@ -23,16 +36,19 @@ export type SystemPromptValidation =
  * Returns `{ error: null, value: trimmed }` on success — value is the empty
  * string when the field was absent / null / undefined.
  */
-export function validateSystemPrompt(input: unknown): SystemPromptValidation {
+export function validateSystemPrompt(
+  input: unknown,
+  maxLength: number = SYSTEM_PROMPT_MAX_DEFAULT,
+): SystemPromptValidation {
   if (input === undefined || input === null) {
     return { error: null, value: "" };
   }
   if (typeof input !== "string") {
     return { error: "`system_prompt` must be a string.", value: "" };
   }
-  if (input.length > SYSTEM_PROMPT_MAX) {
+  if (input.length > maxLength) {
     return {
-      error: `\`system_prompt\` is too long: ${input.length} chars (max ${SYSTEM_PROMPT_MAX}).`,
+      error: `\`system_prompt\` is too long: ${input.length} chars (max ${maxLength}).`,
       value: "",
     };
   }
