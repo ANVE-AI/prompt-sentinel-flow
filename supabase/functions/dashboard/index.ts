@@ -1119,10 +1119,7 @@ Deno.serve(async (req) => {
           intents: intentsRes.data ?? [],
           legacy: legacyRes.data ?? null,
           global_defaults: GLOBAL_DEFAULT_BLOCKED,
-          known_intents: [
-            "jailbreak", "prompt_injection", "data_exfiltration",
-            "off_topic", "tool_abuse", "harassment", "other",
-          ],
+          known_intents: await loadKnownIntentNames(sb, userId),
         });
       }
 
