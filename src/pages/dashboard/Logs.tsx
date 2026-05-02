@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Search, ShieldAlert, Ban, ShieldCheck, Inbox, Layers, Sparkles, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Search, ShieldAlert, Ban, ShieldCheck, Inbox, Layers, Sparkles, AlertTriangle, CheckCircle2, Flame } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDashboardApi } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,6 +15,31 @@ import { SkeletonRows } from "@/components/skeletons";
 import { PageHeader } from "@/components/page-header";
 import { KeyValue } from "@/components/key-value";
 import { EmptyState } from "@/components/empty-state";
+
+// Map a log row to a coarse severity used by Security Events sorting.
+// "critical" = blocked_input/blocked_output/throttled, "high" = error,
+// "warn" = verdict==="flag", "low" = anything else.
+const severityOf = (l: any): "critical" | "high" | "warn" | "low" => {
+  if (typeof l.status === "string" && l.status.startsWith("blocked")) return "critical";
+  if (l.status === "throttled") return "critical";
+  if (l.status === "error") return "high";
+  if (l.verdict === "flag") return "warn";
+  return "low";
+};
+const SEVERITY_RANK: Record<string, number> = { critical: 0, high: 1, warn: 2, low: 3 };
+const SEVERITY_TONE: Record<string, "block" | "warn" | "ok"> = {
+  critical: "block", high: "block", warn: "warn", low: "ok",
+};
+
+// Pull a concise rule label out of the persisted verdict_layers array.
+const primaryRule = (l: any): string | null => {
+  const layers = Array.isArray(l.verdict_layers) ? l.verdict_layers : [];
+  const fired = layers.find((x: any) => x?.verdict === "block")
+    ?? layers.find((x: any) => x?.verdict === "sanitize")
+    ?? layers.find((x: any) => x?.verdict === "flag");
+  if (!fired) return null;
+  return fired.rule || fired.intent || fired.layer || null;
+};
 
 const statusOf = (s: string): "ok" | "warn" | "block" =>
   s === "allowed" ? "ok" : s === "error" ? "warn" : "block";
@@ -190,10 +215,8 @@ const RequestLogs = () => {
                   <KeyValue label="Tokens in">{selected.tokens_in ?? "—"}</KeyValue>
                   <KeyValue label="Tokens out">{selected.tokens_out ?? "—"}</KeyValue>
                 </div>
-                {selected.block_reason && (
-                  <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-status-block text-meta">
-                    {selected.block_reason}
-                  </div>
+                {(selected.block_reason || selected.status?.startsWith("blocked")) && (
+                  <BlockReasonBlock log={selected} />
                 )}
                 <PolicyVerdictPanel log={selected} />
                 <Tabs defaultValue="pretty">
@@ -385,6 +408,214 @@ function LayerRow({ entry: l }: { entry: LayerEntry }) {
   );
 }
 
+// ---- Reason for block — compact, prominent summary ----------------------
+function BlockReasonBlock({ log }: { log: any }) {
+  const layers: any[] = Array.isArray(log.verdict_layers) ? log.verdict_layers : [];
+  const fired = layers.find((l) => l?.verdict === "block")
+    ?? layers.find((l) => l?.verdict === "sanitize")
+    ?? layers.find((l) => l?.verdict === "flag")
+    ?? null;
+  const reason = log.block_reason ?? fired?.reason ?? "Blocked by policy";
+  const rule = fired?.rule ?? fired?.intent ?? null;
+  const matched = fired?.matched ?? null;
+  const policyName = fired ? (LAYER_LABELS[fired.layer] ?? fired.layer) : null;
+
+  return (
+    <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <Ban className="h-3.5 w-3.5 text-status-block" />
+        <span className="text-meta font-medium text-status-block">Reason for block</span>
+      </div>
+      <div className="text-body text-foreground">{reason}</div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+        <ReasonCell label="Rule" value={rule} />
+        <ReasonCell label="Keyword" value={matched} mono />
+        <ReasonCell label="Policy" value={policyName} />
+      </div>
+    </div>
+  );
+}
+
+function ReasonCell({ label, value, mono }: { label: string; value: string | null; mono?: boolean }) {
+  return (
+    <div className="rounded border border-border bg-surface-1 p-2">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className={cn("text-meta truncate", mono && "font-mono")}>{value ?? "—"}</div>
+    </div>
+  );
+}
+
+// ---- Security Events — blocked-only, severity-sorted view ----------------
+const securityCols = "grid-cols-[140px_92px_minmax(0,1fr)_180px_120px]";
+
+const SecurityEvents = () => {
+  const { call } = useDashboardApi();
+  const [q, setQ] = useState("");
+  const [severityFilter, setSeverityFilter] = useState<string>("all");
+  const [selected, setSelected] = useState<any>(null);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["security_events"],
+    queryFn: () => call<any>("list_logs", { query: { limit: "500" } }),
+    refetchInterval: 15_000,
+  });
+
+  const events = useMemo(() => {
+    const all = (data?.logs ?? []).filter((l: any) => {
+      const s = severityOf(l);
+      return s === "critical" || s === "warn";
+    });
+    const filtered = all.filter((l: any) => {
+      if (severityFilter !== "all" && severityOf(l) !== severityFilter) return false;
+      if (!q) return true;
+      const hay = JSON.stringify(l.messages ?? "") + " " + (l.block_reason ?? "") + " " + (primaryRule(l) ?? "");
+      return hay.toLowerCase().includes(q.toLowerCase());
+    });
+    return filtered.sort((a: any, b: any) => {
+      const r = SEVERITY_RANK[severityOf(a)] - SEVERITY_RANK[severityOf(b)];
+      if (r !== 0) return r;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  }, [data, q, severityFilter]);
+
+  const counts = useMemo(() => {
+    const c = { critical: 0, warn: 0 };
+    for (const l of data?.logs ?? []) {
+      const s = severityOf(l);
+      if (s === "critical") c.critical++;
+      else if (s === "warn") c.warn++;
+    }
+    return c;
+  }, [data]);
+
+  return (
+    <>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <SecStat label="Critical events" value={counts.critical} tone="block" icon={<Flame className="h-4 w-4" />} />
+        <SecStat label="Warnings (flagged)" value={counts.warn} tone="warn" icon={<AlertTriangle className="h-4 w-4" />} />
+        <SecStat label="Total events" value={counts.critical + counts.warn} tone="info" icon={<ShieldAlert className="h-4 w-4" />} />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[200px] max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search prompts, rules, reasons…"
+            value={q} onChange={(e) => setQ(e.target.value)}
+            className="pl-9 h-9 surface-2 border-border"
+          />
+        </div>
+        <Select value={severityFilter} onValueChange={setSeverityFilter}>
+          <SelectTrigger className="w-44 h-9 surface-2 border-border"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All severities</SelectItem>
+            <SelectItem value="critical">Critical only</SelectItem>
+            <SelectItem value="warn">Warnings only</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <Card className="surface-1 border-border overflow-hidden">
+        <div className="overflow-x-auto">
+        <div className="min-w-[840px]">
+        <div className={`grid ${securityCols} gap-3 px-4 h-9 items-center border-b border-border bg-surface-2/60 text-[10px] font-medium text-muted-foreground uppercase tracking-[0.1em]`}>
+          <div>Time</div><div>Severity</div><div>Reason</div><div>Rule</div><div>Status</div>
+        </div>
+        {isLoading ? (
+          <SkeletonRows rows={8} cols={securityCols} />
+        ) : events.length === 0 ? (
+          <EmptyState
+            icon={<ShieldCheck className="h-5 w-5" />}
+            title="No security events"
+            description="No blocked or flagged requests in the last 500 entries. Nice."
+          />
+        ) : (
+          <ul className="divide-y divide-border">
+            {events.map((l: any) => {
+              const sev = severityOf(l);
+              const rule = primaryRule(l);
+              const reason = l.block_reason
+                ?? (l.messages?.[l.messages.length - 1]?.content ?? "").toString();
+              return (
+                <li key={l.id}>
+                  <button
+                    onClick={() => setSelected(l)}
+                    className={`w-full grid ${securityCols} gap-3 px-4 h-9 items-center text-left transition-colors hover:bg-surface-2`}
+                  >
+                    <span className="text-meta text-muted-foreground font-mono tabular-nums">
+                      {new Date(l.created_at).toLocaleString()}
+                    </span>
+                    <Badge status={SEVERITY_TONE[sev]}>{sev}</Badge>
+                    <span className="text-body truncate">{reason || "—"}</span>
+                    <span className="text-meta text-muted-foreground font-mono truncate">{rule ?? "—"}</span>
+                    <Badge status={statusOf(l.status)}>{l.status}</Badge>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        </div>
+        </div>
+      </Card>
+
+      <Sheet open={!!selected} onOpenChange={(v) => !v && setSelected(null)}>
+        <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
+          {selected && (
+            <>
+              <SheetHeader>
+                <SheetTitle className="flex items-center gap-2">
+                  Security event
+                  <Badge status={statusOf(selected.status)}>{selected.status}</Badge>
+                </SheetTitle>
+              </SheetHeader>
+              <div className="mt-6 space-y-5 text-body">
+                <div className="grid grid-cols-2 gap-4">
+                  <KeyValue label="Time" mono={false}>{new Date(selected.created_at).toLocaleString()}</KeyValue>
+                  <KeyValue label="Latency">{selected.latency_ms ?? 0}ms</KeyValue>
+                  <KeyValue label="Provider" mono={false}>{selected.provider}</KeyValue>
+                  <KeyValue label="Model">{selected.model}</KeyValue>
+                </div>
+                <BlockReasonBlock log={selected} />
+                <PolicyVerdictPanel log={selected} />
+                <div>
+                  <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5">Input</div>
+                  <pre className="rounded-md border border-border bg-surface-2 p-3 text-xs whitespace-pre-wrap overflow-x-auto">
+                    {JSON.stringify(selected.messages, null, 2)}
+                  </pre>
+                </div>
+                <div>
+                  <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5">Output</div>
+                  <pre className="rounded-md border border-border bg-surface-2 p-3 text-xs whitespace-pre-wrap overflow-x-auto">
+                    {JSON.stringify(selected.response, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
+    </>
+  );
+};
+
+const SecStat = ({ label, value, tone, icon }: {
+  label: string; value: number; tone: "block" | "warn" | "info"; icon: React.ReactNode;
+}) => (
+  <Card className="surface-1 border-border p-4">
+    <div className="flex items-center justify-between">
+      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <span className={cn(
+        "h-6 w-6 rounded-md flex items-center justify-center",
+        tone === "block" && "bg-destructive/10 text-status-block",
+        tone === "warn" && "bg-amber-500/10 text-amber-500",
+        tone === "info" && "bg-primary/10 text-primary",
+      )}>{icon}</span>
+    </div>
+    <div className="text-display font-semibold tabular-nums tracking-tight mt-1">{value.toLocaleString()}</div>
+  </Card>
+);
+
 
 const AuditLog = () => {
   const { call } = useDashboardApi();
@@ -484,30 +715,48 @@ const AuditLog = () => {
   );
 };
 
-const Logs = () => (
-  <div className="px-4 md:px-6 py-5 space-y-5 max-w-[1320px] mx-auto">
-    <PageHeader
-      title="Logs"
-      description="Request traffic and account-level audit events."
-    />
+const Logs = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialTab = searchParams.get("tab") === "security"
+    || searchParams.get("tab") === "audit" ? searchParams.get("tab")! : "requests";
+  const [tab, setTab] = useState<string>(initialTab);
 
-    <Tabs defaultValue="requests" className="space-y-4">
-      <TabsList className="bg-surface-2 border border-border h-9 p-0.5">
-        <TabsTrigger value="requests" className="h-8 px-3 text-body data-[state=active]:bg-surface-1 data-[state=active]:shadow-pop">
-          Requests
-        </TabsTrigger>
-        <TabsTrigger value="audit" className="h-8 px-3 text-body data-[state=active]:bg-surface-1 data-[state=active]:shadow-pop">
-          Audit log
-        </TabsTrigger>
-      </TabsList>
-      <TabsContent value="requests" className="space-y-4 animate-fade-in">
-        <RequestLogs />
-      </TabsContent>
-      <TabsContent value="audit" className="space-y-4 animate-fade-in">
-        <AuditLog />
-      </TabsContent>
-    </Tabs>
-  </div>
-);
+  return (
+    <div className="px-4 md:px-6 py-5 space-y-5 max-w-[1320px] mx-auto">
+      <PageHeader
+        title="Logs"
+        description="Request traffic, security events, and account-level audit."
+      />
+
+      <Tabs value={tab} onValueChange={(v) => {
+        setTab(v);
+        const next = new URLSearchParams(searchParams);
+        if (v === "requests") next.delete("tab"); else next.set("tab", v);
+        setSearchParams(next, { replace: true });
+      }} className="space-y-4">
+        <TabsList className="bg-surface-2 border border-border h-9 p-0.5">
+          <TabsTrigger value="requests" className="h-8 px-3 text-body data-[state=active]:bg-surface-1 data-[state=active]:shadow-pop">
+            Requests
+          </TabsTrigger>
+          <TabsTrigger value="security" className="h-8 px-3 text-body data-[state=active]:bg-surface-1 data-[state=active]:shadow-pop">
+            <ShieldAlert className="h-3.5 w-3.5 mr-1.5" /> Security events
+          </TabsTrigger>
+          <TabsTrigger value="audit" className="h-8 px-3 text-body data-[state=active]:bg-surface-1 data-[state=active]:shadow-pop">
+            Audit log
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="requests" className="space-y-4 animate-fade-in">
+          <RequestLogs />
+        </TabsContent>
+        <TabsContent value="security" className="space-y-4 animate-fade-in">
+          <SecurityEvents />
+        </TabsContent>
+        <TabsContent value="audit" className="space-y-4 animate-fade-in">
+          <AuditLog />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+};
 
 export default Logs;

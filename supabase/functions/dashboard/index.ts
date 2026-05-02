@@ -1286,6 +1286,7 @@ Deno.serve(async (req) => {
             return json({ error: "behavioral_length_multiplier must be 1..100" }, 400);
           }
           patch.behavioral_length_multiplier = n;
+        }
         if ("semantic_threshold" in (body ?? {})) {
           const n = Number(body.semantic_threshold);
           if (!(n >= 0.5 && n <= 0.95)) {
@@ -1597,12 +1598,42 @@ Deno.serve(async (req) => {
       case "stats": {
         const since = new Date(Date.now() - 14 * 86400000).toISOString();
         const { data: logs } = await sb.from("request_logs")
-          .select("status,latency_ms,created_at").eq("user_id", userId).gte("created_at", since);
+          .select("status,latency_ms,created_at,verdict_layers").eq("user_id", userId).gte("created_at", since);
         const { data: keys } = await sb.from("api_keys")
           .select("id,is_active").eq("user_id", userId);
         const total = logs?.length ?? 0;
         const blocked = (logs ?? []).filter((l) => l.status?.startsWith("blocked")).length;
+        const errors = (logs ?? []).filter((l) => l.status === "error").length;
         const avgLatency = total ? Math.round((logs!.reduce((s, l) => s + (l.latency_ms ?? 0), 0)) / total) : 0;
+
+        // Top triggered rules across the window. We aggregate fired layers
+        // (verdict !== "allow") from request_logs.verdict_layers JSONB, keyed
+        // by `${layer}:${rule || intent || "—"}` so two regex rules with the
+        // same name don't collide with a heuristic detector.
+        const ruleCounts = new Map<string, {
+          key: string; layer: string; rule: string; verdict: string;
+          count: number; blocks: number; last_at: string | null;
+        }>();
+        for (const l of (logs ?? []) as any[]) {
+          const layers = Array.isArray(l.verdict_layers) ? l.verdict_layers : [];
+          for (const lay of layers) {
+            const v = String(lay?.verdict ?? "allow");
+            if (v === "allow") continue;
+            const layer = String(lay?.layer ?? "unknown");
+            const rule = String(lay?.rule ?? lay?.intent ?? "—");
+            const k = `${layer}::${rule}`;
+            let r = ruleCounts.get(k);
+            if (!r) {
+              r = { key: k, layer, rule, verdict: v, count: 0, blocks: 0, last_at: null };
+              ruleCounts.set(k, r);
+            }
+            r.count += 1;
+            if (v === "block") r.blocks += 1;
+            if (!r.last_at || (l.created_at && l.created_at > r.last_at)) r.last_at = l.created_at;
+          }
+        }
+        const top_rules = Array.from(ruleCounts.values())
+          .sort((a, b) => b.count - a.count).slice(0, 8);
         // Bucket by day
         const buckets: Record<string, { requests: number; blocked: number }> = {};
         for (let i = 13; i >= 0; i--) {
@@ -1618,10 +1649,11 @@ Deno.serve(async (req) => {
         }
         const chart = Object.entries(buckets).map(([day, v]) => ({ day, ...v }));
         return json({
-          total, blocked, avg_latency_ms: avgLatency,
+          total, blocked, errors, avg_latency_ms: avgLatency,
+          blocked_pct: total ? Number(((blocked / total) * 100).toFixed(2)) : 0,
           active_keys: (keys ?? []).filter((k) => k.is_active).length,
           total_keys: keys?.length ?? 0,
-          chart,
+          chart, top_rules,
         });
       }
 
