@@ -304,14 +304,7 @@ Deno.serve(async (req) => {
   (logBase as any).model = chosenModel;
   model = chosenModel;
 
-  if (!upstream.ok) {
-    const text = await upstream.text();
-    await sb.from("request_logs").insert({
-      ...logBase, status: "error", block_reason: `Upstream ${upstream.status}: ${text.slice(0, 500)}`,
-      latency_ms: Date.now() - start,
-    });
-    return new Response(text, { status: upstream.status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-  }
+
 
   // ===== Streaming =====
   if (stream && upstream.body) {
