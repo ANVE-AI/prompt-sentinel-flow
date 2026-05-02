@@ -1074,6 +1074,112 @@ Deno.serve(async (req) => {
       }
 
       // ---- Layered policy admin ------------------------------------------
+      // Combined fetch for the Policies v2 UI: returns settings, rules,
+      // intents, legacy keyword lists, and the catalog of known intents in a
+      // single round-trip so the page can hydrate without N requests.
+      case "get_policy_v2": {
+        const [settingsRes, rulesRes, intentsRes, legacyRes] = await Promise.all([
+          sb.from("policy_settings").select("*").eq("user_id", userId).maybeSingle(),
+          sb.from("policy_rules").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
+          sb.from("policy_intents").select("*").eq("user_id", userId).order("intent"),
+          sb.from("policies").select("*").eq("user_id", userId).maybeSingle(),
+        ]);
+        const settings = settingsRes.data ?? {
+          user_id: userId,
+          enable_normalizer: true, enable_patterns: true, enable_heuristics: true,
+          enable_intent: false, intent_shadow_mode: true, strict_mode: false,
+          workspace_purpose: null,
+          enable_injection_guard: true, injection_action: "block",
+          enable_behavioral: true, behavioral_action: "flag",
+          throttle_window_minutes: 5, throttle_flag_threshold: 10,
+          enable_fuzzy_keywords: true, enable_semantic_keywords: false,
+          semantic_threshold: 0.78,
+        };
+        return json({
+          settings,
+          rules: rulesRes.data ?? [],
+          intents: intentsRes.data ?? [],
+          legacy: legacyRes.data ?? null,
+          global_defaults: GLOBAL_DEFAULT_BLOCKED,
+          known_intents: [
+            "jailbreak", "prompt_injection", "data_exfiltration",
+            "off_topic", "tool_abuse", "harassment", "other",
+          ],
+        });
+      }
+
+      // Alias of save_policy_rule for the v2 UI naming convention.
+      case "upsert_policy_rule":
+      case "save_policy_rule": {
+        const id = body?.id ? String(body.id) : null;
+        const kind = String(body?.kind ?? "");
+        const name = String(body?.name ?? "").trim();
+        const severity = String(body?.severity ?? "high");
+        const direction = String(body?.direction ?? "both");
+        const enabled = body?.enabled !== false;
+        const config = body?.config && typeof body.config === "object" ? body.config : {};
+        const appliesToIntents = Array.isArray(body?.applies_to_intents)
+          ? body.applies_to_intents.map((s: unknown) => String(s)).filter(Boolean)
+          : [];
+        if (!name) return json({ error: "name is required" }, 400);
+        if (!["regex", "detector"].includes(kind)) return json({ error: "kind must be regex or detector" }, 400);
+        if (!["low", "med", "high"].includes(severity)) return json({ error: "invalid severity" }, 400);
+        if (!["input", "output", "both"].includes(direction)) return json({ error: "invalid direction" }, 400);
+        if (kind === "regex") {
+          const pattern = String(config.pattern ?? "");
+          if (!pattern) return json({ error: "regex rule requires config.pattern" }, 400);
+          try { new RegExp(pattern, String(config.flags ?? "i")); }
+          catch (e) { return json({ error: `invalid regex: ${(e as Error).message}` }, 400); }
+        }
+        const row = {
+          user_id: userId, name, kind, severity, direction, enabled, config,
+          applies_to_intents: appliesToIntents,
+        };
+        if (id) {
+          const { error } = await sb.from("policy_rules").update(row).eq("id", id).eq("user_id", userId);
+          if (error) return json({ error: error.message }, 400);
+          return json({ ok: true, id });
+        }
+        const { data, error } = await sb.from("policy_rules").insert(row).select("id").single();
+        if (error) return json({ error: error.message }, 400);
+        return json({ ok: true, id: data?.id });
+      }
+
+      // Bulk replace intent action mappings for this user. Accepts
+      // `{ intents: [{ intent, action, min_confidence }, ...] }` and writes
+      // them transactionally — any intent missing from the payload is removed.
+      case "save_policy_intents": {
+        const items = Array.isArray(body?.intents) ? body.intents : null;
+        if (!items) return json({ error: "intents array is required" }, 400);
+        const normalized: { user_id: string; intent: string; action: string; min_confidence: number }[] = [];
+        const seen = new Set<string>();
+        for (const raw of items) {
+          const intent = String(raw?.intent ?? "").trim();
+          const action = String(raw?.action ?? "flag");
+          const minConf = Number(raw?.min_confidence ?? 0.7);
+          if (!intent) return json({ error: "intent is required" }, 400);
+          if (seen.has(intent)) return json({ error: `duplicate intent: ${intent}` }, 400);
+          if (!["block", "flag", "allow"].includes(action)) {
+            return json({ error: `invalid action for ${intent}` }, 400);
+          }
+          if (!Number.isFinite(minConf) || minConf < 0 || minConf > 1) {
+            return json({ error: `min_confidence out of range for ${intent}` }, 400);
+          }
+          seen.add(intent);
+          normalized.push({ user_id: userId, intent, action, min_confidence: minConf });
+        }
+        // Replace: delete the ones not in the payload, upsert the rest.
+        const keep = Array.from(seen);
+        if (keep.length === 0) {
+          await sb.from("policy_intents").delete().eq("user_id", userId);
+        } else {
+          await sb.from("policy_intents").delete().eq("user_id", userId).not("intent", "in", `(${keep.map((s) => `"${s.replace(/"/g, '""')}"`).join(",")})`);
+          const { error } = await sb.from("policy_intents").upsert(normalized, { onConflict: "user_id,intent" });
+          if (error) return json({ error: error.message }, 400);
+        }
+        return json({ ok: true, count: normalized.length });
+      }
+
       // Workspace-wide settings for the layered evaluator.
       case "get_policy_settings": {
         const { data } = await sb.from("policy_settings").select("*").eq("user_id", userId).maybeSingle();
@@ -1196,41 +1302,7 @@ Deno.serve(async (req) => {
         return json({ rules: data ?? [] });
       }
 
-      case "save_policy_rule": {
-        const id = body?.id ? String(body.id) : null;
-        const kind = String(body?.kind ?? "");
-        const name = String(body?.name ?? "").trim();
-        const severity = String(body?.severity ?? "high");
-        const direction = String(body?.direction ?? "both");
-        const enabled = body?.enabled !== false;
-        const config = body?.config && typeof body.config === "object" ? body.config : {};
-        const appliesToIntents = Array.isArray(body?.applies_to_intents)
-          ? body.applies_to_intents.map((s: unknown) => String(s)).filter(Boolean)
-          : [];
-        if (!name) return json({ error: "name is required" }, 400);
-        if (!["regex", "detector"].includes(kind)) return json({ error: "kind must be regex or detector" }, 400);
-        if (!["low", "med", "high"].includes(severity)) return json({ error: "invalid severity" }, 400);
-        if (!["input", "output", "both"].includes(direction)) return json({ error: "invalid direction" }, 400);
-        // Validate regex compiles before persisting.
-        if (kind === "regex") {
-          const pattern = String(config.pattern ?? "");
-          if (!pattern) return json({ error: "regex rule requires config.pattern" }, 400);
-          try { new RegExp(pattern, String(config.flags ?? "i")); }
-          catch (e) { return json({ error: `invalid regex: ${(e as Error).message}` }, 400); }
-        }
-        const row = {
-          user_id: userId, name, kind, severity, direction, enabled, config,
-          applies_to_intents: appliesToIntents,
-        };
-        if (id) {
-          const { error } = await sb.from("policy_rules").update(row).eq("id", id).eq("user_id", userId);
-          if (error) return json({ error: error.message }, 400);
-          return json({ ok: true, id });
-        }
-        const { data, error } = await sb.from("policy_rules").insert(row).select("id").single();
-        if (error) return json({ error: error.message }, 400);
-        return json({ ok: true, id: data?.id });
-      }
+      // (save_policy_rule handled above with upsert_policy_rule alias.)
 
       case "delete_policy_rule": {
         const id = String(body?.id ?? "");
