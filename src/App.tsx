@@ -19,6 +19,18 @@ import Playground from "./pages/dashboard/Playground";
 import PolicySandbox from "./pages/dashboard/PolicySandbox";
 import SignInPage from "./pages/SignIn";
 import SignUpPage from "./pages/SignUp";
+import DocsLayout from "./pages/docs/DocsLayout";
+import DocsOverview from "./pages/docs/Overview";
+import DocsQuickstart from "./pages/docs/Quickstart";
+import DocsConcepts from "./pages/docs/Concepts";
+import DocsApiKeys from "./pages/docs/ApiKeys";
+import DocsEndpoints from "./pages/docs/Endpoints";
+import DocsRoutes from "./pages/docs/Routes";
+import DocsPolicies from "./pages/docs/Policies";
+import DocsLogs from "./pages/docs/Logs";
+import DocsProxyApi from "./pages/docs/ProxyApi";
+import DocsErrors from "./pages/docs/Errors";
+import DocsFaq from "./pages/docs/Faq";
 
 const queryClient = new QueryClient();
 
@@ -50,6 +62,19 @@ const App = () => (
               <Route path="policies/sandbox" element={<PolicySandbox />} />
               <Route path="logs" element={<Logs />} />
               <Route path="playground" element={<Playground />} />
+            </Route>
+            <Route path="/docs" element={<DocsLayout />}>
+              <Route index element={<DocsOverview />} />
+              <Route path="quickstart" element={<DocsQuickstart />} />
+              <Route path="concepts" element={<DocsConcepts />} />
+              <Route path="api-keys" element={<DocsApiKeys />} />
+              <Route path="endpoints" element={<DocsEndpoints />} />
+              <Route path="routes" element={<DocsRoutes />} />
+              <Route path="policies" element={<DocsPolicies />} />
+              <Route path="logs" element={<DocsLogs />} />
+              <Route path="proxy-api" element={<DocsProxyApi />} />
+              <Route path="errors" element={<DocsErrors />} />
+              <Route path="faq" element={<DocsFaq />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>
