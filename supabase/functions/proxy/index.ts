@@ -2,7 +2,7 @@
 // Public function; authenticated via AnveGuard API keys (Authorization: Bearer ag_live_...).
 import { corsHeaders, json, service, sha256Hex, decryptString,
   GLOBAL_DEFAULT_BLOCKED, checkPolicy } from "../_shared/anveguard.ts";
-import { getProvider } from "../_shared/providers.ts";
+import { getProvider, resolveEndpoint } from "../_shared/providers.ts";
 import { openaiToAnthropicRequest, anthropicToOpenAIResponse,
   anthropicStreamToOpenAI } from "../_shared/anthropic.ts";
 
