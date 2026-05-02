@@ -47,6 +47,8 @@ type Template = {
     config: Record<string, unknown>;
     applies_to_intents?: string[];
   }>;
+  applies_to_intents?: string[];
+  unknown_intent_fallback?: "apply_no_rules" | "apply_default_rules" | "reject";
   custom?: boolean;
 };
 
@@ -304,10 +306,17 @@ export function PolicyTemplatesSection() {
       Array.isArray(t.applies_to_intents) && t.applies_to_intents.length
         ? `Intents: ${t.applies_to_intents.slice(0, 3).join(", ")}${t.applies_to_intents.length > 3 ? "…" : ""}`
         : "All intents",
+      `Unknown intent → ${
+        t.unknown_intent_fallback === "reject" ? "reject"
+        : t.unknown_intent_fallback === "apply_default_rules" ? "apply rules"
+        : "skip rules"
+      }`,
     ],
     policy: t.policy ?? {},
     settings: t.settings ?? {},
     rules: Array.isArray(t.rules) ? t.rules : [],
+    applies_to_intents: Array.isArray(t.applies_to_intents) ? t.applies_to_intents : [],
+    unknown_intent_fallback: t.unknown_intent_fallback ?? "apply_no_rules",
     custom: true,
   } as Template & { custom?: boolean }));
 

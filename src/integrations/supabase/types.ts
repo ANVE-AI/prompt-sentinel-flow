@@ -511,6 +511,7 @@ export type Database = {
           rules: Json
           settings: Json
           template_id: string
+          unknown_intent_fallback: string
           user_id: string
           version: number
         }
@@ -526,6 +527,7 @@ export type Database = {
           rules?: Json
           settings?: Json
           template_id: string
+          unknown_intent_fallback?: string
           user_id: string
           version: number
         }
@@ -541,6 +543,7 @@ export type Database = {
           rules?: Json
           settings?: Json
           template_id?: string
+          unknown_intent_fallback?: string
           user_id?: string
           version?: number
         }
@@ -565,6 +568,7 @@ export type Database = {
           policy: Json
           rules: Json
           settings: Json
+          unknown_intent_fallback: string
           updated_at: string
           user_id: string
         }
@@ -578,6 +582,7 @@ export type Database = {
           policy?: Json
           rules?: Json
           settings?: Json
+          unknown_intent_fallback?: string
           updated_at?: string
           user_id: string
         }
@@ -591,6 +596,7 @@ export type Database = {
           policy?: Json
           rules?: Json
           settings?: Json
+          unknown_intent_fallback?: string
           updated_at?: string
           user_id?: string
         }

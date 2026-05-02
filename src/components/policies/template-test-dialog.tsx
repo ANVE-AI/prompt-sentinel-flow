@@ -16,6 +16,8 @@ type TemplateLike = {
   policy: Record<string, any>;
   settings: Record<string, any>;
   rules?: Array<Record<string, any>>;
+  applies_to_intents?: string[];
+  unknown_intent_fallback?: "apply_no_rules" | "apply_default_rules" | "reject";
 };
 
 type Expected = "block" | "allow";
@@ -82,6 +84,8 @@ export function TemplateTestDialog({
         policy: template.policy,
         settings: template.settings,
         rules: template.rules ?? [],
+        applies_to_intents: template.applies_to_intents ?? [],
+        unknown_intent_fallback: template.unknown_intent_fallback ?? "apply_no_rules",
       },
     });
   };

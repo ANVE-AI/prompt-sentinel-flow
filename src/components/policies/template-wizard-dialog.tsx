@@ -92,6 +92,7 @@ export function TemplateWizardDialog({
   const [pickedRuleIds, setPickedRuleIds] = useState<Record<string, boolean>>({});
   const [intentScope, setIntentScope] = useState<string[]>([]);
   const [customIntent, setCustomIntent] = useState("");
+  const [unknownFallback, setUnknownFallback] = useState<"apply_no_rules" | "apply_default_rules" | "reject">("apply_no_rules");
 
   // Reset wizard state every time it opens.
   useEffect(() => {
@@ -104,6 +105,7 @@ export function TemplateWizardDialog({
     setPickedRuleIds({});
     setIntentScope([]);
     setCustomIntent("");
+    setUnknownFallback("apply_no_rules");
   }, [open]);
 
   // Default-select all live rules once they load.
@@ -151,6 +153,7 @@ export function TemplateWizardDialog({
           settings: selectedSettings,
           rules: selectedRules.map(({ id: _id, ...rest }) => rest),
           applies_to_intents: intentScope,
+          unknown_intent_fallback: unknownFallback,
         },
       }),
     onSuccess: () => {
@@ -270,6 +273,8 @@ export function TemplateWizardDialog({
               onChange={setIntentScope}
               customIntent={customIntent}
               onCustomChange={setCustomIntent}
+              unknownFallback={unknownFallback}
+              onUnknownFallbackChange={setUnknownFallback}
             />
           ) : (
             <ReviewStep
@@ -280,6 +285,7 @@ export function TemplateWizardDialog({
               settings={selectedSettings}
               rules={selectedRules}
               intentScope={intentScope}
+              unknownFallback={unknownFallback}
             />
           )}
         </div>
@@ -421,14 +427,25 @@ function SettingsPicker({
   );
 }
 
+type UnknownFallback = "apply_no_rules" | "apply_default_rules" | "reject";
+
+const FALLBACK_OPTIONS: { value: UnknownFallback; label: string; description: string }[] = [
+  { value: "apply_no_rules", label: "Apply no rules", description: "Skip this template's rules and let the request through unchanged." },
+  { value: "apply_default_rules", label: "Apply default rules", description: "Run the template's rules anyway, treating the request as in-scope." },
+  { value: "reject", label: "Reject the request", description: "Block the request with a policy error when intent can't be detected." },
+];
+
 function IntentScopeStep({
   knownIntents, scope, onChange, customIntent, onCustomChange,
+  unknownFallback, onUnknownFallbackChange,
 }: {
   knownIntents: string[];
   scope: string[];
   onChange: (next: string[]) => void;
   customIntent: string;
   onCustomChange: (v: string) => void;
+  unknownFallback: UnknownFallback;
+  onUnknownFallbackChange: (v: UnknownFallback) => void;
 }) {
   const isAll = scope.length === 0;
   const toggle = (intent: string) => {
@@ -506,6 +523,44 @@ function IntentScopeStep({
           </p>
         )}
       </div>
+
+      <div className="rounded-md border border-border surface-2 p-3 space-y-2">
+        <div>
+          <Label className="text-meta uppercase tracking-wider text-muted-foreground">
+            Fallback when intent can't be detected
+          </Label>
+          <p className="text-meta text-muted-foreground mt-1">
+            Controls what happens when the classifier is disabled, returns no
+            match, or returns an intent outside this template's scope.
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          {FALLBACK_OPTIONS.map((opt) => {
+            const on = unknownFallback === opt.value;
+            return (
+              <label
+                key={opt.value}
+                className={cn(
+                  "flex items-start gap-2 cursor-pointer rounded-md border p-2.5 transition-colors",
+                  on ? "border-primary bg-primary/5" : "border-border surface-2 hover:bg-muted/40",
+                )}
+              >
+                <input
+                  type="radio"
+                  name="unknown-fallback"
+                  className="mt-1 accent-primary"
+                  checked={on}
+                  onChange={() => onUnknownFallbackChange(opt.value)}
+                />
+                <span className="space-y-0.5">
+                  <span className="text-body block">{opt.label}</span>
+                  <span className="text-meta text-muted-foreground">{opt.description}</span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
@@ -518,6 +573,7 @@ function ReviewStep({
   settings,
   rules,
   intentScope,
+  unknownFallback,
 }: {
   name: string;
   description: string;
@@ -526,6 +582,7 @@ function ReviewStep({
   settings: Record<string, unknown>;
   rules: Rule[];
   intentScope: string[];
+  unknownFallback: UnknownFallback;
 }) {
   const stats = [
     { label: "Rules", value: rules.length },
@@ -563,6 +620,12 @@ function ReviewStep({
             ))}
           </div>
         )}
+        <div className="mt-2 pt-2 border-t border-border text-meta">
+          <span className="text-muted-foreground">Unknown-intent fallback: </span>
+          <span className="font-mono">
+            {FALLBACK_OPTIONS.find((o) => o.value === unknownFallback)?.label ?? unknownFallback}
+          </span>
+        </div>
       </div>
       {rules.length > 0 && (
         <div>
