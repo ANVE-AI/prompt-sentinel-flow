@@ -1232,6 +1232,7 @@ Deno.serve(async (req) => {
             // to every forwarded request so guardrails are enforced via the
             // API regardless of what the calling client sends.
             guardrail_system_prompt: null,
+            allow_client_system_prompt: false,
             enable_injection_guard: true,
             injection_action: "block",
             enable_behavioral: true,
