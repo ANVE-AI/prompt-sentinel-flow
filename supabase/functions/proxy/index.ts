@@ -556,13 +556,17 @@ async function handleRequest(req: Request): Promise<Response> {
     { systemPrompt, toolsRequested },
   );
 
+  // Every proxied call records the detected intent (or `"unknown"` when the
+  // intent classifier is disabled, in shadow mode, or returned no match).
+  // Surfacing this on every log lets operators audit *why* an intent-scoped
+  // rule did or didn't fire — a missing intent is a real, common reason.
   const logBase: any = {
     user_id: keyRow.user_id,
     api_key_id: keyRow.id,
     provider: keyRow.provider,
     model,
     messages: body.messages,
-    detected_intent: inputEval.detected_intent ?? null,
+    detected_intent: inputEval.detected_intent ?? "unknown",
     intent_confidence: inputEval.intent_confidence ?? null,
   };
 
