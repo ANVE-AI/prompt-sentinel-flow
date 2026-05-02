@@ -424,6 +424,7 @@ Deno.serve(async (req) => {
             latency_ms: Date.now() - t0,
             url: pingUrl,
             chat_url: resolved.url,
+            response_format: resolved.response_format,
             sample_model: sample,
             model_count: count,
             error: r.ok ? null : text.slice(0, 300),
