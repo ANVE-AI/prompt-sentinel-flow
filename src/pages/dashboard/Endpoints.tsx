@@ -1674,19 +1674,6 @@ const Endpoints = () => {
                         )}
                       </div>
                     ))}
-                      <div key={k.id} className="flex items-center gap-3 px-3 py-2 text-sm">
-                        <span className="font-medium truncate">{k.name}</span>
-                        <code className="text-xs text-muted-foreground">{k.key_prefix}…</code>
-                        {k.is_active ? (
-                          <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30">active</Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-[10px]">revoked</Badge>
-                        )}
-                        <span className="ml-auto text-xs text-muted-foreground">
-                          {k.last_used_at ? `last used ${new Date(k.last_used_at).toLocaleString()}` : "never used"}
-                        </span>
-                      </div>
-                    ))}
                   </div>
                 )}
               </div>
