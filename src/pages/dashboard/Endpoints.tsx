@@ -1195,6 +1195,45 @@ const Endpoints = () => {
                 </div>
               )}
             </div>
+
+            {/* Copyable curl examples — generated from the current form state */}
+            {(() => {
+              const ex = buildCurlExamples();
+              if (!ex) return null;
+              return (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm">curl examples</Label>
+                    <span className="text-[11px] text-muted-foreground">
+                      {ex.needsKey ? "Set $PROVIDER_KEY in your shell first" : "No auth required"}
+                    </span>
+                  </div>
+                  {ex.needsKey && (
+                    <div className="rounded-md border bg-muted/30 px-2.5 py-1.5 text-[11px] font-mono text-muted-foreground">
+                      export PROVIDER_KEY='your-key-here'
+                    </div>
+                  )}
+                  {[
+                    { label: "List models", cmd: ex.modelsCmd },
+                    { label: form.kind === "anthropic" ? "Send a message" : "Chat completion", cmd: ex.chatCmd },
+                  ].map((c) => (
+                    <div key={c.label} className="rounded-md border bg-muted/20">
+                      <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-border/60">
+                        <span className="text-xs font-medium">{c.label}</span>
+                        <Button
+                          type="button" variant="ghost" size="sm"
+                          className="h-6 px-2 text-xs"
+                          onClick={() => copyToClipboard(c.cmd, c.label)}
+                        >
+                          Copy
+                        </Button>
+                      </div>
+                      <pre className="px-2.5 py-2 text-[11px] font-mono leading-relaxed overflow-x-auto whitespace-pre text-foreground/90">{c.cmd}</pre>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
 
           <DialogFooter>
