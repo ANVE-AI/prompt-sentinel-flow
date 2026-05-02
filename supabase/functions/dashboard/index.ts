@@ -542,6 +542,8 @@ Deno.serve(async (req) => {
           });
         }
       }
+
+      case "get_policies": {
         const { data } = await sb.from("policies").select("*").eq("user_id", userId).maybeSingle();
         return json({ policies: data, global_defaults: GLOBAL_DEFAULT_BLOCKED });
       }
