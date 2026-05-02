@@ -25,14 +25,17 @@ Deno.serve(async (req) => {
   const key_hash = await sha256Hex(apiKeyPlain);
 
   const { data: keyRow } = await sb.from("api_keys")
-    .select("id,user_id,provider,provider_key_encrypted,model_default,is_active")
+    .select("id,user_id,provider,provider_key_encrypted,model_default,is_active,custom_base_url,custom_models_url,custom_kind,custom_auth_scheme,custom_auth_header,custom_extra_headers")
     .eq("key_hash", key_hash).maybeSingle();
   if (!keyRow || !keyRow.is_active) {
     return json(openaiErrorShape("Invalid or revoked API key", "invalid_request_error"), 401);
   }
 
-  const provider = getProvider(keyRow.provider);
-  if (!provider) return json(openaiErrorShape(`Unknown provider: ${keyRow.provider}`, "server_error"), 500);
+  const isCustom = keyRow.provider === "custom";
+  const provider = isCustom ? null : getProvider(keyRow.provider);
+  if (!isCustom && !provider) {
+    return json(openaiErrorShape(`Unknown provider: ${keyRow.provider}`, "server_error"), 500);
+  }
 
   // Body
   let body: any;
@@ -43,13 +46,15 @@ Deno.serve(async (req) => {
 
   // Resolve upstream credentials
   let upstreamKey: string | null = null;
-  if (provider.managed) {
+  if (provider?.managed) {
     upstreamKey = Deno.env.get("LOVABLE_API_KEY") || null;
     if (!upstreamKey) return json(openaiErrorShape("LOVABLE_API_KEY not configured", "server_error"), 500);
-  } else {
-    if (!keyRow.provider_key_encrypted) return json(openaiErrorShape(`${provider.label} key not stored`, "server_error"), 500);
+  } else if (keyRow.provider_key_encrypted) {
     upstreamKey = await decryptString(keyRow.provider_key_encrypted);
+  } else if (!isCustom) {
+    return json(openaiErrorShape(`${provider!.label} key not stored`, "server_error"), 500);
   }
+  // For custom + auth_scheme === 'none', upstreamKey remains null which is fine.
 
   // Load policies
   const { data: pol } = await sb.from("policies").select("*").eq("user_id", keyRow.user_id).maybeSingle();
