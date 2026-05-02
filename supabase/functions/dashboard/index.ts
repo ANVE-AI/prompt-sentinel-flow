@@ -1648,9 +1648,9 @@ Deno.serve(async (req) => {
         const skippedRules = allRules.filter((r) => !applicableRules.includes(r))
           .map((r) => ({ id: r.id, name: r.name, applies_to_intents: r.applies_to_intents ?? [] }));
 
-        // When forcing an intent we disable the live classifier so the
-        // simulation is deterministic and doesn't burn an LLM call.
-        const evalSettings: PolicySettings = forceIntent
+        // When simulating (force or unknown) we disable the live classifier
+        // so the preview is deterministic and doesn't burn an LLM call.
+        const evalSettings: PolicySettings = (forceIntent || simulateUnknown)
           ? { ...settings, enable_intent: false }
           : settings;
 
@@ -1660,13 +1660,10 @@ Deno.serve(async (req) => {
             text: inputText, direction: "input",
             legacy, rules: applicableRules, intents: [], settings: evalSettings,
           });
-          // Apply unknown-intent fallback: an intent is "unknown" when the
-          // classifier didn't run, returned nothing, or returned an intent
-          // outside the template's scope.
-          const detected = forceIntent ?? r.detected_intent ?? null;
-          const isUnknown = forceIntent
+          const detected = simulateUnknown ? null : (forceIntent ?? r.detected_intent ?? null);
+          const isUnknown = simulateUnknown ? true : (forceIntent
             ? isUnknownForFilter
-            : (!detected || (tplIntentScope.length > 0 && !tplIntentScope.includes(detected)));
+            : (!detected || (tplIntentScope.length > 0 && !tplIntentScope.includes(detected))));
           let verdict = r.verdict;
           let firedLayers = r.layers
             .filter((l) => l.verdict !== "allow")
