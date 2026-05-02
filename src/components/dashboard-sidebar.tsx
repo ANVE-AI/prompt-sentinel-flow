@@ -1,4 +1,4 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useMatch } from "react-router-dom";
 import {
   LayoutDashboard,
   KeyRound,
@@ -66,6 +66,7 @@ const groups: { id: string; label: string; items: NavItem[] }[] = [
 export function DashboardSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
+  const overviewActive = !!useMatch({ path: "/dashboard", end: true });
 
   return (
     <Sidebar collapsible="icon" className="hidden lg:flex border-r border-sidebar-border">
@@ -76,7 +77,10 @@ export function DashboardSidebar() {
           <NavLink
             to="/dashboard"
             aria-label="Overview"
-            className="mx-auto h-7 w-7 rounded-md bg-primary/15 text-primary flex items-center justify-center font-semibold text-[13px]"
+            className={cn(
+              "mx-auto h-7 w-7 rounded-md bg-primary/15 text-primary flex items-center justify-center font-semibold text-[13px] transition-shadow",
+              overviewActive && "ring-1 ring-primary/40",
+            )}
           >
             a
           </NavLink>
@@ -93,26 +97,38 @@ export function DashboardSidebar() {
               <SidebarMenu>
                 {g.items.map((item) => (
                   <SidebarMenuItem key={item.to}>
-                    <SidebarMenuButton asChild tooltip={item.label}>
-                      <NavLink to={item.to} end={item.end}>
+                    <SidebarMenuButton
+                      asChild
+                      tooltip={{ children: item.label, side: "right", align: "center" }}
+                    >
+                      <NavLink
+                        to={item.to}
+                        end={item.end}
+                        className={({ isActive }) =>
+                          cn(
+                            "relative",
+                            isActive &&
+                              "bg-sidebar-accent text-sidebar-accent-foreground font-medium",
+                          )
+                        }
+                      >
                         {({ isActive }) => (
                           <>
                             <span
                               aria-hidden
                               className={cn(
-                                "absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r-full transition-opacity",
+                                "absolute left-0 top-1 bottom-1 w-[2px] rounded-r-full transition-opacity",
                                 isActive ? "opacity-100 bg-primary" : "opacity-0",
                               )}
                             />
                             <item.icon
                               className={cn(
-                                "h-[15px] w-[15px] shrink-0",
+                                "h-[15px] w-[15px] shrink-0 transition-colors",
                                 isActive ? "text-primary" : "text-muted-foreground",
                               )}
                             />
                             <span
                               className={cn(
-                                "font-medium",
                                 isActive ? "text-foreground" : "text-sidebar-foreground/80",
                               )}
                             >

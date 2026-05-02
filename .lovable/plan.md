@@ -1,25 +1,26 @@
 ## Goal
-The desktop sidebar's collapsed/expanded state should survive page reloads.
+Make the active route in the desktop sidebar visually unmistakable, and ensure every item shows a tooltip with its label when the sidebar is collapsed to the icon rail.
 
-## Current state
-- `src/pages/dashboard/DashboardLayout.tsx` renders `<SidebarProvider defaultOpen>` — always starts expanded, ignoring any prior toggle.
-- The shadcn `SidebarProvider` already writes a `sidebar:state` cookie on toggle, but `defaultOpen` overrides the initial render before any cookie/localStorage read occurs in the SPA.
-- Mobile state is handled separately by `MobileSidebar` and is not affected.
+## Current state (`src/components/dashboard-sidebar.tsx`)
+- Active state today = a 2px left accent bar + primary-colored icon + slightly brighter label text. The row background does **not** change, so on a busy page the active item barely stands out — especially in the collapsed icon rail where the label is hidden.
+- `SidebarMenuButton` is already passed `tooltip={item.label}`. shadcn's sidebar shows that tooltip only when `state === "collapsed"` and not on mobile, which is what we want, but the tooltip currently inherits default placement. We'll pass a structured tooltip prop so it consistently renders to the right with proper alignment.
 
-## Change
-Convert `DashboardLayout` to control `SidebarProvider` with `open` / `onOpenChange`, backed by `localStorage` under the key `dashboard:sidebar:open`.
+## Changes (single file: `src/components/dashboard-sidebar.tsx`)
 
-1. Read the persisted value lazily in `useState` initializer:
-   - If `localStorage.getItem("dashboard:sidebar:open") === "false"` → start collapsed.
-   - Otherwise (missing, `"true"`, or SSR/no-window) → start expanded.
-2. On `onOpenChange`, update React state and `localStorage.setItem(...)`.
-3. Wrap reads/writes in `try/catch` to handle private-mode / disabled storage gracefully.
+1. **Stronger active highlight on the row itself**
+   - Add `bg-sidebar-accent text-sidebar-accent-foreground font-medium` to the `NavLink` when `isActive`, via the `className` render-prop. This paints the entire row (works in both expanded and collapsed states, so the active icon tile is clearly filled in the icon rail too).
+   - Keep the existing left primary accent bar and primary-tinted icon for the secondary cue.
+   - Add `transition-colors` to the icon for a smoother hover/active feel.
+   - Remove the redundant `font-medium` from the label span (now applied at the row level only when active, so inactive rows look lighter).
 
-That's the entire change — one file, ~10 lines. The existing `DashboardSidebar` and the toggle button in `Topbar` already call `toggleSidebar()` from context, so they automatically flow through the new controlled handler.
+2. **Reliable collapsed tooltips**
+   - Replace `tooltip={item.label}` with `tooltip={{ children: item.label, side: "right", align: "center" }}` on every `SidebarMenuButton`. shadcn already auto-hides the tooltip when the sidebar is expanded or on mobile, so no extra logic is needed.
 
-## Why localStorage over the built-in cookie
-The shadcn cookie (`sidebar:state`) is written but never read on the client; reading it would require parsing `document.cookie` on every mount and is brittle with SameSite/secure flags in preview iframes. `localStorage` is a single line, synchronous, and scoped to the dashboard.
+3. **Header "a" tile (collapsed Logo replacement)**
+   - Add `aria-current` styling parity: when on `/dashboard`, give the tile a faint ring so it matches the new active-row treatment. (Optional polish — small `ring-1 ring-primary/30` when `useMatch("/dashboard")`.)
+
+No other files touched. No new dependencies. Tokens used (`sidebar-accent`, `sidebar-accent-foreground`, `primary`, `muted-foreground`) already exist in the design system.
 
 ## Out of scope
-- Mobile sheet state (intentionally session-only).
-- Per-user server-side persistence (not requested; would require a profile column).
+- Mobile sheet sidebar (`MobileSidebar`) — separate component, can be a follow-up if desired.
+- Group-label active state (parents don't currently have routes).
