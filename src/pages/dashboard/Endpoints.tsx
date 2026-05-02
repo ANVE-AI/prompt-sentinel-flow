@@ -227,6 +227,16 @@ const Endpoints = () => {
     }),
   });
   const usageRow = usageQuery.data?.usage?.[0];
+
+  // Drilldown for individual request_log rows in the usage dialog.
+  const [openRequestId, setOpenRequestId] = useState<string | null>(null);
+  const requestDetailQuery = useQuery({
+    enabled: !!openRequestId,
+    queryKey: ["endpoint_request_detail", openRequestId],
+    queryFn: () => call<{ request: any }>("endpoint_request_detail", {
+      body: { request_id: openRequestId },
+    }),
+  });
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{
     ok: boolean;
