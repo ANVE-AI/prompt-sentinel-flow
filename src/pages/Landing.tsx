@@ -36,9 +36,9 @@ const Landing = () => {
             <a href="#docs" className="hover:text-foreground transition-colors">Docs</a>
           </nav>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" asChild><Link to="/dashboard">Sign in</Link></Button>
+            <Button variant="ghost" asChild><Link to="/sign-in">Sign in</Link></Button>
             <Button asChild className="bg-gradient-to-r from-primary to-accent text-primary-foreground hover:opacity-90">
-              <Link to="/dashboard">Get started <ArrowRight className="ml-1 h-4 w-4" /></Link>
+              <Link to="/sign-up">Get started <ArrowRight className="ml-1 h-4 w-4" /></Link>
             </Button>
           </div>
         </div>
@@ -64,7 +64,7 @@ const Landing = () => {
             </p>
             <div className="mt-8 flex items-center justify-center gap-3">
               <Button size="lg" asChild className="bg-gradient-to-r from-primary to-accent text-primary-foreground hover:opacity-90 shadow-glow">
-                <Link to="/dashboard">Start free <ArrowRight className="ml-2 h-4 w-4" /></Link>
+                <Link to="/sign-up">Start free <ArrowRight className="ml-2 h-4 w-4" /></Link>
               </Button>
               <Button size="lg" variant="outline" asChild>
                 <a href="#how">See how it works</a>
@@ -145,7 +145,7 @@ const Landing = () => {
               Start free. Issue your first key in under a minute.
             </p>
             <Button size="lg" asChild className="mt-8 bg-gradient-to-r from-primary to-accent text-primary-foreground hover:opacity-90 shadow-glow">
-              <Link to="/dashboard">Open dashboard <ArrowRight className="ml-2 h-4 w-4" /></Link>
+              <Link to="/sign-up">Get started <ArrowRight className="ml-2 h-4 w-4" /></Link>
             </Button>
           </div>
         </div>
