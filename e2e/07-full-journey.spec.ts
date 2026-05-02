@@ -44,7 +44,7 @@ test.describe("end-to-end: create key → policy → playground → logs → rev
     const created = page.waitForResponse(
       (r) => r.url().includes("action=create_key") && r.status() === 200,
     );
-    await page.getByRole("button", { name: /^create$/i }).click();
+    await page.getByRole("button", { name: /^create key$/i }).click();
     const res = await created;
     const json = await res.json();
     secretKey = json.full_key;
@@ -155,34 +155,17 @@ test.describe("end-to-end: create key → policy → playground → logs → rev
     await page.goto("/dashboard/keys");
     await page.waitForResponse((r) => r.url().includes("action=list_keys"));
 
-    // Find the row for our key and click its Revoke button.
-    const row = page.locator("div", { hasText: keyName }).first();
+    // The Keys page renders a per-row icon button titled "Revoke key".
+    // Scope to the row containing our unique key name to avoid revoking
+    // someone else's key.
+    const row = page.locator("div").filter({ hasText: new RegExp(`^${keyName}`) }).first();
     await row.scrollIntoViewIfNeeded();
 
-    // The keys page renders a per-row Revoke button (icon or label).
-    // Prefer the destructive button within the row's vicinity.
-    const rowRevoke = page
-      .getByRole("button", { name: /revoke/i })
-      .filter({ has: page.locator(":scope") })
-      .first();
-    await rowRevoke.click();
-
-    // Some flows show an alertdialog confirm; if so, confirm.
-    const dialog = page.getByRole("alertdialog");
-    if (await dialog.isVisible().catch(() => false)) {
-      // Sanity: the new copy includes "last used" / "last model" wording.
-      await expect(dialog).toContainText(/last used|never used/i);
-      const revokeAction = dialog.getByRole("button", { name: /^revoke/i });
-      const apiCall = page.waitForResponse(
-        (r) => r.url().includes("action=revoke_key") && r.status() === 200,
-      );
-      await revokeAction.click();
-      await apiCall;
-    } else {
-      await page.waitForResponse(
-        (r) => r.url().includes("action=revoke_key") && r.status() === 200,
-      );
-    }
+    const apiCall = page.waitForResponse(
+      (r) => r.url().includes("action=revoke_key") && r.status() === 200,
+    );
+    await row.getByRole("button", { name: /revoke key/i }).click();
+    await apiCall;
 
     // Audit log should now contain an api_key.revoked entry for this key.
     await page.goto("/dashboard/logs");
