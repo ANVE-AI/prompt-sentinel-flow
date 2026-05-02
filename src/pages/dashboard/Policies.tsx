@@ -44,7 +44,7 @@ const Policies = () => {
 
   if (isLoading) {
     return (
-      <div className="px-6 py-5 max-w-4xl mx-auto space-y-5">
+      <div className="px-4 md:px-6 py-5 max-w-4xl mx-auto space-y-5">
         <Skeleton className="h-12 w-64" />
         <Skeleton className="h-32" />
         <Skeleton className="h-64" />
