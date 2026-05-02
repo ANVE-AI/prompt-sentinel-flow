@@ -1471,7 +1471,7 @@ Deno.serve(async (req) => {
           .select("id,current_version").eq("id", templateId).eq("user_id", userId).maybeSingle();
         if (!tpl) return json({ error: "Template not found" }, 404);
         const { data, error } = await sb.from("policy_template_versions")
-          .select("id,version,name,description,change_note,created_at,created_by,applies_to_intents")
+          .select("id,version,name,description,change_note,created_at,created_by,applies_to_intents,unknown_intent_fallback")
           .eq("template_id", templateId).eq("user_id", userId)
           .order("version", { ascending: false });
         if (error) return json({ error: error.message }, 400);
