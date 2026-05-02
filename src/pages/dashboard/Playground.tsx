@@ -83,21 +83,35 @@ const Playground = () => {
       // even if the client requested streaming. Handle both shapes here so
       // blocked responses surface in the UI instead of looking "allowed".
       if (!stream || !isSSE) {
+        let parsed: any = null;
         if (!res.ok) {
           const txt = await res.text();
-          let parsed: any = null;
           try { parsed = JSON.parse(txt); } catch { /* not JSON */ }
           const blocked = !!parsed?.anveguard?.blocked;
           const text = parsed?.choices?.[0]?.message?.content
             ?? parsed?.error?.message ?? txt;
-          setResult({ blocked, text, reason: parsed?.anveguard?.reason });
+          setResult({
+            blocked, text,
+            reason: parsed?.anveguard?.reason,
+            verdict: parsed?.anveguard?.blocked ? "block" : undefined,
+            layers: parsed?.anveguard?.layers,
+            detectedIntent: parsed?.anveguard?.detected_intent,
+            intentConfidence: parsed?.anveguard?.intent_confidence,
+          });
           return;
         }
         const data = await res.json();
         const blocked = !!data?.anveguard?.blocked;
         const text = data?.choices?.[0]?.message?.content
           ?? data?.error?.message ?? JSON.stringify(data);
-        setResult({ blocked, text, reason: data?.anveguard?.reason });
+        setResult({
+          blocked, text,
+          reason: data?.anveguard?.reason,
+          verdict: blocked ? "block" : "allow",
+          layers: data?.anveguard?.layers,
+          detectedIntent: data?.anveguard?.detected_intent,
+          intentConfidence: data?.anveguard?.intent_confidence,
+        });
         return;
       }
 
