@@ -229,11 +229,13 @@ const Endpoints = () => {
           : buildPayload(),
       });
       if (r.ok) {
+        const fmt = r.response_format ? ` · format: ${r.response_format}` : "";
+        const chat = r.chat_url ? `\nChat URL: ${r.chat_url}` : "";
         setTestResult({
           ok: true,
-          msg: r.sample_model
-            ? `Connected (${r.latency_ms}ms). ${r.model_count} models · sample: ${r.sample_model}`
-            : `Connected (${r.status}, ${r.latency_ms}ms).`,
+          msg: (r.sample_model
+            ? `Connected (${r.latency_ms}ms). ${r.model_count} models · sample: ${r.sample_model}${fmt}`
+            : `Connected (${r.status}, ${r.latency_ms}ms).${fmt}`) + chat,
         });
       } else {
         setTestResult({ ok: false, msg: r.error || `HTTP ${r.status}` });
