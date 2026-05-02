@@ -36,16 +36,19 @@ export type SystemPromptValidation =
  * Returns `{ error: null, value: trimmed }` on success — value is the empty
  * string when the field was absent / null / undefined.
  */
-export function validateSystemPrompt(input: unknown): SystemPromptValidation {
+export function validateSystemPrompt(
+  input: unknown,
+  maxLength: number = SYSTEM_PROMPT_MAX_DEFAULT,
+): SystemPromptValidation {
   if (input === undefined || input === null) {
     return { error: null, value: "" };
   }
   if (typeof input !== "string") {
     return { error: "`system_prompt` must be a string.", value: "" };
   }
-  if (input.length > SYSTEM_PROMPT_MAX) {
+  if (input.length > maxLength) {
     return {
-      error: `\`system_prompt\` is too long: ${input.length} chars (max ${SYSTEM_PROMPT_MAX}).`,
+      error: `\`system_prompt\` is too long: ${input.length} chars (max ${maxLength}).`,
       value: "",
     };
   }
