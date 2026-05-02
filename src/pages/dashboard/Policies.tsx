@@ -13,6 +13,7 @@ import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { KeywordChipInput } from "@/components/keyword-chip-input";
 import { ShieldAlert } from "lucide-react";
+import { IntentPolicySection } from "@/components/policies/intent-policy-section";
 
 const Policies = () => {
   const { call } = useDashboardApi();
@@ -159,6 +160,8 @@ const Policies = () => {
           </div>
         </CardContent>
       </Card>
+
+      <IntentPolicySection />
     </div>
   );
 };
