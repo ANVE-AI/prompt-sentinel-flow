@@ -7,7 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Search, ShieldAlert, Ban, ShieldCheck, Inbox } from "lucide-react";
+import { Search, ShieldAlert, Ban, ShieldCheck, Inbox, Layers, Sparkles, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useDashboardApi } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SkeletonRows } from "@/components/skeletons";
@@ -185,6 +186,7 @@ const RequestLogs = () => {
                     {selected.block_reason}
                   </div>
                 )}
+                <PolicyVerdictPanel log={selected} />
                 <Tabs defaultValue="pretty">
                   <TabsList className="bg-surface-2 border border-border h-8 p-0.5">
                     <TabsTrigger value="pretty" className="h-7 px-2.5 text-meta data-[state=active]:bg-surface-1">Pretty</TabsTrigger>
@@ -218,6 +220,162 @@ const RequestLogs = () => {
     </>
   );
 };
+
+// ---- Per-request policy verdict panel ------------------------------------
+// Surfaces the per-layer breakdown the proxy persisted in `verdict_layers`
+// (especially behavioral signals: instruction_churn, roleplay_escalation,
+// encoding_escalation, length_spike) so an operator can understand WHY a
+// given conversation was flagged or blocked without diving into raw JSON.
+
+type LayerEntry = {
+  layer: string;
+  verdict: string;
+  rule?: string | null;
+  reason?: string | null;
+  intent?: string | null;
+  confidence?: number | null;
+  matched?: string | null;
+};
+
+const VERDICT_TONE: Record<string, string> = {
+  block: "border-destructive/40 text-destructive bg-destructive/10",
+  sanitize: "border-amber-500/40 text-amber-500 bg-amber-500/10",
+  flag: "border-amber-500/40 text-amber-500 bg-amber-500/10",
+  allow: "border-emerald-500/40 text-emerald-500 bg-emerald-500/10",
+  throttled: "border-destructive/40 text-destructive bg-destructive/10",
+};
+
+const LAYER_LABELS: Record<string, string> = {
+  keywords: "Keywords",
+  patterns: "Pattern rules",
+  heuristics: "Heuristics",
+  intent: "Intent classifier",
+  injection: "Injection guard",
+  behavioral: "Behavioral",
+};
+
+function PolicyVerdictPanel({ log }: { log: any }) {
+  const verdict: string | null = log.verdict ?? null;
+  const rawLayers = Array.isArray(log.verdict_layers) ? log.verdict_layers : [];
+  const layers: LayerEntry[] = rawLayers.map((l: any) => ({
+    layer: String(l?.layer ?? "unknown"),
+    verdict: String(l?.verdict ?? "allow"),
+    rule: l?.rule ?? null,
+    reason: l?.reason ?? null,
+    intent: l?.intent ?? null,
+    confidence: typeof l?.confidence === "number" ? l.confidence : null,
+    matched: l?.matched ?? null,
+  }));
+  const fired = layers.filter((l) => l.verdict !== "allow");
+  const behavioral = fired.filter((l) => l.layer === "behavioral");
+
+  // Nothing meaningful to show — skip the panel entirely.
+  if (!verdict && fired.length === 0 && !log.detected_intent) return null;
+
+  const Icon =
+    verdict === "allow" ? ShieldCheck :
+    verdict === "flag" ? AlertTriangle :
+    ShieldAlert;
+
+  return (
+    <div className="rounded-md border border-border surface-2 p-3 space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Icon className={cn("h-4 w-4",
+            verdict === "allow" && "text-emerald-500",
+            verdict === "flag" && "text-amber-500",
+            (verdict === "block" || verdict === "sanitize" || !verdict) && "text-destructive",
+          )} />
+          <span className="text-meta font-medium">Policy verdict</span>
+          {verdict && (
+            <Badge variant="outline" className={cn("font-mono text-[10px]", VERDICT_TONE[verdict] ?? "")}>
+              {verdict}
+            </Badge>
+          )}
+        </div>
+        <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+          <Layers className="h-3 w-3" /> {fired.length} fired / {layers.length} ran
+        </span>
+      </div>
+
+      {log.detected_intent && (
+        <div className="rounded border border-border bg-surface-1 p-2 text-meta flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <Sparkles className="h-3 w-3 text-muted-foreground" />
+            <span className="text-muted-foreground">Detected intent:</span>
+            <code className="rounded bg-muted px-1 py-0.5 text-[11px]">{log.detected_intent}</code>
+          </div>
+          {typeof log.intent_confidence === "number" && (
+            <span className="text-[11px] text-muted-foreground">
+              conf {Math.round(log.intent_confidence * 100)}%
+            </span>
+          )}
+        </div>
+      )}
+
+      {behavioral.length > 0 && (
+        <div className="space-y-1.5">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Behavioral signals
+          </div>
+          {behavioral.map((l, i) => (
+            <LayerRow key={`b-${i}`} entry={l} />
+          ))}
+        </div>
+      )}
+
+      {fired.filter((l) => l.layer !== "behavioral").length > 0 && (
+        <div className="space-y-1.5">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Other layers
+          </div>
+          {fired.filter((l) => l.layer !== "behavioral").map((l, i) => (
+            <LayerRow key={`o-${i}`} entry={l} />
+          ))}
+        </div>
+      )}
+
+      {fired.length === 0 && (
+        <div className="text-meta text-muted-foreground flex items-center gap-1.5">
+          <CheckCircle2 className="h-3.5 w-3.5" /> All layers allowed this request.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LayerRow({ entry: l }: { entry: LayerEntry }) {
+  const label = LAYER_LABELS[l.layer] ?? l.layer;
+  return (
+    <div className="rounded border border-border bg-surface-1 p-2 space-y-1">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-meta font-medium">{label}</span>
+          {l.rule && (
+            <code className="rounded bg-muted px-1 py-0.5 text-[10px] text-muted-foreground truncate">
+              {l.rule}
+            </code>
+          )}
+          {l.intent && (
+            <code className="rounded bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
+              {l.intent}
+            </code>
+          )}
+        </div>
+        <Badge variant="outline" className={cn("font-mono text-[10px]", VERDICT_TONE[l.verdict] ?? "")}>
+          {l.verdict}
+        </Badge>
+      </div>
+      {l.reason && <div className="text-meta text-muted-foreground">{l.reason}</div>}
+      {l.confidence != null && (
+        <div className="text-[11px] text-muted-foreground">
+          confidence {Math.round(l.confidence * 100)}%
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 const AuditLog = () => {
   const { call } = useDashboardApi();
