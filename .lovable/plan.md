@@ -1,95 +1,103 @@
-## Endpoint audit — what I checked
+## Endpoint sharing — collaborative read access without exposing keys
 
-I cross-referenced every entry in `supabase/functions/_shared/providers.ts` against each upstream's official documentation (OpenAI, Anthropic, Groq, xAI, Perplexity, Moonshot/Kimi, Alibaba DashScope, OpenRouter, Together, Fireworks, Mistral, DeepSeek, Azure OpenAI, Ollama, vLLM/LM Studio).
+Today every endpoint is locked to its owner via `endpoints.user_id`, and the dashboard edge function gates every read/write with `.eq("user_id", userId)`. Provider credentials live in `endpoints.provider_key_encrypted` (AES-encrypted with `KEY_ENCRYPTION_SECRET`) and are never returned to the UI — only used inside the proxy.
 
-### What's correct ✅
+We'll add an opt-in "share with teammate" model that lets an owner grant **read-only** access to a specific endpoint by email, without ever leaking the encrypted key or letting the recipient mint API keys against it.
 
-| Provider | Base URL / paths | Auth | Notes |
-|---|---|---|---|
-| Lovable (managed) | `ai.gateway.lovable.dev/v1/chat/completions` | server-injected | OK |
-| OpenAI | `api.openai.com/v1/chat/completions` + `/v1/models` | Bearer | OK |
-| Anthropic | `api.anthropic.com/v1/messages` + `/v1/models`, `anthropic-version: 2023-06-01` | x-api-key | OK |
-| OpenRouter | `openrouter.ai/api/v1/...`, optional `HTTP-Referer` + `X-Title` | Bearer | OK |
-| Moonshot Kimi | `api.moonshot.ai/v1/...` | Bearer | OK (intl host; `.cn` is China-only) |
-| Qwen DashScope | `dashscope-intl.aliyuncs.com/compatible-mode/v1/...` | Bearer | OK for OpenAI-compat path |
-| Perplexity | `api.perplexity.ai/chat/completions` (no `/v1`) + `/v1/models` | Bearer | OK — Perplexity accepts `/chat/completions` as alias for `/v1/sonar` per OpenAI-SDK compat doc |
-| Custom: Ollama | `http://localhost:11434/v1/...`, `none` auth | — | OK |
-| Custom: vLLM/LM Studio/TGI | `http://localhost:8000/v1/...`, Bearer | — | OK |
-| Custom: Azure OpenAI | `path_prefix: /openai/v1`, `api-key` header, `api-version` extra header | header | OK (works for both legacy + v1 GA) |
-| Custom: Groq | `api.groq.com/openai/v1/...` | Bearer | OK |
-| Custom: Anthropic | `api.anthropic.com/v1/...`, `anthropic_messages` | x-api-key | OK |
-| Custom: OpenRouter | `openrouter.ai/api/v1/...` | Bearer | OK |
-| Custom: Together | `api.together.xyz/v1/...` | Bearer | OK |
-| Custom: Mistral | `api.mistral.ai/v1/...` | Bearer | OK |
-| Custom: DeepSeek | `api.deepseek.com/v1/...` | Bearer | OK |
-| Custom: OpenAI Responses | `api.openai.com/v1/responses`, `responses` format | Bearer | OK |
+---
 
-### What needs fixing ⚠️
+### Data model
 
-These are real mismatches with upstream — they will cause `model_not_found` or 404s today.
+New table `endpoint_shares`:
 
-**1. Built-in `lovable` provider — model suggestions stale**
-- Missing the actual current Lovable Gateway models from the system prompt: `google/gemini-3.1-pro-preview`, `google/gemini-3-flash-preview`, `google/gemini-3-pro-image-preview`, `google/gemini-3.1-flash-image-preview`, `openai/gpt-5.2`.
-- `google/gemini-3-flash-preview` as default is fine, but the suggestion list should match what's documented.
+```text
+endpoint_shares
+├─ id              uuid pk
+├─ endpoint_id     uuid  → endpoints.id (cascade delete)
+├─ owner_user_id   text  (Clerk id of the granter — denormalized for fast revoke)
+├─ shared_with_email text (lower-cased)
+├─ shared_with_user_id text NULL  (resolved from profiles.email on first access)
+├─ permission      text  CHECK in ('read')   -- future-proofed, only "read" for now
+├─ created_at      timestamptz default now()
+└─ UNIQUE (endpoint_id, shared_with_email)
+```
 
-**2. Built-in `openai` provider — default model**
-- `default_model: "gpt-4o-mini"` is still valid but stale. Recommend `gpt-5-mini` (cheap, current). Add `gpt-5`, `gpt-5-mini`, `gpt-5-nano`, `gpt-4.1-mini` to suggestions; keep `gpt-4o-mini` for back-compat.
+RLS: same deny-all pattern as `endpoints` (all access through edge function with service role).
 
-**3. Built-in `openrouter` provider — model suggestions stale**
-- `anthropic/claude-3.5-sonnet` is two generations old. Refresh: `anthropic/claude-sonnet-4-5`, `anthropic/claude-opus-4-7`, `openai/gpt-5-mini`, `meta-llama/llama-3.3-70b-instruct`, `google/gemini-2.5-flash`.
+Indexes on `(endpoint_id)`, `(shared_with_email)`, `(shared_with_user_id)`.
 
-**4. Built-in `anthropic` provider — `claude-opus-4-6` is gone**
-- Per Anthropic docs (Nov 2025 + later), current line is **Opus 4.7 / Sonnet 4.5 / Haiku 4.5**.
-- `default_model: "claude-sonnet-4-5"` ✅ keep.
-- Suggestions: replace `claude-opus-4-6` and `claude-opus-4-5` with `claude-opus-4-7` (and keep aliases like `claude-sonnet-4-5`, `claude-haiku-4-5`).
+When a recipient first signs in, the existing profile-upsert path in `_shared/anveguard.ts` will also run a small "claim" step: `UPDATE endpoint_shares SET shared_with_user_id = $userId WHERE shared_with_email = $email AND shared_with_user_id IS NULL`.
 
-**5. Custom `anthropic` template — same fix**
-- `model_suggestions: "claude-opus-4-6, claude-sonnet-4-5, claude-haiku-4-5"` → `"claude-opus-4-7, claude-sonnet-4-5, claude-haiku-4-5"`.
+---
 
-**6. Custom `groq` template — model suggestions partly broken**
-- `mixtral-8x7b-32768` was deprecated by Groq earlier this year.
-- Replace with current production Groq IDs: `llama-3.3-70b-versatile`, `llama-3.1-8b-instant`, `openai/gpt-oss-20b`, `openai/gpt-oss-120b`, `gemma2-9b-it`, `deepseek-r1-distill-llama-70b`.
+### Server-side actions (in `supabase/functions/dashboard/index.ts`)
 
-**7. Custom `xai` template — Grok 4 is live; suggestions stale**
-- xAI now ships `grok-4`, `grok-4-fast-reasoning`, `grok-4-fast-non-reasoning`, plus `grok-4.20-*` reasoning variants. `grok-2-*` is legacy.
-- `default_model: "grok-2-latest"` → `grok-4`.
-- `model_suggestions: "grok-2-latest, grok-2-mini, grok-2-vision-latest"` → `"grok-4, grok-4-fast-reasoning, grok-4-fast-non-reasoning, grok-3"`.
+| Action | Who | What it does |
+|---|---|---|
+| `list_endpoint_shares` | owner | Returns all shares for one of the caller's endpoints. |
+| `add_endpoint_share` | owner | Validates ownership, lower-cases email, blocks self-share, upserts share row. Pre-resolves `shared_with_user_id` from `profiles` if a matching user exists. |
+| `remove_endpoint_share` | owner | Deletes one share row by id (must own the endpoint). |
+| `list_shared_endpoints` | recipient | Returns endpoints shared **with** the caller — the **redacted** view (see below). |
 
-**8. Custom `fireworks` template — wrong llama version in id**
-- Registry uses `accounts/fireworks/models/llama-v3p1-70b-instruct`. Fireworks now serves Llama **3.3** as `accounts/fireworks/models/llama-v3p3-70b-instruct` (verified on Fireworks app page); `v3p1` is being deprecated.
-- `default_model` and first suggestion should be `accounts/fireworks/models/llama-v3p3-70b-instruct`. Keep `v3p1-8b-instruct` only if confirmed live; safer to switch to `llama-v3p3-70b-instruct` + `qwen2p5-72b-instruct` + `deepseek-v3`.
+All four actions reuse the existing Clerk auth middleware.
 
-**9. Custom `mistral` template — `ministral-8b-latest` is deprecated; add Mistral Medium 3.5**
-- Per Mistral models page: current frontier is **Mistral Medium 3.5** (open-weight) plus the existing `mistral-large-latest`/`mistral-small-latest`/`codestral-latest` aliases.
-- Update suggestions: `mistral-large-latest, mistral-medium-latest, mistral-small-latest, codestral-latest, open-mistral-nemo`.
+#### What recipients see (and what they don't)
 
-**10. Built-in `perplexity` — `models_url` host quirk**
-- Endpoint exists (`GET /v1/models`), but it returns Agent-API model presets, not the Sonar model list. Will still populate the dropdown with usable IDs (`sonar`, `sonar-pro`, etc.); leaving as-is is fine. No change needed — just documenting.
+`list_endpoints` is updated to merge two sources:
 
-### Optional polish (not bugs, but nice)
+1. Endpoints the caller owns (unchanged shape).
+2. Endpoints shared with the caller, returned with:
+   - `is_shared: true`, `owner_email` (resolved via `profiles`),
+   - `permission: "read"`,
+   - All non-secret fields: `name`, `base_url`, `kind`, `auth_scheme`, `auth_header`, `response_format`, paths, `extra_headers`, `model_suggestions`, `default_model`, `created_at`.
+   - **Stripped**: `provider_key_encrypted` is never selected; `has_key` is reported as a boolean only.
 
-- **Azure OpenAI template description**: mention that `default_model` should be the **deployment name**, not the model name. Today's description doesn't say this and it's the #1 source of "model not found" errors with Azure.
-- **vLLM template `default_model: ""`**: leaving empty is correct (depends on what user serves), but the description could hint to run `curl http://localhost:8000/v1/models` to discover it.
-- **Custom `anthropic` template** could include the `extra_headers: { "anthropic-version": "2023-06-01" }` explicitly so users see the convention even though the resolver auto-injects it.
+Every existing **mutating / sensitive** action gets a guard that requires *ownership* (not just access):
+- `save_endpoint` (when `id` present), `delete_endpoint`, `set_endpoint_default_model`, `test_endpoint` — all keep the existing `.eq("user_id", userId)` filter, so a recipient simply cannot hit them.
+- `list_endpoint_models` and a new read-only `inspect_shared_endpoint` action let recipients pull the live model list using the **owner's** stored key, but the key never leaves the edge function — only the resulting model array is returned.
+- **Critical:** recipients cannot create an `api_key` bound to a shared endpoint. The existing `create_api_key` path (`endpoint_id` branch) verifies `endpoints.user_id = caller` — we keep that exact check, so shared endpoints are invisible to that code path. The UI on the recipient side will hide the "Use this endpoint to mint a key" button accordingly.
 
-## Implementation plan
+---
 
-Single file edit: `supabase/functions/_shared/providers.ts`.
+### UI changes (`src/pages/dashboard/Endpoints.tsx`)
 
-1. Refresh `model_suggestions` and `default_model` for built-in providers: `lovable`, `openai`, `openrouter`, `anthropic`.
-2. Refresh model suggestions for custom templates: `anthropic`, `groq`, `xai` (also bump `default_model`), `fireworks` (bump `default_model`), `mistral`.
-3. Tighten descriptions for `azure_openai` (deployment name) and `vllm` (model discovery hint).
-4. Leave all base URLs, paths, auth schemes, and `models_url` values **unchanged** — they are correct.
+1. **On each owned endpoint row**: a new **Share** icon button opens a small dialog:
+   - Input for teammate email + Add button.
+   - List of current shares with a "Revoke" trash icon.
+   - Helper text: *"Recipients can view this endpoint and use it to debug, but they can't see your provider key, edit it, delete it, or attach API keys to it."*
+2. **Saved endpoints table** gets a **Shared with me** section below the owner's list, showing the recipient view with a `Shared` badge, `read-only` chip, and disabled Edit/Delete/Share buttons. Test connection + list models stay enabled.
+3. The endpoint editor drawer is opened in **read-only mode** when the row is shared — all inputs disabled, Save/Test save buttons hidden, model dropdown still works.
 
-No DB migration, no edge-function logic changes. After saving, the dashboard's `list_providers` action will serve the updated registry to the UI immediately on the next load (no deploy needed beyond the file write — Lovable redeploys edge functions automatically).
+---
 
-## Verification after applying
+### Security checklist
 
-For each provider you actually have a key for, the existing **Test API key** button on the API Keys page (with Parallel = 1) will hit the upstream end-to-end and confirm:
-- Auth header is accepted (200 vs 401),
-- Default model resolves (200 vs `model_not_found`),
-- Latency + sample reply look sane.
+- [x] `provider_key_encrypted` never selected in any query that returns rows to recipients.
+- [x] Recipients cannot trigger `save_endpoint` / `delete_endpoint` / `set_endpoint_default_model` (existing owner filter unchanged).
+- [x] Recipients cannot create API keys against shared endpoints (existing owner filter on `endpoints` lookup in `create_api_key` unchanged).
+- [x] `test_endpoint` and `list_endpoint_models` for a shared endpoint are routed through a separate read-only action that resolves the owner's row by id+`shared_with_user_id` join, uses the owner's encrypted key server-side, and only returns the upstream response payload (no key material).
+- [x] Self-share blocked.
+- [x] Email is lower-cased + trimmed before insert and lookup.
+- [x] `endpoint_shares` has deny-all RLS; only the edge function (service role) can read/write it.
+- [x] On endpoint deletion, shares cascade-delete via FK.
 
-For custom-endpoint templates, the **Test connection** + **Refresh from upstream** buttons in the endpoint editor will verify the `/models` URL and the `chat_path`. The "Save default model" flow will also re-validate against the live list before persisting.
+---
 
-Approve this plan and I'll apply the registry edits in one pass.
+### Migration
+
+One migration that:
+1. Creates `endpoint_shares` with the columns/indexes/constraints above.
+2. Adds deny-all RLS policies for `anon` and `authenticated` (matching the `endpoints` table convention).
+3. Creates a small SQL function `claim_endpoint_shares(_user_id text, _email text)` called from `ensureProfile` to back-fill `shared_with_user_id` after first login.
+
+No changes to existing tables.
+
+---
+
+### Out of scope (could be follow-ups)
+
+- Write/admin permission tier (schema already supports it — only `read` is wired now).
+- Org/team objects (today shares are 1:1 owner→email).
+- Email notification when a share is created (we just rely on it appearing in their dashboard).
+
+Approve and I'll implement migration + edge function + UI together.

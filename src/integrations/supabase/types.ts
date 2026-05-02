@@ -107,6 +107,44 @@ export type Database = {
           },
         ]
       }
+      endpoint_shares: {
+        Row: {
+          created_at: string
+          endpoint_id: string
+          id: string
+          owner_user_id: string
+          permission: string
+          shared_with_email: string
+          shared_with_user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          endpoint_id: string
+          id?: string
+          owner_user_id: string
+          permission?: string
+          shared_with_email: string
+          shared_with_user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          endpoint_id?: string
+          id?: string
+          owner_user_id?: string
+          permission?: string
+          shared_with_email?: string
+          shared_with_user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "endpoint_shares_endpoint_id_fkey"
+            columns: ["endpoint_id"]
+            isOneToOne: false
+            referencedRelation: "endpoints"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       endpoints: {
         Row: {
           auth_header: string | null
@@ -294,7 +332,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      claim_endpoint_shares: {
+        Args: { _email: string; _user_id: string }
+        Returns: number
+      }
     }
     Enums: {
       [_ in never]: never
