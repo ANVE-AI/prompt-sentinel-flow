@@ -25,10 +25,22 @@ interface CustomSchema {
   kinds: { id: string; label: string }[];
   auth_schemes: { id: string; label: string }[];
   templates: {
-    id: string; label: string;
+    id: string;
+    label: string;
+    description?: string;
     values: {
-      kind: string; base_url: string; auth_scheme: string;
-      auth_header?: string; default_model: string; model_suggestions: string;
+      kind: string;
+      base_url: string;
+      auth_scheme: string;
+      auth_header?: string;
+      default_model?: string;
+      model_suggestions?: string;
+      models_url?: string;
+      path_prefix?: string;
+      chat_path?: string;
+      models_path?: string;
+      response_format?: string;
+      extra_headers?: Record<string, string>;
     };
   }[];
 }
