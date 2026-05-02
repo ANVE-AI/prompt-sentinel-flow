@@ -4,6 +4,7 @@ import { corsHeaders, json, service, verifyClerkJwt, bearer, ensureProfile,
   generateApiKey, sha256Hex, encryptString, decryptString, GLOBAL_DEFAULT_BLOCKED } from "../_shared/anveguard.ts";
 import { PROVIDERS, getProvider, CUSTOM_SCHEMA, resolveCustomEndpoint,
   resolveEndpoint, sanitizeExtraHeaders, validateCustomUrl } from "../_shared/providers.ts";
+import { parseModelsResponse } from "../_shared/models_parsers.ts";
 
 // In-memory cache for /models responses (per provider+key, 5 min TTL).
 const modelsCache = new Map<string, { models: string[]; exp: number }>();
@@ -62,8 +63,9 @@ Deno.serve(async (req) => {
           let sample: string | null = null;
           try {
             const j = JSON.parse(text);
-            const arr: any[] = j?.data ?? j?.models ?? [];
-            sample = arr.find((m) => m?.id || m?.name)?.id ?? arr[0]?.name ?? null;
+            const hint = resolved.kind === "anthropic" ? "anthropic" : null;
+            const parsed = parseModelsResponse(j, hint);
+            sample = parsed.ids[0] ?? null;
           } catch { /* not JSON */ }
           return json({
             ok: r.ok,
@@ -132,11 +134,14 @@ Deno.serve(async (req) => {
             return json({ models: fallbackSuggestions, source: "fallback", warning: `Upstream ${r.status}: ${txt.slice(0, 200)}` });
           }
           const j = await r.json();
-          const arr: any[] = j?.data ?? j?.models ?? [];
-          const ids = arr.map((m) => m?.id || m?.name).filter((x) => typeof x === "string");
-          const models = ids.length > 0 ? ids : fallbackSuggestions;
+          const hint = keyRow.provider === "custom"
+            ? (keyRow.custom_kind === "anthropic" ? "anthropic"
+                : (keyRow.custom_kind === "ollama" ? "ollama" : null))
+            : (getProvider(keyRow.provider)?.kind === "anthropic" ? "anthropic" : null);
+          const parsed = parseModelsResponse(j, hint);
+          const models = parsed.ids.length > 0 ? parsed.ids : fallbackSuggestions;
           modelsCache.set(cacheKey, { models, exp: Date.now() + 5 * 60_000 });
-          return json({ models, source: "live" });
+          return json({ models, source: "live", shape: parsed.shape });
         } catch (e) {
           return json({ models: fallbackSuggestions, source: "fallback", warning: String(e) });
         }
@@ -497,16 +502,18 @@ Deno.serve(async (req) => {
         let count = 0;
         let modelIds: string[] = [];
         let parsedOk = false;
+        let parsedShape: string | null = null;
         try {
           const j = JSON.parse(text);
-          const arr: any[] = j?.data ?? j?.models ?? (Array.isArray(j) ? j : []);
+          const hint = resolved.kind === "anthropic" ? "anthropic"
+            : (resolved.kind === "ollama" ? "ollama" : null);
+          const parsed = parseModelsResponse(j, hint);
           parsedOk = true;
-          modelIds = arr
-            .map((m: any) => (typeof m === "string" ? m : (m?.id || m?.name || m?.model)))
-            .filter((x: unknown): x is string => typeof x === "string" && x.length > 0);
+          parsedShape = parsed.shape;
+          modelIds = parsed.ids;
           count = modelIds.length;
           sample = modelIds[0] ?? null;
-          addCheck("Parsed models JSON", true, `${count} model(s) found`);
+          addCheck("Parsed models JSON", true, `${count} model(s) found · shape: ${parsed.shape}`);
         } catch {
           addCheck("Parsed models JSON", false, "Upstream did not return JSON");
         }
@@ -660,10 +667,12 @@ Deno.serve(async (req) => {
               error: text.slice(0, 300) || `HTTP ${r.status}`,
             });
           }
-          let arr: any[] = [];
+          let parsed;
           try {
             const j = JSON.parse(text);
-            arr = j?.data ?? j?.models ?? (Array.isArray(j) ? j : []);
+            const hint = resolved.kind === "anthropic" ? "anthropic"
+              : (resolved.kind === "ollama" ? "ollama" : null);
+            parsed = parseModelsResponse(j, hint);
           } catch {
             return json({
               ok: false, source: "fallback", models: fallback, url: listUrl,
@@ -671,22 +680,19 @@ Deno.serve(async (req) => {
               error: "Upstream did not return JSON",
             });
           }
-          const ids = arr
-            .map((m: any) => (typeof m === "string" ? m : (m?.id || m?.name || m?.model)))
-            .filter((x: unknown) => typeof x === "string" && x.length > 0);
-          // Deduplicate while preserving order
-          const seen = new Set<string>();
-          const models = ids.filter((m: string) => seen.has(m) ? false : (seen.add(m), true));
+          const models = parsed.ids;
           if (models.length === 0) {
             return json({
               ok: true, source: "fallback", models: fallback, url: listUrl,
-              latency_ms: Date.now() - t0,
+              latency_ms: Date.now() - t0, shape: parsed.shape,
               warning: "Upstream returned 0 models — using fallback suggestions.",
             });
           }
           return json({
             ok: true, source: "live", models, url: listUrl,
-            latency_ms: Date.now() - t0,
+            latency_ms: Date.now() - t0, shape: parsed.shape,
+            // Include richer per-model metadata so the UI can show display names / context windows.
+            model_details: parsed.models,
           });
         } catch (e) {
           return json({
