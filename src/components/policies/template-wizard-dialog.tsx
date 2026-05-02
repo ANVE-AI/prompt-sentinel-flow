@@ -153,6 +153,7 @@ export function TemplateWizardDialog({
           settings: selectedSettings,
           rules: selectedRules.map(({ id: _id, ...rest }) => rest),
           applies_to_intents: intentScope,
+          unknown_intent_fallback: unknownFallback,
         },
       }),
     onSuccess: () => {
