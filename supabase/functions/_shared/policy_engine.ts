@@ -824,10 +824,12 @@ export async function evaluate(input: EvaluateInput, ctx: { systemPrompt?: strin
 
   const layers: LayerVerdict[] = [];
 
+  const keywordFuzzy = settings.enable_fuzzy_keywords !== false;
+
   if (settings.enable_patterns) {
     layers.push(...evaluatePatterns(
       text, norm.normalized, rules.filter((r) => r.enabled), legacy, direction,
-      { ...ctx, detectedIntent },
+      { ...ctx, detectedIntent, keywordFuzzy },
     ));
   } else {
     // Even when patterns are disabled we still honor legacy keywords so existing
@@ -836,9 +838,43 @@ export async function evaluate(input: EvaluateInput, ctx: { systemPrompt?: strin
       ...legacy.blocked_keywords,
       ...(legacy.use_global_defaults ? GLOBAL_DEFAULT_BLOCKED : []),
     ];
-    const kw = checkPolicy(text, legacyBlocked, legacy.allowed_keywords);
+    const kw = checkPolicy(text, legacyBlocked, legacy.allowed_keywords, {
+      fuzzy: keywordFuzzy, edit_distance: keywordFuzzy,
+    });
     if (kw.blocked) {
-      layers.push({ layer: "keywords", verdict: "block", reason: `Matched blocked keyword: "${kw.matched}"`, matched: kw.matched });
+      const modeNote = kw.mode && kw.mode !== "exact" ? ` (${kw.mode} match)` : "";
+      layers.push({
+        layer: "keywords", verdict: "block",
+        reason: `Matched blocked keyword: "${kw.matched}"${modeNote}`,
+        matched: kw.matched, rule: kw.mode,
+      });
+    }
+  }
+
+  // Semantic keyword check — opt-in. Asks the classifier whether the prompt's
+  // *meaning* matches any blocked keyword, even when the literal words don't.
+  // Skipped if no blocked keywords configured, or if a keyword block already
+  // fired (no need to spend an LLM call to confirm).
+  if (
+    settings.enable_semantic_keywords === true &&
+    direction === "input" &&
+    !layers.some((l) => l.layer === "keywords" && l.verdict === "block")
+  ) {
+    const allBlocked = [
+      ...legacy.blocked_keywords,
+      ...(legacy.use_global_defaults ? GLOBAL_DEFAULT_BLOCKED : []),
+    ].filter((s) => s && s.trim().length > 0);
+    if (allBlocked.length > 0) {
+      const sem = await semanticKeywordCheck(
+        text, allBlocked, settings.semantic_threshold ?? 0.78,
+      );
+      if (sem) {
+        layers.push({
+          layer: "keywords", verdict: "block",
+          reason: `Semantic match for blocked term "${sem.matched}" (${Math.round(sem.score * 100)}% confidence): ${sem.reason}`,
+          matched: sem.matched, rule: "semantic", confidence: sem.score,
+        });
+      }
     }
   }
 
