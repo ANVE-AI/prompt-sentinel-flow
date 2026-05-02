@@ -164,6 +164,7 @@ const Policies = () => {
       </Card>
 
       <InjectionGuardSection />
+      <BehavioralSection />
       <IntentPolicySection />
     </div>
   );
