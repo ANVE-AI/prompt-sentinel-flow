@@ -369,7 +369,7 @@ Deno.serve(async (req) => {
       tokens_in: 0, tokens_out: 0,
     });
     await sb.from("api_keys").update({ last_used_at: new Date().toISOString() }).eq("id", keyRow.id);
-    return json(responsePayload, 200);
+    return json(translateResponseFromOpenAI(reqShape, responsePayload), 200);
   }
 
   // Sanitize action: rewrite each message's content independently (we can't
