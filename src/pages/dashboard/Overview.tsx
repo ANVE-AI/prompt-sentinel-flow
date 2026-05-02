@@ -61,7 +61,7 @@ const Overview = () => {
                     </div>
                   </div>
                   <Link
-                    to="/dashboard/logs?status=blocked_input"
+                    to="/dashboard/logs?tab=security"
                     className="text-meta text-primary hover:underline inline-flex items-center gap-1 shrink-0"
                   >
                     Investigate <ArrowUpRight className="h-3.5 w-3.5" />
