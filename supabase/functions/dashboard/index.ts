@@ -1144,6 +1144,13 @@ Deno.serve(async (req) => {
           }
           patch.throttle_flag_threshold = n;
         }
+        if ("semantic_threshold" in (body ?? {})) {
+          const n = Number(body.semantic_threshold);
+          if (!(n >= 0.5 && n <= 0.95)) {
+            return json({ error: "semantic_threshold must be 0.5..0.95" }, 400);
+          }
+          patch.semantic_threshold = n;
+        }
         await sb.from("policy_settings").upsert(patch, { onConflict: "user_id" });
         return json({ ok: true });
       }
