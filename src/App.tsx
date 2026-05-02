@@ -61,6 +61,7 @@ const App = () => (
               <Route path="routes" element={<Routes_ />} />
               <Route path="policies" element={<Policies />} />
               <Route path="policies/sandbox" element={<PolicySandbox />} />
+              <Route path="policies/harness" element={<PolicyHarness />} />
               <Route path="logs" element={<Logs />} />
               <Route path="playground" element={<Playground />} />
             </Route>
