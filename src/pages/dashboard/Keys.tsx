@@ -624,24 +624,54 @@ const Keys = () => {
         </div>
       </Card>
 
-      {/* Snippet card */}
+      {/* Snippet card — one base URL, three SDK shapes */}
       <Card className="surface-1 border-border">
         <div className="px-5 pt-4 pb-3 border-b border-border">
           <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Quick start</div>
           <div className="text-h2 font-medium mt-0.5">Use it in your app</div>
+          <p className="text-meta text-muted-foreground mt-1.5">
+            Point any OpenAI, Anthropic, or Google Gemini SDK at the URLs below and pass your{" "}
+            <span className="font-mono">ag_live_…</span> key. AnveGuard runs the same policies, throttling and
+            logging on every shape — no client code changes needed.
+          </p>
         </div>
-        <CardContent className="p-5">
-          <pre className="rounded-md border border-border bg-surface-2 p-4 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all">
-{`from openai import OpenAI
+        <CardContent className="p-5 space-y-5">
+          <EndpointSnippet
+            label="OpenAI Chat Completions"
+            url={`${PROXY_URL}/v1/chat/completions`}
+            code={`from openai import OpenAI
 
 client = OpenAI(
-    base_url="${PROXY_URL.replace(/\/proxy$/, "/proxy")}",
+    base_url="${PROXY_URL}",
     api_key="ag_live_••••••••",
 )
+client.chat.completions.create(
+    model="gpt-5",
+    messages=[{"role": "user", "content": "Hello"}],
+)`}
+          />
+          <EndpointSnippet
+            label="Anthropic Messages"
+            url={`${PROXY_URL}/v1/messages`}
+            code={`import Anthropic from "@anthropic-ai/sdk";
 
-# Pass the proxy URL as base_url and your AnveGuard key as api_key.
-# The endpoint follows the OpenAI Chat Completions schema.`}
-          </pre>
+const client = new Anthropic({
+  baseURL: "${PROXY_URL}",
+  apiKey: "ag_live_••••••••", // sent as x-api-key
+});
+await client.messages.create({
+  model: "claude-3-5-sonnet-latest",
+  max_tokens: 256,
+  messages: [{ role: "user", content: "Hello" }],
+});`}
+          />
+          <EndpointSnippet
+            label="Google Gemini generateContent"
+            url={`${PROXY_URL}/v1beta/models/{model}:generateContent`}
+            code={`curl "${PROXY_URL}/v1beta/models/gemini-2.5-flash:generateContent?key=ag_live_••••••••" \\
+  -H "Content-Type: application/json" \\
+  -d '{"contents":[{"role":"user","parts":[{"text":"Hello"}]}]}'`}
+          />
         </CardContent>
       </Card>
 
@@ -795,5 +825,26 @@ client = OpenAI(
     </div>
   );
 };
+
+/**
+ * Per-shape endpoint card: shows the URL the SDK should target plus a
+ * minimal copy/paste snippet. Kept inline so it can use the local
+ * `PROXY_URL` constant without prop-drilling.
+ */
+const EndpointSnippet = ({
+  label, url, code,
+}: { label: string; url: string; code: string }) => (
+  <div className="space-y-2">
+    <div className="flex items-center justify-between gap-3 flex-wrap">
+      <div className="text-meta uppercase tracking-wider text-muted-foreground">{label}</div>
+      <code className="text-[11px] font-mono px-2 py-0.5 rounded bg-surface-2 border border-border text-foreground break-all">
+        {url}
+      </code>
+    </div>
+    <pre className="rounded-md border border-border bg-surface-2 p-4 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all">
+{code}
+    </pre>
+  </div>
+);
 
 export default Keys;
