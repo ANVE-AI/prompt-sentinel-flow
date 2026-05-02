@@ -175,6 +175,20 @@ const Endpoints = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.auth_scheme]);
 
+  // Keep response_format consistent with the selected kind by default
+  useEffect(() => {
+    setForm((f) => {
+      if (f.kind === "anthropic" && f.response_format !== "anthropic_messages") {
+        return { ...f, response_format: "anthropic_messages" };
+      }
+      if (f.kind !== "anthropic" && f.response_format === "anthropic_messages") {
+        return { ...f, response_format: "chat_completions" };
+      }
+      return f;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.kind]);
+
   const buildPayload = () => {
     const extra: Record<string, string> = {};
     for (const h of form.extra_headers) {
