@@ -123,6 +123,9 @@ const Playground = () => {
       const decoder = new TextDecoder();
       let buf = "", acc = "", blocked = false;
       let reason: string | undefined;
+      let layers: any[] | undefined;
+      let detectedIntent: string | undefined;
+      let intentConfidence: number | undefined;
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -140,14 +143,22 @@ const Playground = () => {
             const delta = obj?.choices?.[0]?.delta?.content;
             if (typeof delta === "string") {
               acc += delta;
-              setResult({ blocked, text: acc, reason });
+              setResult({ blocked, text: acc, reason, layers, detectedIntent, intentConfidence,
+                verdict: blocked ? "block" : "allow" });
             }
-            if (obj?.anveguard?.blocked) { blocked = true; reason = obj.anveguard.reason; }
+            if (obj?.anveguard?.blocked) {
+              blocked = true;
+              reason = obj.anveguard.reason;
+              layers = obj.anveguard.layers ?? layers;
+              detectedIntent = obj.anveguard.detected_intent ?? detectedIntent;
+              intentConfidence = obj.anveguard.intent_confidence ?? intentConfidence;
+            }
             if (obj?.choices?.[0]?.finish_reason === "content_filter") blocked = true;
           } catch { /* partial */ }
         }
       }
-      setResult({ blocked, text: acc, reason });
+      setResult({ blocked, text: acc, reason, layers, detectedIntent, intentConfidence,
+        verdict: blocked ? "block" : "allow" });
     } catch (e: any) {
       toast.error(e.message);
     } finally {
