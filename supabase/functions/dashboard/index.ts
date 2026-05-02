@@ -1606,6 +1606,160 @@ Deno.serve(async (req) => {
         return json({ imported, updated, skipped, errors });
       }
 
+      // ===================================================================
+      // Model aliases (per-API-key nicknames -> upstream model id)
+      // ===================================================================
+      case "list_aliases": {
+        const { api_key_id } = body;
+        let q = sb.from("model_aliases").select("*").eq("user_id", userId)
+          .order("alias", { ascending: true });
+        if (api_key_id) q = q.eq("api_key_id", api_key_id);
+        const { data, error } = await q;
+        if (error) return json({ error: error.message }, 400);
+        return json({ aliases: data ?? [] });
+      }
+
+      case "save_alias": {
+        const { id, api_key_id, alias, target_model, target_endpoint_id } = body ?? {};
+        if (!api_key_id || !alias || !target_model) {
+          return json({ error: "api_key_id, alias, and target_model are required" }, 400);
+        }
+        const aliasNorm = String(alias).trim().toLowerCase();
+        if (!/^[a-z0-9][a-z0-9._\-:/]{0,63}$/.test(aliasNorm)) {
+          return json({ error: "Alias must be 1–64 chars, lowercase, no spaces" }, 400);
+        }
+        // Verify ownership of the key
+        const { data: key } = await sb.from("api_keys").select("id")
+          .eq("id", api_key_id).eq("user_id", userId).maybeSingle();
+        if (!key) return json({ error: "API key not found" }, 404);
+        // Verify ownership of endpoint if provided
+        if (target_endpoint_id) {
+          const { data: ep } = await sb.from("endpoints").select("id")
+            .eq("id", target_endpoint_id).eq("user_id", userId).maybeSingle();
+          if (!ep) return json({ error: "Target endpoint not found" }, 404);
+        }
+        const row = {
+          user_id: userId,
+          api_key_id,
+          alias: aliasNorm,
+          target_model: String(target_model).trim(),
+          target_endpoint_id: target_endpoint_id || null,
+        };
+        if (id) {
+          const { error } = await sb.from("model_aliases").update(row)
+            .eq("id", id).eq("user_id", userId);
+          if (error) return json({ error: error.message }, 400);
+          return json({ ok: true, id });
+        }
+        const { data, error } = await sb.from("model_aliases").insert(row)
+          .select("id").single();
+        if (error) return json({ error: error.message }, 400);
+        return json({ ok: true, id: data!.id });
+      }
+
+      case "delete_alias": {
+        const { id } = body ?? {};
+        if (!id) return json({ error: "id required" }, 400);
+        const { error } = await sb.from("model_aliases").delete()
+          .eq("id", id).eq("user_id", userId);
+        if (error) return json({ error: error.message }, 400);
+        return json({ ok: true });
+      }
+
+      // ===================================================================
+      // Routes (named, ordered fallback chains)
+      // ===================================================================
+      case "list_routes": {
+        const { data: routes, error } = await sb.from("routes")
+          .select("*").eq("user_id", userId)
+          .order("created_at", { ascending: false });
+        if (error) return json({ error: error.message }, 400);
+        const ids = (routes ?? []).map((r: any) => r.id);
+        let stepsByRoute: Record<string, any[]> = {};
+        if (ids.length > 0) {
+          const { data: steps } = await sb.from("route_steps")
+            .select("*").in("route_id", ids)
+            .order("position", { ascending: true });
+          for (const s of steps ?? []) {
+            (stepsByRoute[s.route_id] ||= []).push(s);
+          }
+        }
+        return json({
+          routes: (routes ?? []).map((r: any) => ({ ...r, steps: stepsByRoute[r.id] ?? [] })),
+        });
+      }
+
+      case "save_route": {
+        const {
+          id, name, description,
+          fallback_on_5xx, fallback_on_429, fallback_on_timeout,
+          timeout_ms, steps,
+        } = body ?? {};
+        if (!name || !String(name).trim()) return json({ error: "Name is required" }, 400);
+        const nameNorm = String(name).trim();
+        if (!/^[a-zA-Z0-9][a-zA-Z0-9._\- ]{0,63}$/.test(nameNorm)) {
+          return json({ error: "Route name must be 1–64 chars (letters, digits, .-_ space)" }, 400);
+        }
+        if (!Array.isArray(steps) || steps.length === 0) {
+          return json({ error: "At least one step is required" }, 400);
+        }
+        // Validate every endpoint belongs to the user
+        const epIds = [...new Set(steps.map((s: any) => String(s.endpoint_id)).filter(Boolean))];
+        if (epIds.length === 0) return json({ error: "Each step needs an endpoint" }, 400);
+        const { data: owned } = await sb.from("endpoints")
+          .select("id").eq("user_id", userId).in("id", epIds);
+        const ownedSet = new Set((owned ?? []).map((e: any) => e.id));
+        for (const s of steps) {
+          if (!s.endpoint_id || !ownedSet.has(String(s.endpoint_id))) {
+            return json({ error: "Step endpoint not found or not owned by you" }, 400);
+          }
+          if (!s.model || !String(s.model).trim()) {
+            return json({ error: "Each step needs a model" }, 400);
+          }
+        }
+        const routeRow = {
+          user_id: userId,
+          name: nameNorm,
+          description: description ? String(description).slice(0, 500) : null,
+          fallback_on_5xx: !!fallback_on_5xx,
+          fallback_on_429: !!fallback_on_429,
+          fallback_on_timeout: !!fallback_on_timeout,
+          timeout_ms: Math.max(1000, Math.min(120000, Number(timeout_ms) || 30000)),
+        };
+
+        let routeId = id as string | undefined;
+        if (routeId) {
+          const { error } = await sb.from("routes").update(routeRow)
+            .eq("id", routeId).eq("user_id", userId);
+          if (error) return json({ error: error.message }, 400);
+          // Replace steps wholesale (simpler than diffing)
+          await sb.from("route_steps").delete().eq("route_id", routeId);
+        } else {
+          const { data: ins, error } = await sb.from("routes").insert(routeRow)
+            .select("id").single();
+          if (error) return json({ error: error.message }, 400);
+          routeId = ins!.id;
+        }
+        const stepRows = steps.map((s: any, i: number) => ({
+          route_id: routeId,
+          position: i,
+          endpoint_id: String(s.endpoint_id),
+          model: String(s.model).trim(),
+        }));
+        const { error: stepErr } = await sb.from("route_steps").insert(stepRows);
+        if (stepErr) return json({ error: stepErr.message }, 400);
+        return json({ ok: true, id: routeId });
+      }
+
+      case "delete_route": {
+        const { id } = body ?? {};
+        if (!id) return json({ error: "id required" }, 400);
+        const { error } = await sb.from("routes").delete()
+          .eq("id", id).eq("user_id", userId);
+        if (error) return json({ error: error.message }, 400);
+        return json({ ok: true });
+      }
+
       default:
         return json({ error: "Unknown action" }, 400);
     }
