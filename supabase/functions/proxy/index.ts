@@ -240,6 +240,26 @@ Deno.serve(async (req) => {
     return json(responsePayload, 200);
   }
 
+  // Sanitize action: rewrite each message's content independently (we can't
+  // use the flattened promptText spans because indices don't map back to
+  // individual messages once joined). Original payload object is mutated in
+  // place — every downstream attempt forwards the redacted version.
+  let sanitizationApplied = false;
+  if (inputEval.verdict === "sanitize") {
+    for (const msg of body.messages) {
+      const original = typeof msg.content === "string" ? msg.content : null;
+      if (!original) continue; // skip non-string content (multimodal, tool calls)
+      const norm = original.toLowerCase(); // cheap; engine normalizer is heavier but injection regex is case-insensitive
+      const layers = evaluateInjection(original, norm, "input");
+      const spans = layers.flatMap((l) => l.spans ?? []);
+      if (spans.length > 0) {
+        msg.content = applySanitization(original, spans);
+        sanitizationApplied = true;
+      }
+    }
+    logBase.messages = body.messages; // log the sanitized version
+  }
+
   // ---- Build attempt list -------------------------------------------------
   // Each attempt is (synthetic keyRow shape, model, upstreamKey). For routes
   // we get N attempts in priority order; for the non-route path it's exactly
