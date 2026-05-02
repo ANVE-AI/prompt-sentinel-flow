@@ -527,6 +527,11 @@ const Keys = () => {
 
       {/* High-density key table */}
       <Card className="surface-1 border-border overflow-hidden">
+        {/* Horizontal scroll on narrow viewports keeps the dense table readable
+            without collapsing columns. min-w on the inner grid preserves the
+            intended column proportions. */}
+        <div className="overflow-x-auto">
+        <div className="min-w-[640px]">
         <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.2fr)_120px_92px_auto] gap-3 px-4 h-9 items-center border-b border-border bg-surface-2/60 text-[10px] font-medium text-muted-foreground uppercase tracking-[0.1em]">
           <div>Key</div>
           <div>Provider · Model</div>
