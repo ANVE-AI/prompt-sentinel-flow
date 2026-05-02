@@ -1346,6 +1346,64 @@ Deno.serve(async (req) => {
         return json({ ok: true });
       }
 
+      // ---- Custom policy templates -------------------------------------
+      // A template is a snapshot of the user's keyword guardrails, behavior
+      // settings, and a chosen subset of policy_rules. Stored as JSON so
+      // applying it later is a pure write — no ID linkage to the live rows.
+      case "list_policy_templates": {
+        const { data } = await sb.from("policy_templates")
+          .select("id,name,description,policy,settings,rules,created_at,updated_at")
+          .eq("user_id", userId).order("created_at", { ascending: false });
+        return json({ templates: data ?? [] });
+      }
+
+      case "save_policy_template": {
+        const name = String(body?.name ?? "").trim();
+        if (!name) return json({ error: "name required" }, 400);
+        const description = body?.description ? String(body.description).slice(0, 500) : null;
+
+        // Sanitize the rule snapshot — strip ids/timestamps so applying the
+        // template later inserts fresh rows owned by whoever applies it.
+        const rawRules = Array.isArray(body?.rules) ? body.rules : [];
+        const rules = rawRules
+          .filter((r: any) => r && (r.kind === "regex" || r.kind === "detector"))
+          .map((r: any) => ({
+            name: String(r.name ?? "").slice(0, 200),
+            kind: r.kind,
+            severity: ["low", "med", "high"].includes(r.severity) ? r.severity : "high",
+            direction: ["input", "output", "both"].includes(r.direction) ? r.direction : "both",
+            enabled: r.enabled !== false,
+            config: r.config && typeof r.config === "object" ? r.config : {},
+            applies_to_intents: Array.isArray(r.applies_to_intents) ? r.applies_to_intents : [],
+          }));
+
+        const policy = body?.policy && typeof body.policy === "object" ? body.policy : {};
+        const settings = body?.settings && typeof body.settings === "object" ? body.settings : {};
+
+        const id = body?.id ? String(body.id) : null;
+        if (id) {
+          const { data, error } = await sb.from("policy_templates")
+            .update({ name, description, policy, settings, rules })
+            .eq("id", id).eq("user_id", userId).select().maybeSingle();
+          if (error) return json({ error: error.message }, 400);
+          return json({ template: data });
+        }
+        const { data, error } = await sb.from("policy_templates")
+          .insert({ user_id: userId, name, description, policy, settings, rules })
+          .select().maybeSingle();
+        if (error) return json({ error: error.message }, 400);
+        return json({ template: data });
+      }
+
+      case "delete_policy_template": {
+        const id = String(body?.id ?? "");
+        if (!id) return json({ error: "id required" }, 400);
+        const { error } = await sb.from("policy_templates").delete().eq("id", id).eq("user_id", userId);
+        if (error) return json({ error: error.message }, 400);
+        return json({ ok: true });
+      }
+
+
       // Run the bundled red-team corpus through the live policy engine using
       // the caller's actual settings/rules/intents/legacy keywords. Returns
       // pass/fail per case so the dashboard can surface evasions before release.
