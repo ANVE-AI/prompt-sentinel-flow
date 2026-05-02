@@ -6,6 +6,7 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianG
 import { Link } from "react-router-dom";
 import { useDashboardApi } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SkeletonBlock, SkeletonRows } from "@/components/skeletons";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 
