@@ -241,6 +241,39 @@ export type Database = {
         }
         Relationships: []
       }
+      model_aliases: {
+        Row: {
+          alias: string
+          api_key_id: string
+          created_at: string
+          id: string
+          target_endpoint_id: string | null
+          target_model: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          alias: string
+          api_key_id: string
+          created_at?: string
+          id?: string
+          target_endpoint_id?: string | null
+          target_model: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          alias?: string
+          api_key_id?: string
+          created_at?: string
+          id?: string
+          target_endpoint_id?: string | null
+          target_model?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       policies: {
         Row: {
           allowed_keywords: string[]
@@ -359,6 +392,80 @@ export type Database = {
             referencedColumns: ["clerk_user_id"]
           },
         ]
+      }
+      route_steps: {
+        Row: {
+          created_at: string
+          endpoint_id: string
+          id: string
+          model: string
+          position: number
+          route_id: string
+        }
+        Insert: {
+          created_at?: string
+          endpoint_id: string
+          id?: string
+          model: string
+          position: number
+          route_id: string
+        }
+        Update: {
+          created_at?: string
+          endpoint_id?: string
+          id?: string
+          model?: string
+          position?: number
+          route_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "route_steps_route_id_fkey"
+            columns: ["route_id"]
+            isOneToOne: false
+            referencedRelation: "routes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      routes: {
+        Row: {
+          created_at: string
+          description: string | null
+          fallback_on_429: boolean
+          fallback_on_5xx: boolean
+          fallback_on_timeout: boolean
+          id: string
+          name: string
+          timeout_ms: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          fallback_on_429?: boolean
+          fallback_on_5xx?: boolean
+          fallback_on_timeout?: boolean
+          id?: string
+          name: string
+          timeout_ms?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          fallback_on_429?: boolean
+          fallback_on_5xx?: boolean
+          fallback_on_timeout?: boolean
+          id?: string
+          name?: string
+          timeout_ms?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
     }
     Views: {
