@@ -173,7 +173,7 @@ Deno.serve(async (req) => {
     || (xApiKey.startsWith("ag_live_") ? xApiKey : "")
     || (queryKey.startsWith("ag_live_") ? queryKey : "");
   if (!apiKeyPlain) {
-    return json(errorForShape(reqShape, "Missing or invalid AnveGuard API key", "invalid_request_error"), 401);
+    return errorResponse(reqShape, 401, "Missing API key. Provide it in the Authorization header (Bearer ag_live_…), the x-api-key header, or the ?key= query param.", { code: "missing_api_key" });
   }
   const key_hash = await sha256Hex(apiKeyPlain);
 
