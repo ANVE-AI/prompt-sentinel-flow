@@ -174,6 +174,9 @@ const Keys = () => {
         model: model || selected?.default_model,
         provider_key: providerKey || undefined,
         custom: isCustom ? customPayload : undefined,
+        // Bind to the same custom endpoint as the key being replaced when
+        // the user arrived via the "Create replacement key" shortcut.
+        endpoint_id: prefilledEndpointId ?? undefined,
       },
     }),
     onSuccess: (res) => { setNewKey(res.full_key); qc.invalidateQueries({ queryKey: ["keys"] }); },
