@@ -225,6 +225,31 @@ const RequestLogs = () => {
                     <TabsTrigger value="raw" className="h-7 px-2.5 text-meta data-[state=active]:bg-surface-1">Raw JSON</TabsTrigger>
                   </TabsList>
                   <TabsContent value="pretty" className="space-y-3 mt-3">
+                    {(selected.guardrail_prompt || selected.client_system_prompt) && (
+                      <div>
+                        <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5">
+                          Injected system prompts
+                        </div>
+                        <div className="space-y-2">
+                          {selected.guardrail_prompt && (
+                            <div className="rounded-md border border-border bg-surface-2 p-3">
+                              <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
+                                Workspace guardrail
+                              </div>
+                              <pre className="text-xs whitespace-pre-wrap break-words">{selected.guardrail_prompt}</pre>
+                            </div>
+                          )}
+                          {selected.client_system_prompt && (
+                            <div className="rounded-md border border-border bg-surface-2 p-3">
+                              <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
+                                Client system_prompt (admin key)
+                              </div>
+                              <pre className="text-xs whitespace-pre-wrap break-words">{selected.client_system_prompt}</pre>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                     <div>
                       <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5">Messages</div>
                       <pre className="rounded-md border border-border bg-surface-2 p-3 text-xs whitespace-pre-wrap overflow-x-auto">
