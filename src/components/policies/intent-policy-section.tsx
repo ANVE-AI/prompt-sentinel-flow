@@ -36,6 +36,8 @@ type Settings = {
   guardrail_system_prompt: string | null;
   /** Allow API callers to inject their own per-request system_prompt. */
   allow_client_system_prompt: boolean;
+  /** Max characters allowed for a per-request system_prompt (100..64000). */
+  system_prompt_max_length: number;
 };
 
 type IntentRow = { intent: string; action: "block" | "flag" | "allow"; min_confidence: number };
