@@ -975,6 +975,9 @@ export const DEFAULT_SETTINGS: PolicySettings = {
   injection_action: "block",
   enable_behavioral: true,
   behavioral_action: "flag",
+  enable_fuzzy_keywords: true,
+  enable_semantic_keywords: false,
+  semantic_threshold: 0.78,
 };
 
 export const KNOWN_INTENTS = [
