@@ -2,6 +2,9 @@
 // CRUD for keys, policies, logs, and stats. Single function with action routing.
 import { corsHeaders, json, service, verifyClerkJwt, bearer, ensureProfile,
   generateApiKey, sha256Hex, encryptString, decryptString, GLOBAL_DEFAULT_BLOCKED } from "../_shared/anveguard.ts";
+import { evaluate as evaluatePolicy, DEFAULT_SETTINGS,
+  type PolicyRule, type PolicyIntent, type PolicySettings } from "../_shared/policy_engine.ts";
+import { HARNESS_CASES, type ExpectedVerdict } from "../_shared/policy_test_corpus.ts";
 import { PROVIDERS, getProvider, CUSTOM_SCHEMA, resolveCustomEndpoint,
   resolveEndpoint, sanitizeExtraHeaders, validateCustomUrl } from "../_shared/providers.ts";
 import { parseModelsResponse } from "../_shared/models_parsers.ts";
