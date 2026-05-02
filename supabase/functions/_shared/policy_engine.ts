@@ -285,7 +285,7 @@ export function evaluatePatterns(
   rules: PolicyRule[],
   legacy: LegacyPolicy,
   direction: "input" | "output",
-  ctx: { systemPrompt?: string; toolsRequested?: boolean } = {},
+  ctx: { systemPrompt?: string; toolsRequested?: boolean; detectedIntent?: string } = {},
 ): LayerVerdict[] {
   const out: LayerVerdict[] = [];
 
@@ -302,6 +302,14 @@ export function evaluatePatterns(
   for (const rule of rules) {
     if (!rule.enabled) continue;
     if (rule.direction !== "both" && rule.direction !== direction) continue;
+
+    // Intent scoping (input direction only). Empty list = applies to all.
+    const scoped = rule.applies_to_intents && rule.applies_to_intents.length > 0;
+    if (scoped && direction === "input") {
+      if (!ctx.detectedIntent || !rule.applies_to_intents!.includes(ctx.detectedIntent)) {
+        continue;
+      }
+    }
 
     if (rule.kind === "regex") {
       const pattern = String(rule.config.pattern ?? "");
