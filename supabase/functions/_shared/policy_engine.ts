@@ -86,6 +86,14 @@ export interface PolicySettings {
    *  blocking a request. Lower = more aggressive, higher = fewer false
    *  positives. */
   semantic_threshold?: number;
+  /** Min flip-phrase hits in the recent window to fire `instruction_churn`. */
+  behavioral_churn_threshold?: number;
+  /** Min jailbreak-persona mentions across user turns to fire `roleplay_escalation`. */
+  behavioral_persona_threshold?: number;
+  /** Final encoded-ratio threshold (0..1) the last turn must cross for `encoding_escalation`. */
+  behavioral_encoding_ratio_step?: number;
+  /** Multiplier of the conversation-mean length the latest turn must exceed for `length_spike`. */
+  behavioral_length_multiplier?: number;
 }
 
 export interface LegacyPolicy {
@@ -831,9 +839,22 @@ function encodedRatio(s: string): number {
  *   4. Length spike — latest user turn is 8× the conversation mean and >1500
  *      chars (typical wall-of-text jailbreak prompt).
  */
+export interface BehavioralThresholds {
+  churn?: number;
+  persona?: number;
+  encodingStep?: number;
+  lengthMultiplier?: number;
+}
+
 export function evaluateBehavioral(
   conversation: { role: string; content: unknown }[],
+  thresholds: BehavioralThresholds = {},
 ): LayerVerdict[] {
+  const churnThreshold = Math.max(1, Math.floor(thresholds.churn ?? 3));
+  const personaThreshold = Math.max(1, Math.floor(thresholds.persona ?? 3));
+  const encodingStep = Math.min(1, Math.max(0, thresholds.encodingStep ?? 0.25));
+  const lengthMultiplier = Math.max(1, thresholds.lengthMultiplier ?? 8);
+
   const userTurns = conversation
     .filter((m) => m?.role === "user")
     .slice(-12)
@@ -844,10 +865,10 @@ export function evaluateBehavioral(
 
   const recent = userTurns.slice(-4);
   const flipHits = recent.filter((t) => FLIP_PHRASES.some((re) => re.test(t))).length;
-  if (flipHits >= 3) {
+  if (flipHits >= churnThreshold) {
     return [{
       layer: "behavioral", verdict: "flag", rule: "instruction_churn",
-      reason: `Rapid instruction changes: ${flipHits}/${recent.length} recent user turns countermand the prior turn.`,
+      reason: `Rapid instruction changes: ${flipHits}/${recent.length} recent user turns countermand the prior turn (threshold ${churnThreshold}).`,
     }];
   }
 
@@ -859,19 +880,19 @@ export function evaluateBehavioral(
     });
     return hit ? n + 1 : n;
   }, 0);
-  if (personaHits >= 3) {
+  if (personaHits >= personaThreshold) {
     return [{
       layer: "behavioral", verdict: "flag", rule: "roleplay_escalation",
-      reason: `Repeated jailbreak persona references across ${personaHits} user turns.`,
+      reason: `Repeated jailbreak persona references across ${personaHits} user turns (threshold ${personaThreshold}).`,
     }];
   }
 
   if (userTurns.length >= 3) {
     const last3 = userTurns.slice(-3).map(encodedRatio);
-    if (last3[0] < last3[1] && last3[1] < last3[2] && last3[2] > 0.25) {
+    if (last3[0] < last3[1] && last3[1] < last3[2] && last3[2] > encodingStep) {
       return [{
         layer: "behavioral", verdict: "flag", rule: "encoding_escalation",
-        reason: `Encoded-payload ratio is increasing (${(last3[0] * 100).toFixed(0)}% → ${(last3[1] * 100).toFixed(0)}% → ${(last3[2] * 100).toFixed(0)}%).`,
+        reason: `Encoded-payload ratio is increasing (${(last3[0] * 100).toFixed(0)}% → ${(last3[1] * 100).toFixed(0)}% → ${(last3[2] * 100).toFixed(0)}%, threshold ${(encodingStep * 100).toFixed(0)}%).`,
       }];
     }
   }
@@ -880,10 +901,10 @@ export function evaluateBehavioral(
     const prior = userTurns.slice(0, -1);
     const mean = prior.reduce((s, t) => s + t.length, 0) / prior.length;
     const last = userTurns[userTurns.length - 1].length;
-    if (mean > 0 && last > 1500 && last > mean * 8) {
+    if (mean > 0 && last > 1500 && last > mean * lengthMultiplier) {
       return [{
         layer: "behavioral", verdict: "flag", rule: "length_spike",
-        reason: `Latest user turn is ${last} chars, ${(last / mean).toFixed(1)}× the conversation average.`,
+        reason: `Latest user turn is ${last} chars, ${(last / mean).toFixed(1)}× the conversation average (threshold ${lengthMultiplier}×).`,
       }];
     }
   }
@@ -998,7 +1019,12 @@ export async function evaluate(input: EvaluateInput, ctx: { systemPrompt?: strin
     Array.isArray(input.conversation) &&
     input.conversation.length >= 2
   ) {
-    const behavioralLayers = evaluateBehavioral(input.conversation);
+    const behavioralLayers = evaluateBehavioral(input.conversation, {
+      churn: settings.behavioral_churn_threshold,
+      persona: settings.behavioral_persona_threshold,
+      encodingStep: settings.behavioral_encoding_ratio_step,
+      lengthMultiplier: settings.behavioral_length_multiplier,
+    });
     if (behavioralLayers.length > 0) {
       const action: "block" | "sanitize" | "flag" = settings.behavioral_action ?? "flag";
       // `sanitize` doesn't make sense at conversation level (we'd have to pick

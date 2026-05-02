@@ -420,6 +420,10 @@ export type Database = {
       policy_settings: {
         Row: {
           behavioral_action: string
+          behavioral_churn_threshold: number
+          behavioral_encoding_ratio_step: number
+          behavioral_length_multiplier: number
+          behavioral_persona_threshold: number
           created_at: string
           enable_behavioral: boolean
           enable_fuzzy_keywords: boolean
@@ -441,6 +445,10 @@ export type Database = {
         }
         Insert: {
           behavioral_action?: string
+          behavioral_churn_threshold?: number
+          behavioral_encoding_ratio_step?: number
+          behavioral_length_multiplier?: number
+          behavioral_persona_threshold?: number
           created_at?: string
           enable_behavioral?: boolean
           enable_fuzzy_keywords?: boolean
@@ -462,6 +470,10 @@ export type Database = {
         }
         Update: {
           behavioral_action?: string
+          behavioral_churn_threshold?: number
+          behavioral_encoding_ratio_step?: number
+          behavioral_length_multiplier?: number
+          behavioral_persona_threshold?: number
           created_at?: string
           enable_behavioral?: boolean
           enable_fuzzy_keywords?: boolean

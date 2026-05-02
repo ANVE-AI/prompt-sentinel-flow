@@ -14,10 +14,10 @@ import { toast } from "sonner";
 type Action = "block" | "flag";
 
 const SIGNALS = [
-  { name: "Instruction churn", desc: "≥3 of the last 4 user turns countermand the previous turn." },
+  { name: "Instruction churn", desc: "Recent user turns countermand the previous turn." },
   { name: "Role-play escalation", desc: "Repeated jailbreak personas (DAN, AIM, \"grandma\", …) across turns." },
   { name: "Encoding escalation", desc: "Encoded-payload ratio strictly increasing across the last 3 turns." },
-  { name: "Length spike", desc: "Latest turn is >1500 chars and 8× the conversation average." },
+  { name: "Length spike", desc: "Latest turn is >1500 chars and a configurable multiple of the conversation average." },
 ];
 
 export function BehavioralSection() {
@@ -32,6 +32,10 @@ export function BehavioralSection() {
   const [action, setAction] = useState<Action>("flag");
   const [windowMin, setWindowMin] = useState(5);
   const [threshold, setThreshold] = useState(10);
+  const [churn, setChurn] = useState(3);
+  const [persona, setPersona] = useState(3);
+  const [encodingStep, setEncodingStep] = useState(0.25);
+  const [lengthMult, setLengthMult] = useState(8);
 
   useEffect(() => {
     const s = data?.settings;
@@ -42,6 +46,10 @@ export function BehavioralSection() {
     }
     if (typeof s.throttle_window_minutes === "number") setWindowMin(s.throttle_window_minutes);
     if (typeof s.throttle_flag_threshold === "number") setThreshold(s.throttle_flag_threshold);
+    if (typeof s.behavioral_churn_threshold === "number") setChurn(s.behavioral_churn_threshold);
+    if (typeof s.behavioral_persona_threshold === "number") setPersona(s.behavioral_persona_threshold);
+    if (typeof s.behavioral_encoding_ratio_step === "number") setEncodingStep(s.behavioral_encoding_ratio_step);
+    if (typeof s.behavioral_length_multiplier === "number") setLengthMult(s.behavioral_length_multiplier);
   }, [data]);
 
   const save = useMutation({
@@ -52,6 +60,10 @@ export function BehavioralSection() {
           behavioral_action: action,
           throttle_window_minutes: windowMin,
           throttle_flag_threshold: threshold,
+          behavioral_churn_threshold: churn,
+          behavioral_persona_threshold: persona,
+          behavioral_encoding_ratio_step: encodingStep,
+          behavioral_length_multiplier: lengthMult,
         },
       }),
     onSuccess: () => {
@@ -122,6 +134,67 @@ export function BehavioralSection() {
                     </button>
                   );
                 })}
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-border p-4 space-y-3">
+              <div>
+                <Label className="text-body-sm font-medium">Heuristic thresholds</Label>
+                <p className="text-body-sm text-foreground-muted mt-1">
+                  Tune how aggressive each detector is. Lower values fire sooner; higher values reduce false positives.
+                </p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <Label htmlFor="b_churn" className="text-body-sm">Instruction-churn count</Label>
+                  <Input
+                    id="b_churn"
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={churn}
+                    onChange={(e) => setChurn(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+                  />
+                  <p className="text-body-xs text-foreground-muted mt-1">Min flip-phrase turns out of the last 4.</p>
+                </div>
+                <div>
+                  <Label htmlFor="b_persona" className="text-body-sm">Persona match limit</Label>
+                  <Input
+                    id="b_persona"
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={persona}
+                    onChange={(e) => setPersona(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+                  />
+                  <p className="text-body-xs text-foreground-muted mt-1">Min jailbreak-persona mentions across user turns.</p>
+                </div>
+                <div>
+                  <Label htmlFor="b_encoding" className="text-body-sm">Encoding ratio step</Label>
+                  <Input
+                    id="b_encoding"
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    max={1}
+                    value={encodingStep}
+                    onChange={(e) => setEncodingStep(Math.min(1, Math.max(0, Number(e.target.value) || 0)))}
+                  />
+                  <p className="text-body-xs text-foreground-muted mt-1">Final encoded ratio (0–1) the last turn must exceed.</p>
+                </div>
+                <div>
+                  <Label htmlFor="b_length" className="text-body-sm">Length-spike multiplier</Label>
+                  <Input
+                    id="b_length"
+                    type="number"
+                    step="0.5"
+                    min={1}
+                    max={100}
+                    value={lengthMult}
+                    onChange={(e) => setLengthMult(Math.max(1, Number(e.target.value) || 1))}
+                  />
+                  <p className="text-body-xs text-foreground-muted mt-1">Latest turn must exceed this multiple of the average.</p>
+                </div>
               </div>
             </div>
 
