@@ -235,14 +235,25 @@ const TEMPLATES: Template[] = [
 export function PolicyTemplatesSection() {
   const { call } = useDashboardApi();
   const qc = useQueryClient();
-  const [pending, setPending] = useState<TemplateId | null>(null);
+  const [pending, setPending] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Template | null>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  const customQ = useQuery<{ templates: any[] }>({
+    queryKey: ["policy_templates"],
+    queryFn: () => call("list_policy_templates"),
+  });
 
   const apply = useMutation({
     mutationFn: async (tpl: Template) => {
       setPending(tpl.id);
-      await call("save_policies", { body: tpl.policy });
-      await call("save_policy_settings", { body: tpl.settings });
+      if (tpl.policy && Object.keys(tpl.policy).length) {
+        await call("save_policies", { body: tpl.policy });
+      }
+      if (tpl.settings && Object.keys(tpl.settings).length) {
+        await call("save_policy_settings", { body: tpl.settings });
+      }
       if (tpl.rules?.length) {
         for (const rule of tpl.rules) {
           await call("save_policy_rule", {
@@ -261,6 +272,35 @@ export function PolicyTemplatesSection() {
     onError: (e: any) => toast.error(e?.message ?? "Failed to apply template"),
     onSettled: () => setPending(null),
   });
+
+  const remove = useMutation({
+    mutationFn: (id: string) => call("delete_policy_template", { body: { id } }),
+    onSuccess: () => {
+      toast.success("Template deleted");
+      qc.invalidateQueries({ queryKey: ["policy_templates"] });
+      setDeleteId(null);
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Failed to delete template"),
+  });
+
+  const customTemplates: Template[] = (customQ.data?.templates ?? []).map((t: any) => ({
+    id: t.id,
+    name: t.name,
+    tagline: t.description || "Custom template",
+    icon: <User className="h-4 w-4" />,
+    accent: "text-foreground",
+    highlights: [
+      `${Array.isArray(t.rules) ? t.rules.length : 0} rule${(Array.isArray(t.rules) ? t.rules.length : 0) === 1 ? "" : "s"}`,
+      `${Object.keys(t.settings ?? {}).length} setting${Object.keys(t.settings ?? {}).length === 1 ? "" : "s"}`,
+      ((t.policy?.blocked_keywords?.length ?? 0) + (t.policy?.allowed_keywords?.length ?? 0))
+        ? `${(t.policy?.blocked_keywords?.length ?? 0) + (t.policy?.allowed_keywords?.length ?? 0)} keywords`
+        : "No keyword snapshot",
+    ],
+    policy: t.policy ?? {},
+    settings: t.settings ?? {},
+    rules: Array.isArray(t.rules) ? t.rules : [],
+    custom: true,
+  } as Template & { custom?: boolean }));
 
   return (
     <>
