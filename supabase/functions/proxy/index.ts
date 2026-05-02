@@ -33,18 +33,81 @@ Deno.serve(async (req) => {
     return json(openaiErrorShape("Invalid or revoked API key", "invalid_request_error"), 401);
   }
 
+  // Body
+  let body: any;
+  try { body = await req.json(); } catch { return json(openaiErrorShape("Invalid JSON body", "invalid_request_error"), 400); }
+  if (!Array.isArray(body?.messages)) return json(openaiErrorShape("messages must be an array", "invalid_request_error"), 400);
+  let model: string = body.model || keyRow.model_default;
+  const stream = !!body.stream;
+
+  // ---- Alias rewrite (per API key) -----------------------------------------
+  // If the requested model matches an alias, swap to the target_model and
+  // (optionally) swap the resolved endpoint config to a user-owned endpoint.
+  let aliasTargetEndpoint: any | null = null;
+  if (model) {
+    const { data: alias } = await sb.from("model_aliases")
+      .select("target_model,target_endpoint_id")
+      .eq("api_key_id", keyRow.id).eq("alias", String(model).toLowerCase())
+      .maybeSingle();
+    if (alias) {
+      model = alias.target_model;
+      if (alias.target_endpoint_id) {
+        const { data: ep } = await sb.from("endpoints").select("*")
+          .eq("id", alias.target_endpoint_id).eq("user_id", keyRow.user_id).maybeSingle();
+        if (ep) aliasTargetEndpoint = ep;
+      }
+    }
+  }
+
+  // ---- Route resolution ----------------------------------------------------
+  // `model: "route:<name>"` triggers fallback chain walking. Steps are tried
+  // in order; we fall back on configured triggers (5xx, 429, timeout). Only
+  // applies to non-stream and pre-stream errors — once bytes start flowing the
+  // user sees the live response.
+  type RouteStepResolved = {
+    endpointRow: any;          // user-owned endpoint row
+    model: string;
+    upstreamKey: string | null;
+  };
+  let routeSteps: RouteStepResolved[] | null = null;
+  let routeConfig: { fallback_on_5xx: boolean; fallback_on_429: boolean; fallback_on_timeout: boolean; timeout_ms: number } | null = null;
+  if (typeof model === "string" && model.toLowerCase().startsWith("route:")) {
+    const routeName = model.slice("route:".length).trim();
+    const { data: route } = await sb.from("routes")
+      .select("id,fallback_on_5xx,fallback_on_429,fallback_on_timeout,timeout_ms")
+      .eq("user_id", keyRow.user_id).eq("name", routeName).maybeSingle();
+    if (!route) return json(openaiErrorShape(`Route not found: ${routeName}`, "invalid_request_error"), 404);
+    const { data: steps } = await sb.from("route_steps")
+      .select("position,endpoint_id,model")
+      .eq("route_id", route.id).order("position", { ascending: true });
+    if (!steps || steps.length === 0) return json(openaiErrorShape(`Route ${routeName} has no steps`, "server_error"), 500);
+    const epIds = [...new Set(steps.map((s: any) => s.endpoint_id))];
+    const { data: eps } = await sb.from("endpoints").select("*")
+      .in("id", epIds).eq("user_id", keyRow.user_id);
+    const epMap = new Map((eps ?? []).map((e: any) => [e.id, e]));
+    routeSteps = [];
+    for (const s of steps) {
+      const ep = epMap.get(s.endpoint_id);
+      if (!ep) continue;
+      const k = ep.provider_key_encrypted ? await decryptString(ep.provider_key_encrypted) : null;
+      routeSteps.push({ endpointRow: ep, model: s.model, upstreamKey: k });
+    }
+    if (routeSteps.length === 0) return json(openaiErrorShape(`Route ${routeName} has no usable steps`, "server_error"), 500);
+    routeConfig = {
+      fallback_on_5xx: route.fallback_on_5xx,
+      fallback_on_429: route.fallback_on_429,
+      fallback_on_timeout: route.fallback_on_timeout,
+      timeout_ms: route.timeout_ms,
+    };
+    // Initial model used by the downstream pipeline; will be overridden per step
+    model = routeSteps[0].model;
+  }
+
   const isCustom = keyRow.provider === "custom";
   const provider = isCustom ? null : getProvider(keyRow.provider);
   if (!isCustom && !provider) {
     return json(openaiErrorShape(`Unknown provider: ${keyRow.provider}`, "server_error"), 500);
   }
-
-  // Body
-  let body: any;
-  try { body = await req.json(); } catch { return json(openaiErrorShape("Invalid JSON body", "invalid_request_error"), 400); }
-  if (!Array.isArray(body?.messages)) return json(openaiErrorShape("messages must be an array", "invalid_request_error"), 400);
-  const model = body.model || keyRow.model_default;
-  const stream = !!body.stream;
 
   // Resolve upstream credentials
   let upstreamKey: string | null = null;
