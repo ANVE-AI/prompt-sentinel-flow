@@ -837,7 +837,169 @@ await client.messages.create({
         apiKeyId={aliasesFor?.id ?? null}
         apiKeyName={aliasesFor?.name ?? ""}
       />
+
+      <IntegrateDialog
+        open={!!integrateFor}
+        onClose={() => setIntegrateFor(null)}
+        keyName={integrateFor?.name ?? ""}
+        keyPrefix={integrateFor?.key_prefix ?? ""}
+      />
     </div>
+  );
+};
+
+// ---- Per-key Integrate dialog: full base URL + curl/Node/Python snippets
+//      for both OpenAI Chat Completions and Anthropic Messages shapes.
+const SAMPLE_KEY_PLACEHOLDER = "ag_live_•••••••••••••";
+
+function snippetsFor(baseUrl: string, apiKey: string) {
+  return {
+    openai: {
+      curl: `curl ${baseUrl}/v1/chat/completions \\
+  -H "Authorization: Bearer ${apiKey}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "gpt-5",
+    "messages": [{"role": "user", "content": "Hello"}]
+  }'`,
+      node: `import OpenAI from "openai";
+
+const client = new OpenAI({
+  baseURL: "${baseUrl}",
+  apiKey: "${apiKey}",
+});
+
+const res = await client.chat.completions.create({
+  model: "gpt-5",
+  messages: [{ role: "user", content: "Hello" }],
+});
+console.log(res.choices[0].message.content);`,
+      python: `from openai import OpenAI
+
+client = OpenAI(
+    base_url="${baseUrl}",
+    api_key="${apiKey}",
+)
+
+res = client.chat.completions.create(
+    model="gpt-5",
+    messages=[{"role": "user", "content": "Hello"}],
+)
+print(res.choices[0].message.content)`,
+    },
+    anthropic: {
+      curl: `curl ${baseUrl}/v1/messages \\
+  -H "x-api-key: ${apiKey}" \\
+  -H "anthropic-version: 2023-06-01" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "claude-3-5-sonnet-latest",
+    "max_tokens": 256,
+    "messages": [{"role": "user", "content": "Hello"}]
+  }'`,
+      node: `import Anthropic from "@anthropic-ai/sdk";
+
+const client = new Anthropic({
+  baseURL: "${baseUrl}",
+  apiKey: "${apiKey}", // sent as x-api-key
+});
+
+const msg = await client.messages.create({
+  model: "claude-3-5-sonnet-latest",
+  max_tokens: 256,
+  messages: [{ role: "user", content: "Hello" }],
+});
+console.log(msg.content);`,
+      python: `import anthropic
+
+client = anthropic.Anthropic(
+    base_url="${baseUrl}",
+    api_key="${apiKey}",
+)
+
+msg = client.messages.create(
+    model="claude-3-5-sonnet-latest",
+    max_tokens=256,
+    messages=[{"role": "user", "content": "Hello"}],
+)
+print(msg.content)`,
+    },
+  };
+}
+
+const IntegrateDialog = ({
+  open, onClose, keyName, keyPrefix,
+}: { open: boolean; onClose: () => void; keyName: string; keyPrefix: string }) => {
+  const [shape, setShape] = useState<"openai" | "anthropic">("openai");
+  const [lang, setLang] = useState<"curl" | "node" | "python">("curl");
+  const apiKey = keyPrefix ? `${keyPrefix}…` : SAMPLE_KEY_PLACEHOLDER;
+  const snippets = snippetsFor(PROXY_URL, apiKey);
+  const code = (snippets as any)[shape][lang] as string;
+  const endpointPath = shape === "openai" ? "/v1/chat/completions" : "/v1/messages";
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Code2 className="h-4 w-4" /> Integrate · {keyName}
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="rounded-md border border-border surface-2 p-3 space-y-2">
+            <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Base URL</div>
+            <div className="flex items-center gap-2">
+              <code className="text-xs font-mono break-all flex-1">{PROXY_URL}</code>
+              <Button
+                size="sm" variant="outline"
+                onClick={() => { navigator.clipboard.writeText(PROXY_URL); toast.success("Base URL copied"); }}
+              >
+                <Copy className="h-3 w-3 mr-1" /> Copy
+              </Button>
+            </div>
+            <div className="text-meta text-muted-foreground">
+              Endpoint: <span className="font-mono">{PROXY_URL}{endpointPath}</span>
+            </div>
+            <div className="text-meta text-muted-foreground">
+              Replace <span className="font-mono">{apiKey}</span> with the full <span className="font-mono">ag_live_…</span> key value (shown only once when created).
+            </div>
+          </div>
+
+          <Tabs value={shape} onValueChange={(v) => setShape(v as any)}>
+            <TabsList className="grid grid-cols-2 w-full">
+              <TabsTrigger value="openai">OpenAI Chat Completions</TabsTrigger>
+              <TabsTrigger value="anthropic">Anthropic Messages</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value={shape} className="mt-3 space-y-2">
+              <Tabs value={lang} onValueChange={(v) => setLang(v as any)}>
+                <div className="flex items-center justify-between gap-2">
+                  <TabsList>
+                    <TabsTrigger value="curl">curl</TabsTrigger>
+                    <TabsTrigger value="node">Node.js</TabsTrigger>
+                    <TabsTrigger value="python">Python</TabsTrigger>
+                  </TabsList>
+                  <Button
+                    size="sm" variant="outline"
+                    onClick={() => { navigator.clipboard.writeText(code); toast.success("Snippet copied"); }}
+                  >
+                    <Copy className="h-3 w-3 mr-1" /> Copy
+                  </Button>
+                </div>
+                <pre className="mt-2 rounded-md border border-border bg-surface-2 p-4 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all max-h-[360px]">
+{code}
+                </pre>
+              </Tabs>
+            </TabsContent>
+          </Tabs>
+        </div>
+
+        <DialogFooter>
+          <Button onClick={onClose}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 };
 
