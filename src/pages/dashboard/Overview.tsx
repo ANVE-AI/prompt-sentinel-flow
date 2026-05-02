@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ShieldAlert, ArrowUpRight } from "lucide-react";
+import { ShieldAlert, ArrowUpRight, Ban, Search } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts";
 import { Link } from "react-router-dom";
 import { useDashboardApi } from "@/lib/api";
@@ -205,7 +205,115 @@ const Overview = () => {
         </div>
       </Card>
 
-      {/* Recent requests — same row format used in Logs for consistency */}
+      {/* Visibility — surface recent blocked requests with the literal reason
+          so operators can build trust in why things were stopped. */}
+      <Card className="surface-1 border-border">
+        <div className="px-5 pt-4 pb-3 flex items-center justify-between border-b border-border">
+          <div>
+            <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Visibility</div>
+            <div className="text-h2 font-medium mt-0.5">Recent blocked requests</div>
+          </div>
+          <Link
+            to="/dashboard/logs?tab=security"
+            className="text-meta text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1"
+          >
+            All blocks <ArrowUpRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+        <div className="p-0">
+          {isLoading ? (
+            <SkeletonRows rows={4} cols="grid-cols-[1fr_auto]" rowClassName="px-5 py-3 h-auto" />
+          ) : !data?.recent_blocks || data.recent_blocks.length === 0 ? (
+            <EmptyState
+              icon={<ShieldAlert className="h-5 w-5" />}
+              title="No blocks recently"
+              description="When a request is stopped, you'll see what tripped here — rule, layer, and the matched snippet."
+            />
+          ) : (
+            <ul className="divide-y divide-border">
+              {data.recent_blocks.map((b: any) => (
+                <li key={b.id} className="px-5 py-3 hover:bg-surface-2 transition-colors">
+                  <Link to={`/dashboard/logs?tab=security&focus=${b.id}`} className="block">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex items-center gap-2">
+                          <Ban className="h-3.5 w-3.5 text-status-block shrink-0" />
+                          <span className="text-body font-medium truncate">{b.reason}</span>
+                        </div>
+                        {b.prompt_preview && (
+                          <p className="text-meta text-muted-foreground truncate font-mono">
+                            “{b.prompt_preview}”
+                          </p>
+                        )}
+                        <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                          {b.rule && <Badge variant="outline" className="text-[10px]">{b.rule}</Badge>}
+                          {b.layer && <Badge variant="outline" className="text-[10px] font-mono">{b.layer}</Badge>}
+                          {b.matched && (
+                            <Badge variant="outline" className="text-[10px] font-mono max-w-[220px] truncate">
+                              matched: {b.matched}
+                            </Badge>
+                          )}
+                          {b.api_key_name && (
+                            <span className="text-[10px] text-muted-foreground">
+                              · {b.api_key_name}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <span className="text-meta text-muted-foreground tabular-nums shrink-0">
+                        {new Date(b.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    </div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </Card>
+
+      {/* Common block patterns — the literal snippets that policies caught
+          most often. Builds intuition about what users are actually sending. */}
+      <Card className="surface-1 border-border">
+        <div className="px-5 pt-4 pb-3 flex items-center justify-between border-b border-border">
+          <div>
+            <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Visibility</div>
+            <div className="text-h2 font-medium mt-0.5">Common block patterns</div>
+          </div>
+          <span className="text-meta text-muted-foreground inline-flex items-center gap-1">
+            <Search className="h-3.5 w-3.5" /> matched snippets
+          </span>
+        </div>
+        <div className="p-0">
+          {isLoading ? (
+            <SkeletonRows rows={4} cols="grid-cols-[1fr_auto]" rowClassName="px-5 py-2.5 h-auto" />
+          ) : !data?.block_patterns || data.block_patterns.length === 0 ? (
+            <EmptyState
+              icon={<ShieldAlert className="h-5 w-5" />}
+              title="No matched patterns yet"
+              description="Once policies start firing on specific keywords or shapes, they'll be summarized here."
+            />
+          ) : (
+            <ul className="divide-y divide-border">
+              {data.block_patterns.map((p: any, i: number) => (
+                <li key={`${p.layer}-${p.pattern}-${i}`} className="grid grid-cols-[1fr_auto_auto] gap-3 items-center px-5 py-2.5 hover:bg-surface-2 transition-colors">
+                  <div className="min-w-0">
+                    <p className="text-body font-mono truncate">"{p.pattern}"</p>
+                    <p className="text-meta text-muted-foreground mt-0.5">
+                      <span className="font-mono">{p.layer}</span>
+                      {p.rule && <span> · {p.rule}</span>}
+                    </p>
+                  </div>
+                  <Badge status="block">{p.count}×</Badge>
+                  <span className="text-meta tabular-nums text-muted-foreground w-20 text-right">
+                    {p.last_at ? new Date(p.last_at).toLocaleDateString([], { month: "short", day: "numeric" }) : "—"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </Card>
       <Card className="surface-1 border-border">
         <div className="px-5 pt-4 pb-3 flex items-center justify-between border-b border-border">
           <div>
