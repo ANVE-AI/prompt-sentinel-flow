@@ -16,6 +16,8 @@ type TemplateLike = {
   policy: Record<string, any>;
   settings: Record<string, any>;
   rules?: Array<Record<string, any>>;
+  applies_to_intents?: string[];
+  unknown_intent_fallback?: "apply_no_rules" | "apply_default_rules" | "reject";
 };
 
 type Expected = "block" | "allow";
