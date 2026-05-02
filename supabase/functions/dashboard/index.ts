@@ -150,7 +150,7 @@ Deno.serve(async (req) => {
       }
 
       case "create_key": {
-        const { name, provider, model, provider_key, custom } = body;
+        const { name, provider, model, provider_key, custom, endpoint_id } = body;
         const def = getProvider(provider);
         if (!name || !def) return json({ error: "Invalid provider" }, 400);
 
@@ -160,47 +160,66 @@ Deno.serve(async (req) => {
         };
 
         if (provider === "custom") {
-          if (!custom || typeof custom !== "object") {
-            return json({ error: "Custom endpoint config required" }, 400);
-          }
-          // Validate via resolveCustomEndpoint (throws on bad URL etc.)
-          let resolved;
-          try {
-            resolved = resolveCustomEndpoint({
-              base_url: custom.base_url,
-              models_url: custom.models_url || null,
-              kind: custom.kind,
-              auth_scheme: custom.auth_scheme,
-              auth_header: custom.auth_header || null,
-              extra_headers: custom.extra_headers || null,
-            });
-          } catch (e) {
-            return json({ error: e instanceof Error ? e.message : String(e) }, 400);
-          }
-          if (resolved.auth_scheme !== "none" && !provider_key) {
-            return json({ error: "Provider API key required for selected auth scheme" }, 400);
-          }
-          insert.custom_base_url = custom.base_url;
-          insert.custom_models_url = custom.models_url || null;
-          insert.custom_kind = resolved.kind;
-          insert.custom_auth_scheme = resolved.auth_scheme;
-          insert.custom_auth_header = resolved.auth_header;
-          insert.custom_extra_headers = sanitizeExtraHeaders(custom.extra_headers || null);
-          if (Array.isArray(custom.model_suggestions)) {
-            insert.custom_model_suggestions = custom.model_suggestions
-              .filter((x: unknown) => typeof x === "string" && x.trim())
-              .map((x: string) => x.trim());
+          // Two paths: (a) attach a saved endpoint via endpoint_id,
+          //           (b) inline custom config (legacy / quick create).
+          if (endpoint_id) {
+            const { data: ep } = await sb.from("endpoints").select("*")
+              .eq("id", endpoint_id).eq("user_id", userId).maybeSingle();
+            if (!ep) return json({ error: "Endpoint not found" }, 404);
+            insert.endpoint_id = ep.id;
+            // Mirror the endpoint's config into custom_* cols so the proxy keeps
+            // working from a single row read (no JOIN needed at request time).
+            insert.custom_base_url = ep.base_url;
+            insert.custom_models_url = ep.models_url;
+            insert.custom_kind = ep.kind;
+            insert.custom_auth_scheme = ep.auth_scheme;
+            insert.custom_auth_header = ep.auth_header;
+            insert.custom_extra_headers = ep.extra_headers ?? {};
+            insert.custom_model_suggestions = ep.model_suggestions ?? [];
+            insert.provider_key_encrypted = ep.provider_key_encrypted ?? null;
+            if (!model && ep.default_model) insert.model_default = ep.default_model;
+          } else {
+            if (!custom || typeof custom !== "object") {
+              return json({ error: "Custom endpoint config required" }, 400);
+            }
+            let resolved;
+            try {
+              resolved = resolveCustomEndpoint({
+                base_url: custom.base_url,
+                models_url: custom.models_url || null,
+                kind: custom.kind,
+                auth_scheme: custom.auth_scheme,
+                auth_header: custom.auth_header || null,
+                extra_headers: custom.extra_headers || null,
+              });
+            } catch (e) {
+              return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+            }
+            if (resolved.auth_scheme !== "none" && !provider_key) {
+              return json({ error: "Provider API key required for selected auth scheme" }, 400);
+            }
+            insert.custom_base_url = custom.base_url;
+            insert.custom_models_url = custom.models_url || null;
+            insert.custom_kind = resolved.kind;
+            insert.custom_auth_scheme = resolved.auth_scheme;
+            insert.custom_auth_header = resolved.auth_header;
+            insert.custom_extra_headers = sanitizeExtraHeaders(custom.extra_headers || null);
+            if (Array.isArray(custom.model_suggestions)) {
+              insert.custom_model_suggestions = custom.model_suggestions
+                .filter((x: unknown) => typeof x === "string" && x.trim())
+                .map((x: string) => x.trim());
+            }
+            insert.provider_key_encrypted = provider_key ? await encryptString(provider_key) : null;
           }
         } else if (!def.managed && !provider_key) {
           return json({ error: `${def.label} key required` }, 400);
+        } else if (!def.managed) {
+          insert.provider_key_encrypted = await encryptString(provider_key);
         }
 
         const plain = generateApiKey();
         insert.key_hash = await sha256Hex(plain);
         insert.key_prefix = plain.slice(0, 16);
-        insert.provider_key_encrypted = (provider === "custom"
-            ? (provider_key ? await encryptString(provider_key) : null)
-            : (!def.managed ? await encryptString(provider_key) : null));
 
         const { data, error } = await sb.from("api_keys").insert(insert).select("id").single();
         if (error) return json({ error: error.message }, 400);
@@ -212,6 +231,181 @@ Deno.serve(async (req) => {
         await sb.from("api_keys").update({ is_active: false }).eq("id", id).eq("user_id", userId);
         return json({ ok: true });
       }
+
+      // =====================================================================
+      // Custom endpoint management (separate from API keys)
+      // =====================================================================
+      case "list_endpoints": {
+        const { data } = await sb.from("endpoints")
+          .select("id,name,base_url,models_url,kind,auth_scheme,auth_header,extra_headers,model_suggestions,default_model,created_at,updated_at,provider_key_encrypted")
+          .eq("user_id", userId).order("created_at", { ascending: false });
+        // Mask the encrypted key — return only a "has key" bool to the UI.
+        const endpoints = (data ?? []).map((e: any) => {
+          const { provider_key_encrypted, ...rest } = e;
+          return { ...rest, has_key: !!provider_key_encrypted };
+        });
+        // Count keys per endpoint so the UI can show usage / warn before deleting.
+        const { data: keyCounts } = await sb.from("api_keys")
+          .select("endpoint_id").eq("user_id", userId).not("endpoint_id", "is", null);
+        const counts: Record<string, number> = {};
+        for (const r of keyCounts ?? []) {
+          if (r.endpoint_id) counts[r.endpoint_id] = (counts[r.endpoint_id] ?? 0) + 1;
+        }
+        return json({
+          endpoints: endpoints.map((e: any) => ({ ...e, key_count: counts[e.id] ?? 0 })),
+        });
+      }
+
+      case "save_endpoint": {
+        // Create or update. Pass `id` to update.
+        const { id, name, base_url, models_url, kind, auth_scheme, auth_header,
+                extra_headers, model_suggestions, default_model, provider_key,
+                clear_provider_key } = body;
+        if (!name || !base_url) return json({ error: "Name and base URL required" }, 400);
+
+        let resolved;
+        try {
+          resolved = resolveCustomEndpoint({
+            base_url, models_url: models_url || null, kind,
+            auth_scheme, auth_header: auth_header || null,
+            extra_headers: extra_headers || null,
+          });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+
+        const row: Record<string, unknown> = {
+          user_id: userId,
+          name: String(name).slice(0, 120),
+          base_url: String(base_url),
+          models_url: models_url || null,
+          kind: resolved.kind,
+          auth_scheme: resolved.auth_scheme,
+          auth_header: resolved.auth_header,
+          extra_headers: sanitizeExtraHeaders(extra_headers || null),
+          model_suggestions: Array.isArray(model_suggestions)
+            ? model_suggestions
+                .filter((x: unknown) => typeof x === "string" && x.trim())
+                .map((x: string) => x.trim())
+            : [],
+          default_model: default_model ? String(default_model).slice(0, 200) : null,
+        };
+
+        if (provider_key) {
+          row.provider_key_encrypted = await encryptString(provider_key);
+        } else if (clear_provider_key) {
+          row.provider_key_encrypted = null;
+        }
+
+        if (id) {
+          // Update — keep existing key unless caller sent provider_key/clear flag.
+          const { data, error } = await sb.from("endpoints")
+            .update(row).eq("id", id).eq("user_id", userId).select("id").maybeSingle();
+          if (error) return json({ error: error.message }, 400);
+          if (!data) return json({ error: "Endpoint not found" }, 404);
+          return json({ id: data.id });
+        } else {
+          if (resolved.auth_scheme !== "none" && !provider_key) {
+            return json({ error: "Provider API key required for selected auth scheme" }, 400);
+          }
+          const { data, error } = await sb.from("endpoints")
+            .insert(row).select("id").single();
+          if (error) return json({ error: error.message }, 400);
+          return json({ id: data.id });
+        }
+      }
+
+      case "delete_endpoint": {
+        const { id } = body;
+        if (!id) return json({ error: "id required" }, 400);
+        // Check if any API key still references it
+        const { count } = await sb.from("api_keys")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", userId).eq("endpoint_id", id);
+        if ((count ?? 0) > 0) {
+          return json({ error: `Cannot delete: ${count} API key(s) still use this endpoint. Revoke or migrate them first.` }, 400);
+        }
+        const { error } = await sb.from("endpoints").delete()
+          .eq("id", id).eq("user_id", userId);
+        if (error) return json({ error: error.message }, 400);
+        return json({ ok: true });
+      }
+
+      case "test_endpoint": {
+        // Test a saved endpoint by id (uses stored provider key) OR ad-hoc form values.
+        const { id } = body;
+        let cfg: any = body;
+        let upstreamKey: string | null = body.provider_key || null;
+
+        if (id) {
+          const { data: row } = await sb.from("endpoints").select("*")
+            .eq("id", id).eq("user_id", userId).maybeSingle();
+          if (!row) return json({ ok: false, error: "Endpoint not found" }, 404);
+          cfg = {
+            base_url: row.base_url, models_url: row.models_url,
+            kind: row.kind, auth_scheme: row.auth_scheme,
+            auth_header: row.auth_header, extra_headers: row.extra_headers,
+          };
+          if (row.provider_key_encrypted && !upstreamKey) {
+            upstreamKey = await decryptString(row.provider_key_encrypted);
+          }
+        }
+
+        if (!cfg.base_url) return json({ ok: false, error: "Base URL required" }, 400);
+        let resolved;
+        try {
+          resolved = resolveCustomEndpoint({
+            base_url: cfg.base_url, models_url: cfg.models_url || null,
+            kind: cfg.kind, auth_scheme: cfg.auth_scheme,
+            auth_header: cfg.auth_header || null,
+            extra_headers: cfg.extra_headers || null,
+          });
+        } catch (e) {
+          return json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+
+        const headers: Record<string, string> = { Accept: "application/json", ...resolved.extra_headers };
+        let pingUrl = resolved.models_url;
+        if (upstreamKey && resolved.auth_scheme !== "none") {
+          if (resolved.auth_scheme === "bearer") headers["Authorization"] = `Bearer ${upstreamKey}`;
+          else if (resolved.auth_scheme === "x-api-key") headers["x-api-key"] = upstreamKey;
+          else if (resolved.auth_scheme === "header") headers[resolved.auth_header] = upstreamKey;
+          else if (resolved.auth_scheme === "query") {
+            const u = new URL(pingUrl);
+            u.searchParams.set(resolved.auth_header, upstreamKey);
+            pingUrl = u.toString();
+          }
+        }
+        if (resolved.kind === "anthropic" && !headers["anthropic-version"]) {
+          headers["anthropic-version"] = "2023-06-01";
+        }
+        const t0 = Date.now();
+        try {
+          const r = await fetch(pingUrl, { headers });
+          const text = await r.text();
+          let sample: string | null = null;
+          let count = 0;
+          try {
+            const j = JSON.parse(text);
+            const arr: any[] = j?.data ?? j?.models ?? [];
+            count = arr.length;
+            sample = arr.find((m) => m?.id || m?.name)?.id ?? arr[0]?.name ?? null;
+          } catch { /* not JSON */ }
+          return json({
+            ok: r.ok,
+            status: r.status,
+            latency_ms: Date.now() - t0,
+            url: pingUrl,
+            chat_url: resolved.url,
+            sample_model: sample,
+            model_count: count,
+            error: r.ok ? null : text.slice(0, 300),
+          });
+        } catch (e) {
+          return json({ ok: false, error: e instanceof Error ? e.message : String(e) });
+        }
+      }
+
 
       case "get_policies": {
         const { data } = await sb.from("policies").select("*").eq("user_id", userId).maybeSingle();
