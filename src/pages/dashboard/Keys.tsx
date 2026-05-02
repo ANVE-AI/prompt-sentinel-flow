@@ -954,12 +954,15 @@ for m in client.models.list().data:
 const IntegrateDialog = ({
   open, onClose, keyName, keyPrefix,
 }: { open: boolean; onClose: () => void; keyName: string; keyPrefix: string }) => {
-  const [shape, setShape] = useState<"openai" | "anthropic">("openai");
+  const [shape, setShape] = useState<"openai" | "anthropic" | "models">("openai");
   const [lang, setLang] = useState<"curl" | "node" | "python">("curl");
   const apiKey = keyPrefix ? `${keyPrefix}…` : SAMPLE_KEY_PLACEHOLDER;
   const snippets = snippetsFor(PROXY_URL, apiKey);
   const code = (snippets as any)[shape][lang] as string;
-  const endpointPath = shape === "openai" ? "/v1/chat/completions" : "/v1/messages";
+  const endpointPath =
+    shape === "openai" ? "/v1/chat/completions" :
+    shape === "anthropic" ? "/v1/messages" :
+    "/v1/models";
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -991,9 +994,10 @@ const IntegrateDialog = ({
           </div>
 
           <Tabs value={shape} onValueChange={(v) => setShape(v as any)}>
-            <TabsList className="grid grid-cols-2 w-full">
-              <TabsTrigger value="openai">OpenAI Chat Completions</TabsTrigger>
+            <TabsList className="grid grid-cols-3 w-full">
+              <TabsTrigger value="openai">Chat Completions</TabsTrigger>
               <TabsTrigger value="anthropic">Anthropic Messages</TabsTrigger>
+              <TabsTrigger value="models">List models</TabsTrigger>
             </TabsList>
 
             <TabsContent value={shape} className="mt-3 space-y-2">
@@ -1014,6 +1018,11 @@ const IntegrateDialog = ({
                 <pre className="mt-2 rounded-md border border-border bg-surface-2 p-4 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all max-h-[360px]">
 {code}
                 </pre>
+                {shape === "models" && (
+                  <div className="text-meta text-muted-foreground">
+                    Returns <span className="font-mono">{`{ object: "list", data: [{ id, object: "model", owned_by, ... }] }`}</span> — normalized from the upstream provider's listing.
+                  </div>
+                )}
               </Tabs>
             </TabsContent>
           </Tabs>
