@@ -23,6 +23,11 @@ const Overview = () => {
     queryKey: ["logs", "recent"],
     queryFn: () => call<any>("list_logs", { query: { limit: "6" } }),
   });
+  const { data: spike } = useQuery({
+    queryKey: ["block_spike_alert"],
+    queryFn: () => call<any>("block_spike_alert"),
+    refetchInterval: 60_000,
+  });
 
   const total = data?.total ?? 0;
   const blocked = data?.blocked ?? 0;
