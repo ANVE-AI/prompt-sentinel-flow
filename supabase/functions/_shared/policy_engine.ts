@@ -499,17 +499,176 @@ export function intentLayerFrom(
   };
 }
 
+// ---------- 5. Injection / jailbreak guard --------------------------------
+
+/**
+ * Curated, ordered library of prompt-injection / jailbreak patterns.
+ * Each entry returns spans into the *raw* text so the proxy can sanitize
+ * surgically (replace just the offending phrase, not the whole message).
+ *
+ * Patterns are intentionally narrow to keep false-positive rate low:
+ * we anchor on imperative verbs ("ignore", "disregard", "forget") plus an
+ * object word ("instructions", "rules", "system", "above", "previous"),
+ * or on well-known jailbreak personas (DAN, AIM, "developer mode",
+ * "do anything now", etc.). Generic words like "system" alone never fire.
+ */
+const INJECTION_PATTERNS: { name: string; re: RegExp; reason: string }[] = [
+  {
+    name: "ignore_prior_instructions",
+    re: /\b(?:ignore|disregard|forget|override|bypass|skip)\s+(?:all\s+|the\s+|any\s+|your\s+|previous\s+|prior\s+|above\s+|earlier\s+|preceding\s+|original\s+)*(?:previous\s+|prior\s+|above\s+|earlier\s+|preceding\s+|original\s+)?(?:instructions?|rules?|prompts?|system\s+(?:prompt|message)|guidelines?|directives?|constraints?|policies?)\b/gi,
+    reason: "Attempt to override prior system or developer instructions.",
+  },
+  {
+    name: "new_instructions_override",
+    re: /\b(?:new|updated|revised|the\s+real|actual)\s+(?:instructions?|rules?|system\s+prompt)\s*[:\-]/gi,
+    reason: "Replacement-instructions framing detected.",
+  },
+  {
+    name: "role_reset",
+    re: /\b(?:from\s+now\s+on|starting\s+now|henceforth|from\s+this\s+point)\s*,?\s*you\s+(?:are|will\s+be|must\s+be|shall\s+be|act\s+as)\b/gi,
+    reason: "Role-reset instruction detected.",
+  },
+  {
+    name: "you_are_now_persona",
+    re: /\byou\s+are\s+(?:now\s+)?(?:a\s+|an\s+|the\s+)?(?:dan|aim|stan|dude|kevin|jailbroken|uncensored|unfiltered|unrestricted|unchained|unlocked|developer\s+mode|god\s+mode|do\s+anything\s+now)\b/gi,
+    reason: "Known jailbreak persona invocation.",
+  },
+  {
+    name: "do_anything_now",
+    re: /\b(?:do\s+anything\s+now|DAN\s+mode|developer\s+mode\s+enabled|jailbreak\s+mode|act\s+as\s+(?:dan|aim|an?\s+(?:uncensored|unfiltered|unrestricted)\s+ai))\b/gi,
+    reason: "Classic DAN-style jailbreak phrase.",
+  },
+  {
+    name: "pretend_no_restrictions",
+    re: /\b(?:pretend|imagine|act\s+as\s+if|simulate)\s+(?:that\s+)?you\s+(?:have\s+no|don'?t\s+have|are\s+free\s+from|aren'?t\s+bound\s+by)\s+(?:rules|restrictions|guidelines|filters|limits|policies)\b/gi,
+    reason: "Persona-bypass framing detected.",
+  },
+  {
+    name: "reveal_system_prompt",
+    re: /\b(?:show|reveal|print|repeat|output|tell\s+me|what\s+(?:is|are))\s+(?:your\s+|the\s+|me\s+(?:your\s+|the\s+))?(?:system\s+(?:prompt|message|instructions?)|initial\s+(?:prompt|instructions?)|hidden\s+(?:prompt|instructions?)|original\s+(?:prompt|instructions?))\b/gi,
+    reason: "Attempt to extract the hidden system prompt.",
+  },
+  {
+    name: "pseudo_role_tag",
+    re: /(?:^|\n)\s*(?:\[\s*(?:system|assistant|developer)\s*\]|<\|?\s*(?:system|im_start|assistant|developer)\s*\|?>)/gi,
+    reason: "Injected role-tag header.",
+  },
+  {
+    name: "end_of_prompt_marker",
+    re: /\b(?:end\s+of\s+(?:system\s+)?(?:prompt|instructions?)|<\s*\/?\s*(?:system|instructions?)\s*>)\b/gi,
+    reason: "Fake end-of-prompt marker.",
+  },
+];
+
+/** Merge overlapping/adjacent spans so we redact each region once. */
+function mergeSpans(spans: { start: number; end: number; match: string }[]) {
+  if (spans.length === 0) return spans;
+  const sorted = [...spans].sort((a, b) => a.start - b.start);
+  const out = [sorted[0]];
+  for (let i = 1; i < sorted.length; i++) {
+    const last = out[out.length - 1];
+    const cur = sorted[i];
+    if (cur.start <= last.end) {
+      last.end = Math.max(last.end, cur.end);
+      last.match = last.match + " | " + cur.match;
+    } else out.push(cur);
+  }
+  return out;
+}
+
+/**
+ * Run the injection guard against both the raw text AND the normalized text.
+ * We match on raw text to get accurate spans. Normalized matching catches
+ * obfuscation (zero-width, b64-decoded, leetspeak) and is reported but does
+ * not produce a sanitization span (because span coords wouldn't map back).
+ */
+export function evaluateInjection(
+  rawText: string,
+  normalizedText: string,
+  direction: "input" | "output",
+): LayerVerdict[] {
+  // Output direction: only flag (we don't rewrite model output here — that's
+  // what the existing system_prompt_leak / tool_injection detectors are for).
+  if (direction !== "input") return [];
+
+  const out: LayerVerdict[] = [];
+  const allSpans: { start: number; end: number; match: string }[] = [];
+  const reasons: string[] = [];
+  const ruleNames: string[] = [];
+
+  for (const { name, re, reason } of INJECTION_PATTERNS) {
+    re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    let hit = false;
+    while ((m = re.exec(rawText)) !== null) {
+      hit = true;
+      allSpans.push({ start: m.index, end: m.index + m[0].length, match: m[0] });
+      if (m[0].length === 0) re.lastIndex++; // safety
+    }
+    // Normalized-only match (obfuscated input). Surface as evidence but no span.
+    if (!hit) {
+      re.lastIndex = 0;
+      if (re.test(normalizedText)) {
+        hit = true;
+        reasons.push(`${reason} (matched after normalization).`);
+        ruleNames.push(name + ":normalized");
+      }
+    }
+    if (hit) {
+      reasons.push(reason);
+      ruleNames.push(name);
+    }
+  }
+
+  if (reasons.length === 0) return out;
+
+  out.push({
+    layer: "injection",
+    // The actual block/sanitize/flag verdict is decided by the aggregator
+    // based on settings.injection_action, but we mark it as `flag` here as a
+    // conservative default. The evaluator overrides this below.
+    verdict: "flag",
+    rule: ruleNames.join(","),
+    reason: Array.from(new Set(reasons)).join(" "),
+    spans: mergeSpans(allSpans),
+  });
+  return out;
+}
+
+/**
+ * Apply sanitization spans to a raw string — replace each span with `[redacted]`.
+ * Spans must be in the same coordinate space as `text` (i.e. coming from
+ * `evaluateInjection` over the same raw input).
+ */
+export function applySanitization(
+  text: string,
+  spans: { start: number; end: number }[],
+): string {
+  if (spans.length === 0) return text;
+  const merged = mergeSpans(spans.map((s) => ({ ...s, match: "" })));
+  let out = "";
+  let cursor = 0;
+  for (const s of merged) {
+    out += text.slice(cursor, s.start) + "[redacted]";
+    cursor = s.end;
+  }
+  out += text.slice(cursor);
+  return out;
+}
+
 // ---------- Aggregator -----------------------------------------------------
 
 /**
  * Combine layer verdicts using the documented precedence:
- *   1. any block  -> block
- *   2. any flag + strict_mode -> block
- *   3. any flag   -> flag
- *   4. otherwise  -> allow
+ *   1. any block       -> block
+ *   2. any sanitize    -> sanitize  (only ever produced by the injection layer)
+ *   3. any flag + strict_mode -> block
+ *   4. any flag        -> flag
+ *   5. otherwise       -> allow
  */
 export function aggregate(layers: LayerVerdict[], settings: PolicySettings): Verdict {
   if (layers.some((l) => l.verdict === "block")) return "block";
+  if (layers.some((l) => l.verdict === "sanitize")) return "sanitize";
   if (layers.some((l) => l.verdict === "flag") && settings.strict_mode) return "block";
   if (layers.some((l) => l.verdict === "flag")) return "flag";
   return "allow";
