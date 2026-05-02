@@ -263,22 +263,30 @@ const Endpoints = () => {
   const test = async () => {
     setTesting(true); setTestResult(null);
     try {
+      const base = isEdit && hasKeyOnRecord && !form.provider_key
+        ? { id: form.id }
+        : buildPayload();
       const r = await call<any>("test_endpoint", {
-        body: isEdit && hasKeyOnRecord && !form.provider_key
-          ? { id: form.id }                // use stored key
-          : buildPayload(),
+        body: { ...base, probe_chat: probeChat, probe_model: form.default_model || undefined },
       });
+      const fmt = r.response_format ? ` · format: ${r.response_format}` : "";
+      const chat = r.chat_url ? `\nChat URL: ${r.chat_url}` : "";
       if (r.ok) {
-        const fmt = r.response_format ? ` · format: ${r.response_format}` : "";
-        const chat = r.chat_url ? `\nChat URL: ${r.chat_url}` : "";
         setTestResult({
           ok: true,
+          checks: r.checks,
+          chat_probe: r.chat_probe,
           msg: (r.sample_model
             ? `Connected (${r.latency_ms}ms). ${r.model_count} models · sample: ${r.sample_model}${fmt}`
             : `Connected (${r.status}, ${r.latency_ms}ms).${fmt}`) + chat,
         });
       } else {
-        setTestResult({ ok: false, msg: r.error || `HTTP ${r.status}` });
+        setTestResult({
+          ok: false,
+          checks: r.checks,
+          chat_probe: r.chat_probe,
+          msg: r.error || `HTTP ${r.status ?? "?"}`,
+        });
       }
     } catch (e: any) {
       setTestResult({ ok: false, msg: e.message || String(e) });
