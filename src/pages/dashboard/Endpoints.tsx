@@ -1668,6 +1668,13 @@ const Endpoints = () => {
         </DialogContent>
       </Dialog>
 
+      {/* Request drilldown drawer (sits over the usage dialog) */}
+      <RequestDetailSheet
+        requestId={openRequestId}
+        onClose={() => setOpenRequestId(null)}
+        query={requestDetailQuery}
+      />
+
       {/* Import preview dialog */}
       <Dialog open={importOpen} onOpenChange={(o) => { if (!o) { setImportOpen(false); setImportPayload(null); } }}>
         <DialogContent className="max-w-lg">
