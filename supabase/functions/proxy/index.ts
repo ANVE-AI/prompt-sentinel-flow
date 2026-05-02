@@ -5,6 +5,8 @@ import { corsHeaders, json, service, sha256Hex, decryptString,
 import { getProvider, resolveEndpoint } from "../_shared/providers.ts";
 import { openaiToAnthropicRequest, anthropicToOpenAIResponse,
   anthropicStreamToOpenAI } from "../_shared/anthropic.ts";
+import { chatToResponsesRequest, responsesToChatResponse,
+  responsesStreamToChat } from "../_shared/responses_api.ts";
 
 function openaiErrorShape(message: string, type = "policy_violation") {
   return { error: { message, type, code: type } };
