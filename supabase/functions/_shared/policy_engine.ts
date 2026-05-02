@@ -713,6 +713,30 @@ export async function evaluate(input: EvaluateInput, ctx: { systemPrompt?: strin
     layers.push(...evaluateHeuristics(text, norm.normalized, direction));
   }
 
+  // Dedicated jailbreak / prompt-injection guard. Defaults ON. The action
+  // (block/sanitize/flag) is applied here so the aggregator just consumes
+  // a verdict like every other layer.
+  let sanitized_text: string | undefined;
+  let sanitized_spans: { start: number; end: number; match: string }[] | undefined;
+  if (settings.enable_injection_guard !== false) {
+    const injectionLayers = evaluateInjection(text, norm.normalized, direction);
+    if (injectionLayers.length > 0) {
+      const action: "block" | "sanitize" | "flag" = settings.injection_action ?? "block";
+      const allSpans = injectionLayers.flatMap((l) => l.spans ?? []);
+      // If sanitize is selected but we have no usable spans (only normalized
+      // matches), fall back to `block` — silently passing the request through
+      // would be unsafe.
+      const effectiveAction =
+        action === "sanitize" && allSpans.length === 0 ? "block" : action;
+      for (const layer of injectionLayers) layer.verdict = effectiveAction;
+      layers.push(...injectionLayers);
+      if (effectiveAction === "sanitize" && allSpans.length > 0) {
+        sanitized_spans = mergeSpans(allSpans);
+        sanitized_text = applySanitization(text, sanitized_spans);
+      }
+    }
+  }
+
   // 2. Intent layer verdict (built from the same classification, no extra call).
   let shadow_only = false;
   if (detected) {
@@ -734,6 +758,8 @@ export async function evaluate(input: EvaluateInput, ctx: { systemPrompt?: strin
     shadow_only,
     detected_intent: detected?.intent,
     intent_confidence: detected?.confidence,
+    sanitized_text,
+    sanitized_spans,
   };
 }
 
@@ -747,6 +773,8 @@ export const DEFAULT_SETTINGS: PolicySettings = {
   intent_shadow_mode: true,
   strict_mode: false,
   workspace_purpose: null,
+  enable_injection_guard: true,
+  injection_action: "block",
 };
 
 export const KNOWN_INTENTS = [
