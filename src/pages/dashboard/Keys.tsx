@@ -9,10 +9,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Copy, Plus, Trash2, Check, X, Plug, Beaker, Loader2 } from "lucide-react";
+import { Copy, Plus, Trash2, Check, X, Plug, Beaker, Loader2, KeyRound } from "lucide-react";
 import { useDashboardApi } from "@/lib/api";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SkeletonRows } from "@/components/skeletons";
+import { EmptyState } from "@/components/empty-state";
 
 const PROXY_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proxy`;
 
