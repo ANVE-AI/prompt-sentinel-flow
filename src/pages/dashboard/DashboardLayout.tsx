@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { LayoutDashboard, KeyRound, ShieldCheck, ScrollText, Terminal } from "lucide-react";
+import { LayoutDashboard, KeyRound, ShieldCheck, ScrollText, Terminal, Plug } from "lucide-react";
 import { UserButton, useUser } from "@clerk/clerk-react";
 import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils";
@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { to: "/dashboard", label: "Overview", icon: LayoutDashboard, end: true },
   { to: "/dashboard/keys", label: "API Keys", icon: KeyRound },
+  { to: "/dashboard/endpoints", label: "Endpoints", icon: Plug },
   { to: "/dashboard/policies", label: "Policies", icon: ShieldCheck },
   { to: "/dashboard/logs", label: "Logs", icon: ScrollText },
   { to: "/dashboard/playground", label: "Playground", icon: Terminal },
