@@ -1363,15 +1363,34 @@ const Endpoints = () => {
             </div>
 
             <div className="space-y-2">
+              {/* Validation summary — visible whenever required fields are missing
+                  or malformed. Both Test and Save are disabled until cleared. */}
+              {!validation.success && errorEntries.length > 0 && (
+                <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs">
+                  <div className="flex items-center gap-1.5 font-medium text-destructive mb-1">
+                    <AlertCircle className="h-3.5 w-3.5" />
+                    Fix {errorEntries.length} field{errorEntries.length === 1 ? "" : "s"} before testing or saving
+                  </div>
+                  <ul className="ml-5 list-disc space-y-0.5 text-foreground/90">
+                    {errorEntries.map(([field, msg]) => (
+                      <li key={field}>
+                        <span className="font-medium">{FIELD_LABELS[field]}:</span> {msg}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <div className="flex flex-wrap items-center gap-3">
                 <Button
                   type="button" variant="outline" size="sm"
                   onClick={test}
-                  disabled={testing || !form.base_url}
+                  disabled={testing || !canTest}
+                  title={!canTest ? "Resolve validation errors above to enable testing" : undefined}
                 >
                   <Beaker className="h-4 w-4 mr-2" />
                   {testing ? "Testing…" : "Test connection"}
                 </Button>
+
                 <label className="text-xs flex items-center gap-2 text-muted-foreground cursor-pointer select-none">
                   <input
                     type="checkbox"
