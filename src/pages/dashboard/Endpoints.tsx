@@ -562,29 +562,96 @@ const Endpoints = () => {
               </div>
             )}
 
-            <div>
-              <Label>Default model (optional)</Label>
-              <Input
-                value={form.default_model}
-                onChange={(e) => setForm({ ...form, default_model: e.target.value })}
-                placeholder="e.g. llama3.1"
-                className="mt-1.5 font-mono text-sm"
-              />
+            {/* Live model listing */}
+            <div className="rounded-md border border-border/60 p-3 space-y-3 bg-muted/30">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <Label className="text-sm font-medium">Available models</Label>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    Hit <code>/models</code> on this endpoint live, then pick the default.
+                  </p>
+                </div>
+                <Button
+                  type="button" size="sm" variant="outline"
+                  onClick={fetchModels}
+                  disabled={fetchingModels || !form.base_url}
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${fetchingModels ? "animate-spin" : ""}`} />
+                  {fetchingModels ? "Fetching…" : "Refresh from upstream"}
+                </Button>
+              </div>
+
+              {modelsResult && (
+                <div className={`text-xs flex items-start gap-2 p-2 rounded-md ${
+                  modelsResult.ok ? "bg-primary/10 text-primary" : "bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                }`}>
+                  {modelsResult.ok
+                    ? <Check className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                    : <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />}
+                  <span className="break-all">{modelsResult.msg}</span>
+                </div>
+              )}
+
+              <div>
+                <Label className="text-xs">Default model</Label>
+                {liveModels && liveModels.length > 0 ? (
+                  <div className="flex gap-2 mt-1">
+                    <Select
+                      value={liveModels.includes(form.default_model) ? form.default_model : ""}
+                      onValueChange={(v) => setForm({ ...form, default_model: v })}
+                    >
+                      <SelectTrigger className="font-mono text-xs">
+                        <SelectValue placeholder="Pick from live list…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {liveModels.map((m) => (
+                          <SelectItem key={m} value={m} className="font-mono text-xs">{m}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      value={form.default_model}
+                      onChange={(e) => setForm({ ...form, default_model: e.target.value })}
+                      placeholder="or type manually"
+                      className="font-mono text-xs"
+                    />
+                  </div>
+                ) : (
+                  <Input
+                    value={form.default_model}
+                    onChange={(e) => setForm({ ...form, default_model: e.target.value })}
+                    placeholder="e.g. llama3.1 — refresh above to pick from a list"
+                    className="mt-1 font-mono text-xs"
+                  />
+                )}
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs">Fallback model suggestions</Label>
+                  {liveModels && liveModels.length > 0 && (
+                    <Button
+                      type="button" size="sm" variant="ghost"
+                      className="h-7 text-xs"
+                      onClick={() => setForm({ ...form, model_suggestions: liveModels.join(", ") })}
+                    >
+                      Use live list as fallback
+                    </Button>
+                  )}
+                </div>
+                <Textarea
+                  value={form.model_suggestions}
+                  onChange={(e) => setForm({ ...form, model_suggestions: e.target.value })}
+                  placeholder="llama3.1, qwen2.5, gpt-oss:20b"
+                  className="mt-1 font-mono text-xs"
+                  rows={2}
+                />
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Shown if <code>/models</code> can't be reached at request time.
+                </p>
+              </div>
             </div>
 
-            <div>
-              <Label>Model suggestions (comma-separated)</Label>
-              <Textarea
-                value={form.model_suggestions}
-                onChange={(e) => setForm({ ...form, model_suggestions: e.target.value })}
-                placeholder="llama3.1, qwen2.5, gpt-oss:20b"
-                className="mt-1.5 font-mono text-xs"
-                rows={2}
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                Used as fallback if the <code>/models</code> endpoint can't be reached.
-              </p>
-            </div>
 
             <div>
               <div className="flex items-center justify-between">
