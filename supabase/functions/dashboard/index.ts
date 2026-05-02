@@ -1181,6 +1181,14 @@ Deno.serve(async (req) => {
         return json({ ok: true });
       }
 
+      case "delete_policy_intent": {
+        const intent = String(body?.intent ?? "").trim();
+        if (!intent) return json({ error: "intent is required" }, 400);
+        const { error } = await sb.from("policy_intents").delete().eq("user_id", userId).eq("intent", intent);
+        if (error) return json({ error: error.message }, 400);
+        return json({ ok: true });
+      }
+
       // Pattern rules (regex + structural detectors), optionally scoped to
       // one or more detected intents.
       case "list_policy_rules": {
