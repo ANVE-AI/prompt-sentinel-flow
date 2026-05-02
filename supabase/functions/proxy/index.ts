@@ -462,10 +462,13 @@ async function handleRequest(req: Request): Promise<Response> {
   // before evaluation also means the guardrail itself is included in
   // input/output policy checks and request logs, which is what operators want
   // when auditing.
-  const guardrail = (settings as any)?.guardrail_system_prompt;
-  if (typeof guardrail === "string" && guardrail.trim()) {
+  const guardrailRaw = (settings as any)?.guardrail_system_prompt;
+  const injectedGuardrail = (typeof guardrailRaw === "string" && guardrailRaw.trim())
+    ? guardrailRaw.trim() : null;
+  const guardrail = guardrailRaw;
+  if (injectedGuardrail) {
     body.messages = [
-      { role: "system", content: guardrail.trim() },
+      { role: "system", content: injectedGuardrail },
       ...body.messages,
     ];
   }
@@ -579,6 +582,8 @@ async function handleRequest(req: Request): Promise<Response> {
         // Throttle fires before the intent classifier runs, so we record
         // "unknown" rather than leaving the audit field null.
         detected_intent: "unknown",
+        guardrail_prompt: injectedGuardrail,
+        client_system_prompt: customSystemPrompt || null,
         status: "throttled", verdict: "block", block_reason: reason,
         verdict_layers: [{
           layer: "behavioral", verdict: "block", rule: "throttle",
@@ -624,6 +629,11 @@ async function handleRequest(req: Request): Promise<Response> {
     messages: body.messages,
     detected_intent: inputEval.detected_intent ?? "unknown",
     intent_confidence: inputEval.intent_confidence ?? null,
+    // Audit trail for system-prompt injection: persist exactly what the proxy
+    // prepended to the conversation so reviewers can reconstruct the prompt
+    // chain without re-deriving it from `messages`.
+    guardrail_prompt: injectedGuardrail,
+    client_system_prompt: customSystemPrompt || null,
   };
 
   if (inputEval.verdict === "block") {
