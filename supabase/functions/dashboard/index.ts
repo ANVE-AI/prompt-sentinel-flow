@@ -1173,6 +1173,48 @@ Deno.serve(async (req) => {
         return json({ usage });
       }
 
+      case "endpoint_request_detail": {
+        // Returns the full row for a single request_log, including the prompt
+        // (`messages`) and `response` jsonb payloads. Owner-only: we double-
+        // check that the log row belongs to the calling user, AND that the
+        // associated api_key (if any) is bound to an endpoint the user owns.
+        // Shared-with-me recipients are NOT granted log access here.
+        const requestId = url.searchParams.get("request_id") || body.request_id;
+        if (!requestId || typeof requestId !== "string") {
+          return json({ error: "request_id required" }, 400);
+        }
+        const { data: log, error: logErr } = await sb
+          .from("request_logs")
+          .select("*")
+          .eq("id", requestId)
+          .eq("user_id", userId)
+          .maybeSingle();
+        if (logErr) return json({ error: logErr.message }, 400);
+        if (!log) return json({ error: "Request not found" }, 404);
+
+        // Extra ownership check via the api_key -> endpoint chain.
+        if (log.api_key_id) {
+          const { data: key } = await sb
+            .from("api_keys")
+            .select("id,endpoint_id,name,key_prefix")
+            .eq("id", log.api_key_id)
+            .eq("user_id", userId)
+            .maybeSingle();
+          if (key?.endpoint_id) {
+            const { data: ep } = await sb
+              .from("endpoints")
+              .select("id")
+              .eq("id", key.endpoint_id)
+              .eq("user_id", userId)
+              .maybeSingle();
+            if (!ep) return json({ error: "Request not found" }, 404);
+          }
+          (log as any).api_key_name = key?.name ?? null;
+          (log as any).api_key_prefix = key?.key_prefix ?? null;
+        }
+
+        return json({ request: log });
+      }
 
       case "set_endpoint_default_model": {
         // Persist `default_model` for a saved endpoint, but ONLY after re-validating

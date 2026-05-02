@@ -11,6 +11,11 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import {
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
+} from "@/components/ui/sheet";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
@@ -20,7 +25,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Plug, Pencil, Trash2, X, Check, Beaker, KeyRound, RefreshCw, AlertTriangle, Activity, Ban, AlertCircle, Download, Upload, Save } from "lucide-react";
+import { Plus, Plug, Pencil, Trash2, X, Check, Beaker, KeyRound, RefreshCw, AlertTriangle, Activity, Ban, AlertCircle, Download, Upload, Save, ChevronRight, Copy } from "lucide-react";
 import { useDashboardApi } from "@/lib/api";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -222,6 +227,16 @@ const Endpoints = () => {
     }),
   });
   const usageRow = usageQuery.data?.usage?.[0];
+
+  // Drilldown for individual request_log rows in the usage dialog.
+  const [openRequestId, setOpenRequestId] = useState<string | null>(null);
+  const requestDetailQuery = useQuery({
+    enabled: !!openRequestId,
+    queryKey: ["endpoint_request_detail", openRequestId],
+    queryFn: () => call<{ request: any }>("endpoint_request_detail", {
+      body: { request_id: openRequestId },
+    }),
+  });
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{
     ok: boolean;
@@ -1608,7 +1623,13 @@ const Endpoints = () => {
                       const blocked = typeof r.status === "string" && r.status.startsWith("blocked");
                       const errored = r.status === "error";
                       return (
-                        <div key={r.id} className="flex items-center gap-3 px-3 py-2 text-xs">
+                        <button
+                          key={r.id}
+                          type="button"
+                          onClick={() => setOpenRequestId(r.id)}
+                          className="w-full flex items-center gap-3 px-3 py-2 text-xs text-left hover:bg-muted/60 transition-colors focus:outline-none focus:bg-muted/60"
+                          title="Inspect request"
+                        >
                           {blocked
                             ? <Ban className="h-3.5 w-3.5 text-destructive shrink-0" />
                             : errored
@@ -1627,7 +1648,8 @@ const Endpoints = () => {
                           <span className="text-muted-foreground tabular-nums shrink-0 w-14 text-right">
                             {r.latency_ms ?? 0}ms
                           </span>
-                        </div>
+                          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        </button>
                       );
                     })}
                   </div>
@@ -1645,6 +1667,13 @@ const Endpoints = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Request drilldown drawer (sits over the usage dialog) */}
+      <RequestDetailSheet
+        requestId={openRequestId}
+        onClose={() => setOpenRequestId(null)}
+        query={requestDetailQuery}
+      />
 
       {/* Import preview dialog */}
       <Dialog open={importOpen} onOpenChange={(o) => { if (!o) { setImportOpen(false); setImportPayload(null); } }}>
@@ -1744,6 +1773,239 @@ function StatTile({
       {hint && <div className="text-[10px] text-muted-foreground mt-0.5">{hint}</div>}
     </div>
   );
+}
+
+// -------- Request drilldown sheet ------------------------------------------
+// Renders the full prompt + response payload for a single request_log row.
+// Loaded lazily via the `endpoint_request_detail` action so we don't bloat
+// the usage dialog's initial response with potentially large jsonb blobs.
+function RequestDetailSheet({
+  requestId, onClose, query,
+}: {
+  requestId: string | null;
+  onClose: () => void;
+  query: ReturnType<typeof useQuery<{ request: any }, Error>>;
+}) {
+  const open = !!requestId;
+  const req = query.data?.request;
+
+  const blocked = typeof req?.status === "string" && req.status.startsWith("blocked");
+  const errored = req?.status === "error";
+
+  const assistantText = useMemo(() => extractAssistantText(req?.response), [req?.response]);
+  const promptMessages = Array.isArray(req?.messages) ? req.messages : null;
+
+  const copyJson = (obj: unknown, label: string) => {
+    try {
+      navigator.clipboard.writeText(JSON.stringify(obj, null, 2));
+      toast.success(`${label} copied`);
+    } catch {
+      toast.error("Copy failed");
+    }
+  };
+
+  return (
+    <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
+      <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col p-0">
+        <SheetHeader className="px-6 pt-6 pb-3 border-b">
+          <SheetTitle className="flex items-center gap-2 text-base">
+            {blocked
+              ? <Ban className="h-4 w-4 text-destructive" />
+              : errored
+                ? <AlertCircle className="h-4 w-4 text-destructive" />
+                : <Check className="h-4 w-4 text-primary" />}
+            Request inspector
+          </SheetTitle>
+          <SheetDescription>
+            {req
+              ? `${new Date(req.created_at).toLocaleString()} · ${req.model ?? "—"} · ${req.provider ?? "—"}`
+              : "Loading request details…"}
+          </SheetDescription>
+        </SheetHeader>
+
+        <div className="flex-1 overflow-hidden">
+          {query.isLoading ? (
+            <div className="p-6 space-y-3">
+              <Skeleton className="h-5 w-1/2" />
+              <Skeleton className="h-32 w-full" />
+              <Skeleton className="h-32 w-full" />
+            </div>
+          ) : query.isError ? (
+            <div className="p-6 text-sm text-destructive">
+              {(query.error as Error)?.message ?? "Failed to load request"}
+            </div>
+          ) : !req ? (
+            <div className="p-6 text-sm text-muted-foreground">No request selected.</div>
+          ) : (
+            <ScrollArea className="h-full">
+              <div className="px-6 py-4 space-y-4">
+                {/* Header strip */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                  <MetaTile label="Status" value={
+                    <Badge variant="outline" className={
+                      blocked || errored
+                        ? "bg-destructive/10 text-destructive border-destructive/30"
+                        : ""
+                    }>{req.status}</Badge>
+                  } />
+                  <MetaTile label="Latency" value={`${req.latency_ms ?? 0} ms`} />
+                  <MetaTile label="Tokens in" value={req.tokens_in ?? "—"} />
+                  <MetaTile label="Tokens out" value={req.tokens_out ?? "—"} />
+                </div>
+
+                <div className="text-xs text-muted-foreground space-y-0.5">
+                  {req.api_key_name && (
+                    <div>API key: <span className="text-foreground font-medium">{req.api_key_name}</span>
+                      {req.api_key_prefix && <code className="ml-2">{req.api_key_prefix}…</code>}
+                    </div>
+                  )}
+                  <div>Request ID: <code>{req.id}</code></div>
+                </div>
+
+                {/* Block reason */}
+                {blocked && req.block_reason && (
+                  <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
+                    <div className="flex items-center gap-2 text-xs font-medium text-destructive mb-1">
+                      <Ban className="h-3.5 w-3.5" /> Blocked by policy
+                    </div>
+                    <div className="text-xs text-foreground whitespace-pre-wrap">{req.block_reason}</div>
+                  </div>
+                )}
+
+                <Tabs defaultValue="prompt" className="w-full">
+                  <TabsList className="grid grid-cols-3 w-full">
+                    <TabsTrigger value="prompt">Prompt</TabsTrigger>
+                    <TabsTrigger value="response">Response</TabsTrigger>
+                    <TabsTrigger value="raw">Raw</TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="prompt" className="mt-3">
+                    {promptMessages ? (
+                      <div className="space-y-2">
+                        {promptMessages.map((m: any, i: number) => (
+                          <div key={i} className="rounded-md border bg-muted/30 p-3">
+                            <div className="flex items-center gap-2 mb-1">
+                              <Badge variant="outline" className="text-[10px] uppercase">
+                                {m.role ?? "message"}
+                              </Badge>
+                            </div>
+                            <pre className="text-xs whitespace-pre-wrap break-words font-mono text-foreground">
+                              {typeof m.content === "string" ? m.content : JSON.stringify(m.content, null, 2)}
+                            </pre>
+                          </div>
+                        ))}
+                      </div>
+                    ) : req.messages ? (
+                      <JsonBlock value={req.messages} onCopy={() => copyJson(req.messages, "Prompt")} />
+                    ) : (
+                      <EmptyHint>No prompt payload was recorded for this request.</EmptyHint>
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="response" className="mt-3 space-y-3">
+                    {assistantText && (
+                      <div className="rounded-md border bg-muted/30 p-3">
+                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
+                          Assistant message
+                        </div>
+                        <pre className="text-xs whitespace-pre-wrap break-words font-mono text-foreground">
+                          {assistantText}
+                        </pre>
+                      </div>
+                    )}
+                    {req.response ? (
+                      <JsonBlock value={req.response} onCopy={() => copyJson(req.response, "Response")} />
+                    ) : (
+                      <EmptyHint>
+                        No response payload was recorded
+                        {blocked ? " (request was blocked before reaching the provider)." : "."}
+                      </EmptyHint>
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="raw" className="mt-3">
+                    <JsonBlock value={req} onCopy={() => copyJson(req, "Raw row")} />
+                  </TabsContent>
+                </Tabs>
+              </div>
+            </ScrollArea>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function MetaTile({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="rounded-md border p-2">
+      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="mt-1 text-sm font-medium tabular-nums">{value}</div>
+    </div>
+  );
+}
+
+function EmptyHint({ children }: { children: ReactNode }) {
+  return (
+    <div className="text-xs text-muted-foreground py-3 px-3 rounded-md border border-dashed">
+      {children}
+    </div>
+  );
+}
+
+function JsonBlock({ value, onCopy }: { value: unknown; onCopy: () => void }) {
+  return (
+    <div className="relative rounded-md border bg-muted/30">
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={onCopy}
+        className="absolute top-1 right-1 h-7 px-2 text-xs"
+      >
+        <Copy className="h-3 w-3 mr-1" /> Copy
+      </Button>
+      <pre className="text-xs font-mono p-3 pr-16 overflow-x-auto whitespace-pre-wrap break-words max-h-[420px]">
+        {safeStringify(value)}
+      </pre>
+    </div>
+  );
+}
+
+function safeStringify(v: unknown) {
+  try { return JSON.stringify(v, null, 2); }
+  catch { return String(v); }
+}
+
+// Extract a human-readable assistant message from common provider response
+// shapes: OpenAI chat_completions, OpenAI Responses API, Anthropic messages.
+function extractAssistantText(resp: any): string | null {
+  if (!resp || typeof resp !== "object") return null;
+  // chat_completions
+  const choice = resp.choices?.[0];
+  if (choice) {
+    const c = choice.message?.content ?? choice.delta?.content ?? choice.text;
+    if (typeof c === "string" && c.trim()) return c;
+    if (Array.isArray(c)) {
+      const joined = c.map((p: any) => p?.text ?? p?.content ?? "").filter(Boolean).join("\n");
+      if (joined.trim()) return joined;
+    }
+  }
+  // Responses API
+  if (typeof resp.output_text === "string" && resp.output_text.trim()) return resp.output_text;
+  const out = resp.output?.[0];
+  if (out) {
+    const part = out.content?.[0];
+    if (typeof part?.text === "string" && part.text.trim()) return part.text;
+  }
+  // Anthropic messages
+  if (Array.isArray(resp.content)) {
+    const joined = resp.content
+      .map((p: any) => (typeof p?.text === "string" ? p.text : ""))
+      .filter(Boolean)
+      .join("\n");
+    if (joined.trim()) return joined;
+  }
+  return null;
 }
 
 export default Endpoints;
