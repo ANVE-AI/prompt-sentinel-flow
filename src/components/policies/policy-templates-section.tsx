@@ -19,7 +19,7 @@ import { useDashboardApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { TemplateWizardDialog } from "./template-wizard-dialog";
 
-type TemplateId = "safe_chatbot" | "enterprise_compliance" | "no_pii";
+type TemplateId = "safe_chatbot" | "enterprise_compliance" | "no_pii" | string;
 
 type Template = {
   id: TemplateId;
@@ -29,10 +29,10 @@ type Template = {
   accent: string;
   highlights: string[];
   policy: {
-    blocked_keywords: string[];
-    allowed_keywords: string[];
-    use_global_defaults: boolean;
-    block_message: string;
+    blocked_keywords?: string[];
+    allowed_keywords?: string[];
+    use_global_defaults?: boolean;
+    block_message?: string;
   };
   settings: Record<string, unknown>;
   rules?: Array<{
@@ -44,6 +44,7 @@ type Template = {
     config: Record<string, unknown>;
     applies_to_intents?: string[];
   }>;
+  custom?: boolean;
 };
 
 const TEMPLATES: Template[] = [
