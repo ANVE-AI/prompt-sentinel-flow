@@ -40,7 +40,7 @@ const Overview = () => {
 
       {/* Hero KPI block */}
       {isLoading ? (
-        <Skeleton className="h-40" />
+        <SkeletonBlock variant="kpi" />
       ) : (
         <Card className="surface-1 border-border shadow-pop overflow-hidden">
           <CardContent className="p-0">
