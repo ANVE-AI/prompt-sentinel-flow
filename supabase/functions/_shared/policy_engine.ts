@@ -22,7 +22,8 @@ export type LayerName =
   | "patterns"
   | "heuristics"
   | "intent"
-  | "injection";
+  | "injection"
+  | "behavioral";
 
 export type Verdict = "allow" | "flag" | "block" | "sanitize";
 
