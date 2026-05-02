@@ -20,6 +20,13 @@ function openaiErrorShape(message: string, type = "policy_violation") {
   return { error: { message, type, code: type } };
 }
 
+/** Translate an OpenAI-shape error envelope into the public shape. */
+function errorForShape(shape: RequestShape, message: string, type = "policy_violation"): unknown {
+  if (shape === "anthropic") return { type: "error", error: { type, message } };
+  if (shape === "gemini")    return { error: { code: 400, status: type, message } };
+  return openaiErrorShape(message, type);
+}
+
 /**
  * Load all policy state for a workspace in one round trip.
  * Falls back to safe defaults if rows are missing.
