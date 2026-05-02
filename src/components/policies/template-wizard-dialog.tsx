@@ -201,7 +201,7 @@ export function TemplateWizardDialog({
 
         {/* Step indicator */}
         <div className="flex items-center gap-1.5 px-1">
-          {[1, 2, 3, 4, 5].map((n) => (
+          {Array.from({ length: TOTAL_STEPS }, (_, i) => i + 1).map((n) => (
             <div
               key={n}
               className={cn(
