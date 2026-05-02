@@ -135,6 +135,10 @@ const Endpoints = () => {
       provider_key: "",
       clear_provider_key: false,
       extra_headers: Object.entries(e.extra_headers || {}).map(([key, value]) => ({ key, value })),
+      path_prefix: e.path_prefix ?? "",
+      chat_path: e.chat_path ?? "",
+      models_path: e.models_path ?? "",
+      response_format: e.response_format ?? (e.kind === "anthropic" ? "anthropic_messages" : "chat_completions"),
     });
     setTestResult(null);
     setOpen(true);
