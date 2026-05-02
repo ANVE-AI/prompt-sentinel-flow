@@ -5,6 +5,7 @@ import { Topbar } from "@/components/topbar";
 import { CommandPalette } from "@/components/command-palette";
 import { MobileSidebar } from "@/components/mobile-sidebar";
 import { DashboardSidebar } from "@/components/dashboard-sidebar";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const SIDEBAR_STORAGE_KEY = "dashboard:sidebar:open";
 /** Default expanded state used both on first visit and after a reset. */
@@ -12,28 +13,57 @@ const SIDEBAR_DEFAULT_OPEN = true;
 /** Custom event fired by UI affordances ("Reset sidebar layout") to clear
  *  the persisted sidebar state and restore the default expanded behavior. */
 export const SIDEBAR_RESET_EVENT = "dashboard:sidebar:reset";
+/** Must match the `md` breakpoint the shadcn Sidebar uses to swap between
+ *  the desktop rail and the mobile sheet (see use-mobile.tsx). */
+const MOBILE_BREAKPOINT = 768;
+
+const isDesktopViewport = () =>
+  typeof window !== "undefined" && window.innerWidth >= MOBILE_BREAKPOINT;
+
+const readStoredOpen = (): boolean => {
+  if (typeof window === "undefined") return SIDEBAR_DEFAULT_OPEN;
+  try {
+    const stored = window.localStorage.getItem(SIDEBAR_STORAGE_KEY);
+    if (stored === null) return SIDEBAR_DEFAULT_OPEN;
+    return stored !== "false";
+  } catch {
+    return SIDEBAR_DEFAULT_OPEN;
+  }
+};
 
 const DashboardLayout = () => {
+  const isMobile = useIsMobile();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
-    if (typeof window === "undefined") return SIDEBAR_DEFAULT_OPEN;
-    try {
-      const stored = window.localStorage.getItem(SIDEBAR_STORAGE_KEY);
-      if (stored === null) return SIDEBAR_DEFAULT_OPEN;
-      return stored !== "false";
-    } catch {
-      return SIDEBAR_DEFAULT_OPEN;
-    }
-  });
+
+  // Hydrate from storage only when starting on a desktop viewport. On mobile
+  // we always start expanded — the desktop rail is hidden and the mobile
+  // sheet has its own open state (`openMobile` inside SidebarProvider).
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() =>
+    isDesktopViewport() ? readStoredOpen() : SIDEBAR_DEFAULT_OPEN,
+  );
 
   const handleSidebarOpenChange = (open: boolean) => {
     setSidebarOpen(open);
+    // Persist toggles only on desktop. On mobile this `open` value drives the
+    // hidden desktop rail and shouldn't pollute the user's saved layout.
+    if (!isDesktopViewport()) return;
     try {
       window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(open));
     } catch {
       // ignore storage failures (private mode, quota, etc.)
     }
   };
+
+  // When the viewport crosses the mobile/desktop boundary, re-apply the
+  // correct state: hydrate from storage on desktop, fall back to the default
+  // on mobile so the next desktop reload still respects the saved value.
+  useEffect(() => {
+    if (isMobile) {
+      setSidebarOpen(SIDEBAR_DEFAULT_OPEN);
+    } else {
+      setSidebarOpen(readStoredOpen());
+    }
+  }, [isMobile]);
 
   // Listen for "Reset sidebar layout" requests from anywhere in the dashboard.
   useEffect(() => {
@@ -49,13 +79,11 @@ const DashboardLayout = () => {
     return () => window.removeEventListener(SIDEBAR_RESET_EVENT, onReset);
   }, []);
 
-  // Cross-tab sync: when another tab toggles or resets the sidebar, mirror
-  // that change here immediately. The `storage` event only fires in *other*
-  // tabs (not the one that wrote the value), which is exactly what we want.
+  // Cross-tab sync (desktop only — mobile ignores persisted state).
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
       if (e.key !== null && e.key !== SIDEBAR_STORAGE_KEY) return;
-      // key === null means storage was cleared entirely; treat as reset.
+      if (!isDesktopViewport()) return;
       if (e.key === null || e.newValue === null) {
         setSidebarOpen(SIDEBAR_DEFAULT_OPEN);
         return;
@@ -86,3 +114,4 @@ const DashboardLayout = () => {
 };
 
 export default DashboardLayout;
+
