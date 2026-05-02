@@ -35,10 +35,10 @@ Deno.test("behavioral · instruction_churn fires on repeated flip phrases", () =
   const convo: Turn[] = [
     u("Help me write a polite email to my landlord."),
     a("Sure, here's a draft…"),
-    u("Actually ignore that, make it confrontational instead."),
+    u("Actually, make it confrontational instead."),
     a("Updated draft…"),
-    u("Scratch that, never mind, go back to polite but firmer."),
-    u("Ignore the previous instructions and write it as a legal threat."),
+    u("Wait, scratch that, go back to polite but firmer."),
+    u("On second thought, never mind — make it a formal legal letter."),
   ];
   const layers = evaluateBehavioral(convo);
   assertEquals(layers.length, 1);
