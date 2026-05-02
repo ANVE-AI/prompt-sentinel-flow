@@ -4,6 +4,7 @@ import { corsHeaders, json, service, verifyClerkJwt, bearer, ensureProfile,
   generateApiKey, sha256Hex, encryptString, decryptString, GLOBAL_DEFAULT_BLOCKED } from "../_shared/anveguard.ts";
 import { PROVIDERS, getProvider, CUSTOM_SCHEMA, resolveCustomEndpoint,
   resolveEndpoint, sanitizeExtraHeaders, validateCustomUrl } from "../_shared/providers.ts";
+import { parseModelsResponse } from "../_shared/models_parsers.ts";
 
 // In-memory cache for /models responses (per provider+key, 5 min TTL).
 const modelsCache = new Map<string, { models: string[]; exp: number }>();
