@@ -627,6 +627,11 @@ async function handleRequest(req: Request): Promise<Response> {
     messages: body.messages,
     detected_intent: inputEval.detected_intent ?? "unknown",
     intent_confidence: inputEval.intent_confidence ?? null,
+    // Audit trail for system-prompt injection: persist exactly what the proxy
+    // prepended to the conversation so reviewers can reconstruct the prompt
+    // chain without re-deriving it from `messages`.
+    guardrail_prompt: injectedGuardrail,
+    client_system_prompt: customSystemPrompt || null,
   };
 
   if (inputEval.verdict === "block") {
