@@ -24,80 +24,181 @@ Deno.serve(async (req) => {
 
     switch (action) {
       case "list_providers": {
-        return json({ providers: PROVIDERS });
+        return json({ providers: PROVIDERS, custom_schema: CUSTOM_SCHEMA });
+      }
+
+      case "test_custom_endpoint": {
+        // Validate the form values WITHOUT persisting. Pings the resolved /models URL.
+        const { base_url, models_url, kind, auth_scheme, auth_header,
+                extra_headers, provider_key } = body;
+        if (!base_url) return json({ ok: false, error: "Base URL required" }, 400);
+        let resolved;
+        try {
+          resolved = resolveCustomEndpoint({
+            base_url, models_url, kind, auth_scheme,
+            auth_header, extra_headers,
+          });
+        } catch (e) {
+          return json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+        const headers: Record<string, string> = { Accept: "application/json", ...resolved.extra_headers };
+        if (provider_key && resolved.auth_scheme !== "none") {
+          if (resolved.auth_scheme === "bearer") headers["Authorization"] = `Bearer ${provider_key}`;
+          else if (resolved.auth_scheme === "x-api-key") headers["x-api-key"] = provider_key;
+          else if (resolved.auth_scheme === "header") headers[resolved.auth_header] = provider_key;
+        }
+        if (resolved.kind === "anthropic" && !headers["anthropic-version"]) {
+          headers["anthropic-version"] = "2023-06-01";
+        }
+        try {
+          const r = await fetch(resolved.models_url, { headers });
+          const text = await r.text();
+          let sample: string | null = null;
+          try {
+            const j = JSON.parse(text);
+            const arr: any[] = j?.data ?? j?.models ?? [];
+            sample = arr.find((m) => m?.id || m?.name)?.id ?? arr[0]?.name ?? null;
+          } catch { /* not JSON */ }
+          return json({
+            ok: r.ok,
+            status: r.status,
+            url: resolved.models_url,
+            chat_url: resolved.url,
+            sample_model: sample,
+            error: r.ok ? null : text.slice(0, 300),
+          });
+        } catch (e) {
+          return json({ ok: false, error: e instanceof Error ? e.message : String(e) });
+        }
       }
 
       case "list_models": {
         const { api_key_id } = body;
         if (!api_key_id) return json({ error: "api_key_id required" }, 400);
         const { data: keyRow } = await sb.from("api_keys")
-          .select("id,user_id,provider,provider_key_encrypted")
+          .select("id,user_id,provider,provider_key_encrypted,custom_base_url,custom_models_url,custom_kind,custom_auth_scheme,custom_auth_header,custom_extra_headers,custom_model_suggestions")
           .eq("id", api_key_id).eq("user_id", userId).maybeSingle();
         if (!keyRow) return json({ error: "Key not found" }, 404);
-        const def = getProvider(keyRow.provider);
-        if (!def) return json({ error: "Unknown provider" }, 400);
 
-        // Lovable / no models endpoint -> static suggestions
-        if (def.managed || !def.models_url) {
-          return json({ models: def.model_suggestions, source: "static" });
+        // Resolve target URL + headers
+        const upstreamKey = keyRow.provider_key_encrypted
+          ? await decryptString(keyRow.provider_key_encrypted) : "";
+
+        let resolvedUrl: string | undefined;
+        let headers: Record<string, string> = { Accept: "application/json" };
+        let fallbackSuggestions: string[] = [];
+
+        if (keyRow.provider === "custom") {
+          try {
+            const r = resolveEndpoint(keyRow as any, upstreamKey || null);
+            resolvedUrl = r.models_url;
+            headers = { ...headers, ...r.headers };
+          } catch (e) {
+            return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+          }
+          fallbackSuggestions = keyRow.custom_model_suggestions ?? [];
+        } else {
+          const def = getProvider(keyRow.provider);
+          if (!def) return json({ error: "Unknown provider" }, 400);
+          if (def.managed || !def.models_url) {
+            return json({ models: def.model_suggestions, source: "static" });
+          }
+          resolvedUrl = def.models_url;
+          if (def.kind === "anthropic") {
+            if (upstreamKey) headers["x-api-key"] = upstreamKey;
+            headers["anthropic-version"] = "2023-06-01";
+          } else if (upstreamKey) {
+            headers["Authorization"] = `Bearer ${upstreamKey}`;
+          }
+          fallbackSuggestions = def.model_suggestions;
         }
 
-        const cacheKey = `${keyRow.provider}:${keyRow.provider_key_encrypted ?? ""}`;
+        const cacheKey = `${keyRow.provider}:${keyRow.custom_base_url ?? ""}:${keyRow.provider_key_encrypted ?? ""}`;
         const cached = modelsCache.get(cacheKey);
         if (cached && cached.exp > Date.now()) {
           return json({ models: cached.models, source: "cache" });
         }
 
-        const upstreamKey = keyRow.provider_key_encrypted
-          ? await decryptString(keyRow.provider_key_encrypted) : "";
-        const headers: Record<string, string> = { "Accept": "application/json" };
-        if (def.kind === "anthropic") {
-          headers["x-api-key"] = upstreamKey;
-          headers["anthropic-version"] = "2023-06-01";
-        } else if (upstreamKey) {
-          headers["Authorization"] = `Bearer ${upstreamKey}`;
-        }
-
         try {
-          const r = await fetch(def.models_url, { headers });
+          const r = await fetch(resolvedUrl!, { headers });
           if (!r.ok) {
             const txt = await r.text();
-            return json({ models: def.model_suggestions, source: "fallback", warning: `Upstream ${r.status}: ${txt.slice(0, 200)}` });
+            return json({ models: fallbackSuggestions, source: "fallback", warning: `Upstream ${r.status}: ${txt.slice(0, 200)}` });
           }
           const j = await r.json();
           const arr: any[] = j?.data ?? j?.models ?? [];
           const ids = arr.map((m) => m?.id || m?.name).filter((x) => typeof x === "string");
-          const models = ids.length > 0 ? ids : def.model_suggestions;
+          const models = ids.length > 0 ? ids : fallbackSuggestions;
           modelsCache.set(cacheKey, { models, exp: Date.now() + 5 * 60_000 });
           return json({ models, source: "live" });
         } catch (e) {
-          return json({ models: def.model_suggestions, source: "fallback", warning: String(e) });
+          return json({ models: fallbackSuggestions, source: "fallback", warning: String(e) });
         }
       }
 
       case "list_keys": {
         const { data } = await sb.from("api_keys")
-          .select("id,name,key_prefix,provider,model_default,is_active,created_at,last_used_at")
+          .select("id,name,key_prefix,provider,model_default,is_active,created_at,last_used_at,custom_base_url,custom_kind")
           .eq("user_id", userId).order("created_at", { ascending: false });
         return json({ keys: data ?? [] });
       }
 
       case "create_key": {
-        const { name, provider, model, provider_key } = body;
+        const { name, provider, model, provider_key, custom } = body;
         const def = getProvider(provider);
         if (!name || !def) return json({ error: "Invalid provider" }, 400);
-        if (!def.managed && !provider_key) return json({ error: `${def.label} key required` }, 400);
+
+        const insert: Record<string, unknown> = {
+          user_id: userId, name, provider,
+          model_default: model || def.default_model || "",
+        };
+
+        if (provider === "custom") {
+          if (!custom || typeof custom !== "object") {
+            return json({ error: "Custom endpoint config required" }, 400);
+          }
+          // Validate via resolveCustomEndpoint (throws on bad URL etc.)
+          let resolved;
+          try {
+            resolved = resolveCustomEndpoint({
+              base_url: custom.base_url,
+              models_url: custom.models_url || null,
+              kind: custom.kind,
+              auth_scheme: custom.auth_scheme,
+              auth_header: custom.auth_header || null,
+              extra_headers: custom.extra_headers || null,
+            });
+          } catch (e) {
+            return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+          }
+          if (resolved.auth_scheme !== "none" && !provider_key) {
+            return json({ error: "Provider API key required for selected auth scheme" }, 400);
+          }
+          insert.custom_base_url = custom.base_url;
+          insert.custom_models_url = custom.models_url || null;
+          insert.custom_kind = resolved.kind;
+          insert.custom_auth_scheme = resolved.auth_scheme;
+          insert.custom_auth_header = resolved.auth_header;
+          insert.custom_extra_headers = sanitizeExtraHeaders(custom.extra_headers || null);
+          if (Array.isArray(custom.model_suggestions)) {
+            insert.custom_model_suggestions = custom.model_suggestions
+              .filter((x: unknown) => typeof x === "string" && x.trim())
+              .map((x: string) => x.trim());
+          }
+        } else if (!def.managed && !provider_key) {
+          return json({ error: `${def.label} key required` }, 400);
+        }
+
         const plain = generateApiKey();
-        const key_hash = await sha256Hex(plain);
-        const key_prefix = plain.slice(0, 16);
-        const provider_key_encrypted = !def.managed ? await encryptString(provider_key) : null;
-        const { data, error } = await sb.from("api_keys").insert({
-          user_id: userId, name, key_hash, key_prefix, provider,
-          model_default: model || def.default_model,
-          provider_key_encrypted,
-        }).select("id").single();
+        insert.key_hash = await sha256Hex(plain);
+        insert.key_prefix = plain.slice(0, 16);
+        insert.provider_key_encrypted = (provider === "custom"
+            ? (provider_key ? await encryptString(provider_key) : null)
+            : (!def.managed ? await encryptString(provider_key) : null));
+
+        const { data, error } = await sb.from("api_keys").insert(insert).select("id").single();
         if (error) return json({ error: error.message }, 400);
-        return json({ id: data!.id, full_key: plain, key_prefix });
+        return json({ id: data!.id, full_key: plain, key_prefix: insert.key_prefix });
       }
 
       case "revoke_key": {
