@@ -23,6 +23,81 @@ import {
 import { Plus, Plug, Pencil, Trash2, X, Check, Beaker, KeyRound, RefreshCw, AlertTriangle, Activity, Ban, AlertCircle, Download, Upload, Save } from "lucide-react";
 import { useDashboardApi } from "@/lib/api";
 import { toast } from "sonner";
+import { z } from "zod";
+
+// -------- Endpoint form validation -----------------------------------------
+// Validates the fields a template prefills (and that the upstream actually
+// needs) BEFORE allowing Test or Save. Mirrors the server-side checks in the
+// `save_endpoint` action so users get instant inline feedback rather than a
+// generic API error after submitting.
+//
+// Rules:
+// - name + base_url required, base_url must parse as http(s) URL.
+// - For non-"none" auth schemes, an auth_header/param name is required.
+// - Path overrides (path_prefix, chat_path, models_path, models_url) must be
+//   either empty or syntactically valid (start with "/" or be absolute URL).
+// - default_model is recommended but not required (warning, not error).
+const PathOverride = z
+  .string()
+  .max(500, "Too long")
+  .refine(
+    (v) => v === "" || v.startsWith("/") || /^https?:\/\//i.test(v),
+    { message: "Must start with '/' or be a full http(s) URL" },
+  );
+
+const endpointFormSchema = z
+  .object({
+    name: z.string().trim().min(1, "Name is required").max(120, "Name must be ≤120 chars"),
+    base_url: z
+      .string()
+      .trim()
+      .min(1, "Base URL is required")
+      .max(500, "Base URL too long")
+      .refine((v) => {
+        try {
+          const u = new URL(v);
+          return u.protocol === "http:" || u.protocol === "https:";
+        } catch { return false; }
+      }, "Must be a valid http(s) URL"),
+    kind: z.string().min(1, "Kind is required"),
+    auth_scheme: z.string().min(1, "Auth scheme is required"),
+    auth_header: z.string().trim().max(120, "Header name too long"),
+    response_format: z.enum(["chat_completions", "responses", "anthropic_messages"], {
+      message: "Pick a response format",
+    }),
+    models_url: PathOverride,
+    path_prefix: PathOverride,
+    chat_path: PathOverride,
+    models_path: PathOverride,
+    default_model: z.string().trim().max(200, "Model id too long"),
+  })
+  .superRefine((v, ctx) => {
+    // Auth header/param name is mandatory for any scheme that uses one.
+    if (v.auth_scheme !== "none" && v.auth_scheme !== "bearer" && v.auth_scheme !== "x-api-key") {
+      if (!v.auth_header.trim()) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["auth_header"],
+          message: v.auth_scheme === "query"
+            ? "Query parameter name is required for 'query' auth"
+            : "Header name is required for 'header' auth",
+        });
+      }
+    }
+    // Anthropic kind only makes sense with anthropic_messages format.
+    if (v.kind === "anthropic" && v.response_format !== "anthropic_messages") {
+      ctx.addIssue({
+        code: "custom", path: ["response_format"],
+        message: "Anthropic kind requires the 'anthropic_messages' response format",
+      });
+    }
+  });
+
+type EndpointFormErrors = Partial<Record<
+  "name" | "base_url" | "kind" | "auth_scheme" | "auth_header" | "response_format"
+  | "models_url" | "path_prefix" | "chat_path" | "models_path" | "default_model",
+  string
+>>;
 
 interface CustomSchema {
   kinds: { id: string; label: string }[];
@@ -337,9 +412,34 @@ const Endpoints = () => {
 
   const requiresKey = form.auth_scheme !== "none";
   const hasKeyOnRecord = isEdit && data?.endpoints.find((e) => e.id === form.id)?.has_key;
-  const canSave =
-    !!form.name && !!form.base_url &&
-    (!requiresKey || hasKeyOnRecord || !!form.provider_key);
+
+  // Validate the template-prefilled fields on every change. Errors are surfaced
+  // inline next to each field AND in a summary banner above the action buttons.
+  // Both Test connection and Save are gated on `validation.success` so users
+  // can't fire half-configured requests at upstream providers.
+  const validation = useMemo(() => {
+    const r = endpointFormSchema.safeParse(form);
+    if (r.success) return { success: true as const, errors: {} as EndpointFormErrors };
+    const errors: EndpointFormErrors = {};
+    for (const issue of r.error.issues) {
+      const key = issue.path[0] as keyof EndpointFormErrors | undefined;
+      if (key && !errors[key]) errors[key] = issue.message;
+    }
+    return { success: false as const, errors };
+  }, [form]);
+
+  const errorEntries = Object.entries(validation.errors) as Array<[keyof EndpointFormErrors, string]>;
+  const FIELD_LABELS: Record<keyof EndpointFormErrors, string> = {
+    name: "Name", base_url: "Base URL", kind: "Kind",
+    auth_scheme: "Auth scheme", auth_header: "Auth header/param",
+    response_format: "Response format",
+    models_url: "Models URL", path_prefix: "Path prefix",
+    chat_path: "Chat path", models_path: "Models path",
+    default_model: "Default model",
+  };
+
+  const canSave = validation.success && (!requiresKey || hasKeyOnRecord || !!form.provider_key);
+  const canTest = validation.success;
 
   const test = async () => {
     setTesting(true); setTestResult(null);
@@ -1263,15 +1363,34 @@ const Endpoints = () => {
             </div>
 
             <div className="space-y-2">
+              {/* Validation summary — visible whenever required fields are missing
+                  or malformed. Both Test and Save are disabled until cleared. */}
+              {!validation.success && errorEntries.length > 0 && (
+                <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs">
+                  <div className="flex items-center gap-1.5 font-medium text-destructive mb-1">
+                    <AlertCircle className="h-3.5 w-3.5" />
+                    Fix {errorEntries.length} field{errorEntries.length === 1 ? "" : "s"} before testing or saving
+                  </div>
+                  <ul className="ml-5 list-disc space-y-0.5 text-foreground/90">
+                    {errorEntries.map(([field, msg]) => (
+                      <li key={field}>
+                        <span className="font-medium">{FIELD_LABELS[field]}:</span> {msg}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <div className="flex flex-wrap items-center gap-3">
                 <Button
                   type="button" variant="outline" size="sm"
                   onClick={test}
-                  disabled={testing || !form.base_url}
+                  disabled={testing || !canTest}
+                  title={!canTest ? "Resolve validation errors above to enable testing" : undefined}
                 >
                   <Beaker className="h-4 w-4 mr-2" />
                   {testing ? "Testing…" : "Test connection"}
                 </Button>
+
                 <label className="text-xs flex items-center gap-2 text-muted-foreground cursor-pointer select-none">
                   <input
                     type="checkbox"
