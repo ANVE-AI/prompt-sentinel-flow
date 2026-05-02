@@ -448,6 +448,18 @@ export function PolicyTemplatesSection() {
 
       <TemplateWizardDialog open={wizardOpen} onOpenChange={setWizardOpen} />
 
+      <TemplateTestDialog
+        open={!!testTpl}
+        onOpenChange={(o) => !o && setTestTpl(null)}
+        template={testTpl ? {
+          id: testTpl.id,
+          name: testTpl.name,
+          policy: testTpl.policy as Record<string, any>,
+          settings: testTpl.settings as Record<string, any>,
+          rules: testTpl.rules as Array<Record<string, any>> | undefined,
+        } : null}
+      />
+
       <AlertDialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
