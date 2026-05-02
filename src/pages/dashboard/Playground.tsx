@@ -131,12 +131,12 @@ const Playground = () => {
         <CardContent className="space-y-4">
           {activeKeys.length > 0 && (
             <div>
-              <Label className="text-xs">Reference (your active keys)</Label>
-              <Select value={keyId} onValueChange={setKeyId}>
-                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Pick a key for reference…" /></SelectTrigger>
+              <Label className="text-xs">AnveGuard key (for model list)</Label>
+              <Select value={keyId} onValueChange={(v) => { setKeyId(v); setModel(""); }}>
+                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Pick a key…" /></SelectTrigger>
                 <SelectContent>
                   {activeKeys.map((k: any) => (
-                    <SelectItem key={k.id} value={k.id}>{k.name} — {k.model_default}</SelectItem>
+                    <SelectItem key={k.id} value={k.id}>{k.name} — {k.provider}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -147,6 +147,27 @@ const Playground = () => {
             <Input id="ak" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="ag_live_…" className="mt-1.5 font-mono text-sm" />
             <p className="text-xs text-muted-foreground mt-1">Paste here — keys aren't stored client-side.</p>
           </div>
+          {keyId && (
+            <div>
+              <Label htmlFor="model">Model</Label>
+              <Select value={model} onValueChange={setModel} disabled={modelsLoading || availableModels.length === 0}>
+                <SelectTrigger className="mt-1.5 font-mono text-sm">
+                  <SelectValue placeholder={modelsLoading ? "Loading models…" : "Pick a model"} />
+                </SelectTrigger>
+                <SelectContent className="max-h-80">
+                  {availableModels.map((m) => (
+                    <SelectItem key={m} value={m} className="font-mono text-xs">{m}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {modelsData?.warning && (
+                <p className="text-xs text-muted-foreground mt-1">⚠ {modelsData.warning} — showing fallback list.</p>
+              )}
+              {modelsData?.source === "live" && (
+                <p className="text-xs text-muted-foreground mt-1">{availableModels.length} models from upstream</p>
+              )}
+            </div>
+          )}
           <Textarea rows={6} value={prompt} onChange={(e) => setPrompt(e.target.value)} className="font-mono text-sm" />
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
