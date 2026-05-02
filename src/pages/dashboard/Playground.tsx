@@ -183,13 +183,13 @@ const Playground = () => {
       </Card>
 
       {result && (
-        <Card>
+        <Card className={result.blocked ? "border-destructive/40" : undefined}>
           <CardHeader>
             <CardTitle className="text-base font-medium flex items-center gap-2">
               Response
               {result.blocked ? (
                 <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/30 text-[10px]">
-                  <ShieldAlert className="h-3 w-3 mr-1" /> blocked
+                  <ShieldAlert className="h-3 w-3 mr-1" /> Blocked by admin policy
                 </Badge>
               ) : (
                 <Badge variant="outline" className="bg-success/10 text-success border-success/30 text-[10px]">
@@ -199,7 +199,15 @@ const Playground = () => {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {result.reason && <div className="text-xs text-destructive">{result.reason}</div>}
+            {result.blocked && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive flex items-start gap-2">
+                <ShieldAlert className="h-4 w-4 mt-0.5 shrink-0" />
+                <div>
+                  <div className="font-medium">This request was blocked by your organization's AI policy.</div>
+                  {result.reason && <div className="text-xs mt-1 opacity-80">{result.reason}</div>}
+                </div>
+              </div>
+            )}
             <pre className="rounded-md border border-border bg-muted/40 p-4 text-sm whitespace-pre-wrap">{result.text}</pre>
           </CardContent>
         </Card>
