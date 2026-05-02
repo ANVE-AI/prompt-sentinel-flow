@@ -24,15 +24,25 @@ const auditActionMeta: Record<string, { label: string; icon: typeof Ban }> = {
 const requestsCols = "grid-cols-[150px_minmax(0,1fr)_140px_82px_104px_92px]";
 const auditCols = "grid-cols-[160px_220px_minmax(0,1fr)_160px]";
 
+const STATUS_PILLS: { id: string; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "allowed", label: "Allowed" },
+  { id: "blocked_input", label: "Blocked (input)" },
+  { id: "blocked_output", label: "Blocked (output)" },
+  { id: "error", label: "Error" },
+];
+
 const RequestLogs = () => {
   const { call } = useDashboardApi();
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<string>("all");
   const [selected, setSelected] = useState<any>(null);
+  const [live, setLive] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isFetching } = useQuery({
     queryKey: ["logs", status],
     queryFn: () => call<any>("list_logs", { query: { status, limit: "200" } }),
+    refetchInterval: live ? 5_000 : false,
   });
 
   const filtered = (data?.logs ?? []).filter((l: any) => {
@@ -45,8 +55,8 @@ const RequestLogs = () => {
 
   return (
     <>
-      <div className="flex gap-2">
-        <div className="relative flex-1 max-w-md">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[200px] max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search prompts…"
@@ -55,17 +65,35 @@ const RequestLogs = () => {
             className="pl-9 h-9 surface-2 border-border"
           />
         </div>
-        <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger className="w-44 h-9 surface-2 border-border"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All statuses</SelectItem>
-            <SelectItem value="allowed">Allowed</SelectItem>
-            <SelectItem value="blocked_input">Blocked (input)</SelectItem>
-            <SelectItem value="blocked_output">Blocked (output)</SelectItem>
-            <SelectItem value="error">Error</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-1 rounded-md border border-border bg-surface-2 p-0.5">
+          {STATUS_PILLS.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => setStatus(p.id)}
+              className={`h-7 px-2.5 text-meta rounded transition-colors ${
+                status === p.id
+                  ? "bg-surface-1 text-foreground shadow-pop"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={() => setLive((v) => !v)}
+          className={`inline-flex items-center gap-2 h-9 px-3 rounded-md border text-meta transition-colors ${
+            live
+              ? "border-status-ok/40 bg-status-ok/10 text-foreground"
+              : "border-border surface-2 text-muted-foreground hover:text-foreground"
+          }`}
+          title="Auto-refresh every 5s"
+        >
+          <span className={`h-1.5 w-1.5 rounded-full ${live ? "bg-status-ok live-pulse" : "bg-muted-foreground"}`} />
+          {live ? (isFetching ? "Live · syncing" : "Live") : "Live"}
+        </button>
       </div>
+
 
       <Card className="surface-1 border-border overflow-hidden">
         <div className={`grid ${requestsCols} gap-3 px-4 h-9 items-center border-b border-border bg-surface-2/60 text-[10px] font-medium text-muted-foreground uppercase tracking-[0.1em]`}>
@@ -134,18 +162,31 @@ const RequestLogs = () => {
                     {selected.block_reason}
                   </div>
                 )}
-                <div>
-                  <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5">Messages</div>
-                  <pre className="rounded-md border border-border bg-surface-2 p-3 text-xs whitespace-pre-wrap overflow-x-auto">
-                    {JSON.stringify(selected.messages, null, 2)}
-                  </pre>
-                </div>
-                <div>
-                  <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5">Response</div>
-                  <pre className="rounded-md border border-border bg-surface-2 p-3 text-xs whitespace-pre-wrap overflow-x-auto">
-                    {JSON.stringify(selected.response, null, 2)}
-                  </pre>
-                </div>
+                <Tabs defaultValue="pretty">
+                  <TabsList className="bg-surface-2 border border-border h-8 p-0.5">
+                    <TabsTrigger value="pretty" className="h-7 px-2.5 text-meta data-[state=active]:bg-surface-1">Pretty</TabsTrigger>
+                    <TabsTrigger value="raw" className="h-7 px-2.5 text-meta data-[state=active]:bg-surface-1">Raw JSON</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="pretty" className="space-y-3 mt-3">
+                    <div>
+                      <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5">Messages</div>
+                      <pre className="rounded-md border border-border bg-surface-2 p-3 text-xs whitespace-pre-wrap overflow-x-auto">
+                        {JSON.stringify(selected.messages, null, 2)}
+                      </pre>
+                    </div>
+                    <div>
+                      <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5">Response</div>
+                      <pre className="rounded-md border border-border bg-surface-2 p-3 text-xs whitespace-pre-wrap overflow-x-auto">
+                        {JSON.stringify(selected.response, null, 2)}
+                      </pre>
+                    </div>
+                  </TabsContent>
+                  <TabsContent value="raw" className="mt-3">
+                    <pre className="rounded-md border border-border bg-surface-2 p-3 text-xs whitespace-pre-wrap overflow-x-auto">
+                      {JSON.stringify(selected, null, 2)}
+                    </pre>
+                  </TabsContent>
+                </Tabs>
               </div>
             </>
           )}
@@ -250,7 +291,7 @@ const AuditLog = () => {
 };
 
 const Logs = () => (
-  <div className="px-6 py-5 space-y-5 max-w-[1320px] mx-auto">
+  <div className="px-4 md:px-6 py-5 space-y-5 max-w-[1320px] mx-auto">
     <PageHeader
       title="Logs"
       description="Request traffic and account-level audit events."

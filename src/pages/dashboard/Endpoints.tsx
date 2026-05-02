@@ -815,15 +815,15 @@ const Endpoints = () => {
   };
 
   return (
-    <div className="p-8 space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Custom Endpoints</h1>
-          <p className="text-muted-foreground text-sm mt-1">
+    <div className="px-4 md:px-6 py-5 space-y-5 max-w-[1320px] mx-auto">
+      <div className="flex items-start justify-between gap-4 pb-1 flex-wrap">
+        <div className="min-w-0">
+          <h1 className="text-h1 font-semibold tracking-tight">Custom Endpoints</h1>
+          <p className="text-body text-muted-foreground mt-1 max-w-2xl">
             Save self-hosted or third-party LLM endpoints once and reuse them across API keys.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <input
             ref={(el) => { fileInputRef.current = el; }}
             type="file"
@@ -835,13 +835,13 @@ const Endpoints = () => {
               e.target.value = "";
             }}
           />
-          <Button variant="outline" onClick={onPickFile} disabled={importing}>
-            <Upload className="h-4 w-4 mr-2" /> Import
+          <Button variant="outline" size="sm" onClick={onPickFile} disabled={importing}>
+            <Upload className="h-3.5 w-3.5 mr-1.5" /> Import
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" disabled={exporting || endpoints.length === 0}>
-                <Download className="h-4 w-4 mr-2" /> Export
+              <Button variant="outline" size="sm" disabled={exporting || endpoints.length === 0}>
+                <Download className="h-3.5 w-3.5 mr-1.5" /> Export
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-72">
@@ -860,11 +860,8 @@ const Endpoints = () => {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button
-            onClick={startCreate}
-            className="bg-gradient-to-r from-primary to-accent text-primary-foreground hover:opacity-90"
-          >
-            <Plus className="h-4 w-4 mr-2" /> New endpoint
+          <Button onClick={startCreate} size="sm">
+            <Plus className="h-3.5 w-3.5 mr-1.5" /> New endpoint
           </Button>
         </div>
       </div>

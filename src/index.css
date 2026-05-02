@@ -185,6 +185,12 @@
   }
   .live-pulse { animation: live-pulse 2.2s ease-out infinite; }
 
+  @media (prefers-reduced-motion: reduce) {
+    .scanline::after { animation: none; opacity: 0; }
+    .live-pulse { animation: none; }
+    * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+  }
+
   /* Backwards-compat shims for any leftover references */
   .bg-hero {
     background-image:
