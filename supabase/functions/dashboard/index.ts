@@ -1399,18 +1399,41 @@ Deno.serve(async (req) => {
         const policy = body?.policy && typeof body.policy === "object" ? body.policy : {};
         const settings = body?.settings && typeof body.settings === "object" ? body.settings : {};
 
+        const changeNote = body?.change_note ? String(body.change_note).slice(0, 500) : null;
         const id = body?.id ? String(body.id) : null;
+
+        const snapshot = (tpl: any, version: number) => ({
+          template_id: tpl.id,
+          user_id: userId,
+          version,
+          name: tpl.name,
+          description: tpl.description,
+          policy: tpl.policy,
+          settings: tpl.settings,
+          rules: tpl.rules,
+          applies_to_intents: tpl.applies_to_intents ?? [],
+          change_note: changeNote,
+          created_by: userId,
+        });
+
         if (id) {
+          // Bump version, update template, then snapshot the new state.
+          const { data: existing } = await sb.from("policy_templates")
+            .select("current_version").eq("id", id).eq("user_id", userId).maybeSingle();
+          if (!existing) return json({ error: "Template not found" }, 404);
+          const nextVersion = (existing.current_version ?? 1) + 1;
           const { data, error } = await sb.from("policy_templates")
-            .update({ name, description, policy, settings, rules, applies_to_intents: tplIntents })
+            .update({ name, description, policy, settings, rules, applies_to_intents: tplIntents, current_version: nextVersion })
             .eq("id", id).eq("user_id", userId).select().maybeSingle();
           if (error) return json({ error: error.message }, 400);
+          if (data) await sb.from("policy_template_versions").insert(snapshot(data, nextVersion));
           return json({ template: data });
         }
         const { data, error } = await sb.from("policy_templates")
-          .insert({ user_id: userId, name, description, policy, settings, rules, applies_to_intents: tplIntents })
+          .insert({ user_id: userId, name, description, policy, settings, rules, applies_to_intents: tplIntents, current_version: 1 })
           .select().maybeSingle();
         if (error) return json({ error: error.message }, 400);
+        if (data) await sb.from("policy_template_versions").insert(snapshot(data, 1));
         return json({ template: data });
       }
 
@@ -1421,6 +1444,65 @@ Deno.serve(async (req) => {
         const { error } = await sb.from("policy_templates").delete().eq("id", id).eq("user_id", userId);
         if (error) return json({ error: error.message }, 400);
         return json({ ok: true });
+      }
+
+      case "list_policy_template_versions": {
+        const templateId = String(body?.template_id ?? url.searchParams.get("template_id") ?? "");
+        if (!templateId) return json({ error: "template_id required" }, 400);
+        // Confirm ownership before returning history.
+        const { data: tpl } = await sb.from("policy_templates")
+          .select("id,current_version").eq("id", templateId).eq("user_id", userId).maybeSingle();
+        if (!tpl) return json({ error: "Template not found" }, 404);
+        const { data, error } = await sb.from("policy_template_versions")
+          .select("id,version,name,description,change_note,created_at,created_by,applies_to_intents")
+          .eq("template_id", templateId).eq("user_id", userId)
+          .order("version", { ascending: false });
+        if (error) return json({ error: error.message }, 400);
+        return json({ current_version: tpl.current_version, versions: data ?? [] });
+      }
+
+      case "get_policy_template_version": {
+        const templateId = String(body?.template_id ?? "");
+        const version = Number(body?.version ?? 0);
+        if (!templateId || !version) return json({ error: "template_id and version required" }, 400);
+        const { data, error } = await sb.from("policy_template_versions")
+          .select("*").eq("template_id", templateId).eq("user_id", userId).eq("version", version).maybeSingle();
+        if (error) return json({ error: error.message }, 400);
+        if (!data) return json({ error: "Version not found" }, 404);
+        return json({ version: data });
+      }
+
+      case "rollback_policy_template": {
+        const templateId = String(body?.template_id ?? "");
+        const version = Number(body?.version ?? 0);
+        if (!templateId || !version) return json({ error: "template_id and version required" }, 400);
+        const { data: snap } = await sb.from("policy_template_versions")
+          .select("*").eq("template_id", templateId).eq("user_id", userId).eq("version", version).maybeSingle();
+        if (!snap) return json({ error: "Version not found" }, 404);
+        const { data: existing } = await sb.from("policy_templates")
+          .select("current_version").eq("id", templateId).eq("user_id", userId).maybeSingle();
+        if (!existing) return json({ error: "Template not found" }, 404);
+        const nextVersion = (existing.current_version ?? 1) + 1;
+        const { data, error } = await sb.from("policy_templates")
+          .update({
+            name: snap.name, description: snap.description,
+            policy: snap.policy, settings: snap.settings, rules: snap.rules,
+            applies_to_intents: snap.applies_to_intents ?? [],
+            current_version: nextVersion,
+          })
+          .eq("id", templateId).eq("user_id", userId).select().maybeSingle();
+        if (error) return json({ error: error.message }, 400);
+        if (data) {
+          await sb.from("policy_template_versions").insert({
+            template_id: data.id, user_id: userId, version: nextVersion,
+            name: data.name, description: data.description,
+            policy: data.policy, settings: data.settings, rules: data.rules,
+            applies_to_intents: data.applies_to_intents ?? [],
+            change_note: `Rolled back to v${version}`,
+            created_by: userId,
+          });
+        }
+        return json({ template: data });
       }
 
       // Evaluate an ad-hoc input against a template SNAPSHOT (its bundled
