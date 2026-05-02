@@ -48,6 +48,21 @@ Content-Type: application/json`}</Pre>
       a synthetic error and the request status is logged as <code>blocked_output</code>.
     </P>
 
+    <H2 id="system-prompt">Custom system prompt</H2>
+    <P>
+      Pass an optional top-level <code>system_prompt</code> string in the request body to
+      inject a per-request system message. It is placed <em>after</em> the workspace
+      guardrail prompt and <em>before</em> the rest of <code>messages</code>, then stripped
+      from the payload before forwarding upstream.
+    </P>
+    <Pre language="json">{`{
+  "model": "gpt-4o-mini",
+  "system_prompt": "You are a billing assistant. Refuse non-billing questions.",
+  "messages": [
+    { "role": "user", "content": "How do refunds work?" }
+  ]
+}`}</Pre>
+
     <H2 id="non-chat">Non-chat operations</H2>
     <Callout kind="note">
       Embeddings, images, audio, and the Responses API are on the roadmap but not yet

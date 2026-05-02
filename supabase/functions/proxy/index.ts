@@ -470,6 +470,30 @@ async function handleRequest(req: Request): Promise<Response> {
     ];
   }
 
+  // ---- Caller-supplied custom system prompt -----------------------------
+  // Clients may pass an optional top-level `system_prompt` (string) in the
+  // request body. We inject it as a `system` message immediately AFTER the
+  // workspace guardrail and BEFORE the rest of the conversation (including
+  // any system message the caller already included in `messages`). This lets
+  // app developers ship per-request guardrails or persona instructions while
+  // still being subordinate to the workspace-level guardrail. The field is
+  // stripped from `body` before forwarding upstream so providers that reject
+  // unknown fields (strict OpenAI-compat servers) don't 400.
+  const customSystemPrompt = typeof (body as any)?.system_prompt === "string"
+    ? (body as any).system_prompt.trim()
+    : "";
+  if (customSystemPrompt) {
+    const insertAt = (typeof guardrail === "string" && guardrail.trim()) ? 1 : 0;
+    body.messages = [
+      ...body.messages.slice(0, insertAt),
+      { role: "system", content: customSystemPrompt },
+      ...body.messages.slice(insertAt),
+    ];
+  }
+  if ("system_prompt" in (body as any)) {
+    delete (body as any).system_prompt;
+  }
+
   const systemPrompt = extractSystemPrompt(body.messages);
   const toolsRequested = Array.isArray(body.tools) && body.tools.length > 0;
 
