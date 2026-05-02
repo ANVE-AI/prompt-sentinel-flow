@@ -153,6 +153,10 @@ const Endpoints = () => {
   // "Save as default" button can show a dirty state and disable when unchanged.
   const [savedDefaultModel, setSavedDefaultModel] = useState<string>("");
   const [savingDefault, setSavingDefault] = useState(false);
+  // Template preview — selecting a template in the dropdown doesn't immediately
+  // overwrite the form. It populates this state instead, which renders a diff
+  // panel so the user can review every field before confirming "Apply".
+  const [previewTemplateId, setPreviewTemplateId] = useState<string>("");
 
   const isEdit = !!form.id;
 
@@ -163,6 +167,7 @@ const Endpoints = () => {
     setModelsResult(null);
     setLastRefreshOk(false);
     setSavedDefaultModel("");
+    setPreviewTemplateId("");
     setOpen(true);
   };
 
@@ -191,6 +196,7 @@ const Endpoints = () => {
     setModelsResult(null);
     setLastRefreshOk(false);
     setSavedDefaultModel(e.default_model ?? "");
+    setPreviewTemplateId("");
     setOpen(true);
   };
 
@@ -224,8 +230,57 @@ const Endpoints = () => {
     setLiveModels(null);
     setModelsResult(null);
     setLastRefreshOk(false);
+    setPreviewTemplateId("");
   };
 
+  // -------- Template diff preview ----------------------------------------
+  // Computes a per-field comparison between the current form values and what
+  // the selected preview template would set, so the user can review every
+  // change before clicking "Apply". Returns rows for ALL fields the template
+  // would touch (including unchanged ones) so nothing is hidden.
+  type DiffRow = {
+    label: string;
+    field: keyof FormState;
+    current: string;
+    next: string;
+    status: "unchanged" | "change" | "add";
+  };
+  const previewDiff = useMemo<{ template: NonNullable<CustomSchema["templates"][number]>; rows: DiffRow[] } | null>(() => {
+    if (!previewTemplateId || !customSchema) return null;
+    const t = customSchema.templates.find((x) => x.id === previewTemplateId);
+    if (!t) return null;
+    const v = t.values;
+    const fmt = v.response_format
+      || (v.kind === "anthropic" ? "anthropic_messages" : "chat_completions");
+    const nextHeaderName = v.auth_header || (v.auth_scheme === "query" ? "key" : "Authorization");
+    const nextExtraHeaders = v.extra_headers
+      ? Object.entries(v.extra_headers).map(([k, val]) => `${k}: ${val}`).join(", ")
+      : form.extra_headers.map((h) => `${h.key}: ${h.value}`).join(", ");
+    const curExtraHeaders = form.extra_headers.map((h) => `${h.key}: ${h.value}`).join(", ");
+
+    const fields: Array<{ label: string; field: keyof FormState; current: string; next: string }> = [
+      { label: "Name",            field: "name",              current: form.name,                 next: form.name.trim() ? form.name : t.label },
+      { label: "Kind",            field: "kind",              current: form.kind,                 next: v.kind },
+      { label: "Base URL",        field: "base_url",          current: form.base_url,             next: v.base_url },
+      { label: "Models URL",      field: "models_url",        current: form.models_url,           next: v.models_url ?? "" },
+      { label: "Auth scheme",     field: "auth_scheme",       current: form.auth_scheme,          next: v.auth_scheme },
+      { label: "Auth header/param", field: "auth_header",     current: form.auth_header,          next: nextHeaderName },
+      { label: "Default model",   field: "default_model",     current: form.default_model,        next: v.default_model || form.default_model },
+      { label: "Model suggestions", field: "model_suggestions", current: form.model_suggestions, next: v.model_suggestions || form.model_suggestions },
+      { label: "Path prefix",     field: "path_prefix",       current: form.path_prefix,          next: v.path_prefix ?? "" },
+      { label: "Chat path",       field: "chat_path",         current: form.chat_path,            next: v.chat_path ?? "" },
+      { label: "Models path",     field: "models_path",       current: form.models_path,          next: v.models_path ?? "" },
+      { label: "Response format", field: "response_format",   current: form.response_format,      next: fmt },
+      { label: "Extra headers",   field: "extra_headers",     current: curExtraHeaders,           next: nextExtraHeaders },
+    ];
+    const rows: DiffRow[] = fields.map((f) => ({
+      ...f,
+      status: f.current === f.next ? "unchanged" : (f.current.trim() === "" ? "add" : "change"),
+    }));
+    return { template: t, rows };
+  }, [previewTemplateId, customSchema, form]);
+
+  const changedCount = previewDiff?.rows.filter((r) => r.status !== "unchanged").length ?? 0;
   // When auth scheme changes, give it a sensible default header/param name
   useEffect(() => {
     if (form.auth_scheme === "query" && form.auth_header === "Authorization") {
@@ -716,11 +771,13 @@ const Endpoints = () => {
             </div>
 
             {customSchema && !isEdit && (
-              <div>
+              <div className="space-y-2">
                 <Label>Template (optional)</Label>
-                <Select value={form.template} onValueChange={applyTemplate}>
+                {/* Selecting a template only stages a preview — nothing is written
+                    to the form until the user clicks "Apply changes" below. */}
+                <Select value={previewTemplateId} onValueChange={setPreviewTemplateId}>
                   <SelectTrigger className="mt-1.5">
-                    <SelectValue placeholder="Pick a provider to prefill URL, auth, models…" />
+                    <SelectValue placeholder="Pick a provider to preview which fields will change…" />
                   </SelectTrigger>
                   <SelectContent className="max-h-80">
                     {customSchema.templates.map((t) => (
@@ -737,9 +794,85 @@ const Endpoints = () => {
                     ))}
                   </SelectContent>
                 </Select>
-                {form.template && (
-                  <p className="text-[11px] text-muted-foreground mt-1.5">
-                    Template applied — review and tweak before saving.
+
+                {/* Live diff preview — shown only while a template is staged */}
+                {previewDiff && (
+                  <div className="rounded-md border bg-muted/20">
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-border/60">
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="font-medium">{previewDiff.template.label}</span>
+                        <span className="text-muted-foreground">
+                          {changedCount === 0
+                            ? "No changes — your form already matches this template."
+                            : `${changedCount} field${changedCount === 1 ? "" : "s"} will change`}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs"
+                          onClick={() => setPreviewTemplateId("")}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          type="button" size="sm" className="h-7 px-2 text-xs"
+                          disabled={changedCount === 0}
+                          onClick={() => applyTemplate(previewTemplateId)}
+                        >
+                          <Check className="h-3.5 w-3.5 mr-1" />
+                          Apply changes
+                        </Button>
+                      </div>
+                    </div>
+                    <ul className="divide-y divide-border/60 max-h-72 overflow-y-auto">
+                      {previewDiff.rows.map((r) => (
+                        <li key={r.field as string} className="px-3 py-1.5 text-xs">
+                          <div className="flex items-center gap-2">
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] px-1.5 py-0 h-4 font-normal ${
+                                r.status === "change"
+                                  ? "border-primary/40 text-primary"
+                                  : r.status === "add"
+                                    ? "border-accent/40 text-accent-foreground bg-accent/20"
+                                    : "border-border text-muted-foreground"
+                              }`}
+                            >
+                              {r.status}
+                            </Badge>
+                            <span className="font-medium">{r.label}</span>
+                          </div>
+                          {r.status === "unchanged" ? (
+                            <div className="mt-0.5 ml-12 font-mono text-muted-foreground break-all">
+                              {r.current || <span className="italic">(empty)</span>}
+                            </div>
+                          ) : (
+                            <div className="mt-0.5 ml-12 space-y-0.5 font-mono">
+                              {r.status === "change" && (
+                                <div className="flex gap-1.5">
+                                  <span className="text-muted-foreground shrink-0">−</span>
+                                  <span className="line-through text-muted-foreground break-all">
+                                    {r.current || <span className="italic no-underline">(empty)</span>}
+                                  </span>
+                                </div>
+                              )}
+                              <div className="flex gap-1.5">
+                                <span className="text-primary shrink-0">+</span>
+                                <span className="text-foreground break-all">
+                                  {r.next || <span className="italic text-muted-foreground">(empty)</span>}
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {form.template && !previewTemplateId && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Last applied: <span className="font-medium">{form.template}</span> — pick another template above to preview a different one.
                   </p>
                 )}
               </div>
