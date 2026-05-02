@@ -16,15 +16,67 @@ import {
   type RequestShape,
 } from "../_shared/shape_translators.ts";
 
-function openaiErrorShape(message: string, type = "policy_violation") {
-  return { error: { message, type, code: type } };
+// ---- Error envelope helpers ------------------------------------------------
+// Every error response goes through `errorResponse` so the public shape is
+// consistent regardless of which SDK called us. The OpenAI shape follows the
+// official spec:
+//   { "error": { "message": str, "type": str, "param": str|null, "code": str|null } }
+// `type` describes the error class (invalid_request_error, authentication_error,
+// permission_error, rate_limit_exceeded, api_error). `code` is a stable machine
+// identifier (invalid_api_key, missing_messages, content_filter, …) that
+// clients can switch on without parsing prose.
+
+type ErrorOpts = {
+  /** Stable machine code (e.g. "invalid_api_key", "content_filter"). */
+  code?: string | null;
+  /** Request param the error refers to (e.g. "messages", "model"). */
+  param?: string | null;
+  /** Extra response headers (e.g. Retry-After on 429). */
+  headers?: Record<string, string>;
+  /** Vendor-specific debug info echoed back under the `anveguard` key. */
+  anveguard?: Record<string, unknown>;
+};
+
+/** Pick the OpenAI `type` that best matches an HTTP status. */
+function typeForStatus(status: number): string {
+  if (status === 401 || status === 403) return status === 403 ? "permission_error" : "authentication_error";
+  if (status === 404) return "invalid_request_error";
+  if (status === 408 || status === 504) return "api_error";
+  if (status === 429) return "rate_limit_exceeded";
+  if (status >= 400 && status < 500) return "invalid_request_error";
+  return "api_error";
 }
 
-/** Translate an OpenAI-shape error envelope into the public shape. */
-function errorForShape(shape: RequestShape, message: string, type = "policy_violation"): unknown {
-  if (shape === "anthropic") return { type: "error", error: { type, message } };
-  if (shape === "gemini")    return { error: { code: 400, status: type, message } };
-  return openaiErrorShape(message, type);
+function openaiErrorShape(message: string, type: string, opts: ErrorOpts = {}) {
+  return {
+    error: {
+      message,
+      type,
+      param: opts.param ?? null,
+      code: opts.code ?? null,
+    },
+  };
+}
+
+/** Translate the OpenAI-shape error envelope into the public shape. */
+function errorForShape(shape: RequestShape, status: number, message: string, opts: ErrorOpts = {}): unknown {
+  const type = typeForStatus(status);
+  if (shape === "anthropic") {
+    return { type: "error", error: { type: opts.code ?? type, message } };
+  }
+  if (shape === "gemini") {
+    return { error: { code: status, status: opts.code ?? type, message } };
+  }
+  const env = openaiErrorShape(message, type, opts);
+  if (opts.anveguard) (env as any).anveguard = opts.anveguard;
+  return env;
+}
+
+/** Build a Response with the right body, status, headers, and CORS. */
+function errorResponse(
+  shape: RequestShape, status: number, message: string, opts: ErrorOpts = {},
+): Response {
+  return json(errorForShape(shape, status, message, opts), status, opts.headers);
 }
 
 /**
