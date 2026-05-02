@@ -150,7 +150,7 @@ Deno.serve(async (req) => {
       }
 
       case "create_key": {
-        const { name, provider, model, provider_key, custom } = body;
+        const { name, provider, model, provider_key, custom, endpoint_id } = body;
         const def = getProvider(provider);
         if (!name || !def) return json({ error: "Invalid provider" }, 400);
 
@@ -160,47 +160,66 @@ Deno.serve(async (req) => {
         };
 
         if (provider === "custom") {
-          if (!custom || typeof custom !== "object") {
-            return json({ error: "Custom endpoint config required" }, 400);
-          }
-          // Validate via resolveCustomEndpoint (throws on bad URL etc.)
-          let resolved;
-          try {
-            resolved = resolveCustomEndpoint({
-              base_url: custom.base_url,
-              models_url: custom.models_url || null,
-              kind: custom.kind,
-              auth_scheme: custom.auth_scheme,
-              auth_header: custom.auth_header || null,
-              extra_headers: custom.extra_headers || null,
-            });
-          } catch (e) {
-            return json({ error: e instanceof Error ? e.message : String(e) }, 400);
-          }
-          if (resolved.auth_scheme !== "none" && !provider_key) {
-            return json({ error: "Provider API key required for selected auth scheme" }, 400);
-          }
-          insert.custom_base_url = custom.base_url;
-          insert.custom_models_url = custom.models_url || null;
-          insert.custom_kind = resolved.kind;
-          insert.custom_auth_scheme = resolved.auth_scheme;
-          insert.custom_auth_header = resolved.auth_header;
-          insert.custom_extra_headers = sanitizeExtraHeaders(custom.extra_headers || null);
-          if (Array.isArray(custom.model_suggestions)) {
-            insert.custom_model_suggestions = custom.model_suggestions
-              .filter((x: unknown) => typeof x === "string" && x.trim())
-              .map((x: string) => x.trim());
+          // Two paths: (a) attach a saved endpoint via endpoint_id,
+          //           (b) inline custom config (legacy / quick create).
+          if (endpoint_id) {
+            const { data: ep } = await sb.from("endpoints").select("*")
+              .eq("id", endpoint_id).eq("user_id", userId).maybeSingle();
+            if (!ep) return json({ error: "Endpoint not found" }, 404);
+            insert.endpoint_id = ep.id;
+            // Mirror the endpoint's config into custom_* cols so the proxy keeps
+            // working from a single row read (no JOIN needed at request time).
+            insert.custom_base_url = ep.base_url;
+            insert.custom_models_url = ep.models_url;
+            insert.custom_kind = ep.kind;
+            insert.custom_auth_scheme = ep.auth_scheme;
+            insert.custom_auth_header = ep.auth_header;
+            insert.custom_extra_headers = ep.extra_headers ?? {};
+            insert.custom_model_suggestions = ep.model_suggestions ?? [];
+            insert.provider_key_encrypted = ep.provider_key_encrypted ?? null;
+            if (!model && ep.default_model) insert.model_default = ep.default_model;
+          } else {
+            if (!custom || typeof custom !== "object") {
+              return json({ error: "Custom endpoint config required" }, 400);
+            }
+            let resolved;
+            try {
+              resolved = resolveCustomEndpoint({
+                base_url: custom.base_url,
+                models_url: custom.models_url || null,
+                kind: custom.kind,
+                auth_scheme: custom.auth_scheme,
+                auth_header: custom.auth_header || null,
+                extra_headers: custom.extra_headers || null,
+              });
+            } catch (e) {
+              return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+            }
+            if (resolved.auth_scheme !== "none" && !provider_key) {
+              return json({ error: "Provider API key required for selected auth scheme" }, 400);
+            }
+            insert.custom_base_url = custom.base_url;
+            insert.custom_models_url = custom.models_url || null;
+            insert.custom_kind = resolved.kind;
+            insert.custom_auth_scheme = resolved.auth_scheme;
+            insert.custom_auth_header = resolved.auth_header;
+            insert.custom_extra_headers = sanitizeExtraHeaders(custom.extra_headers || null);
+            if (Array.isArray(custom.model_suggestions)) {
+              insert.custom_model_suggestions = custom.model_suggestions
+                .filter((x: unknown) => typeof x === "string" && x.trim())
+                .map((x: string) => x.trim());
+            }
+            insert.provider_key_encrypted = provider_key ? await encryptString(provider_key) : null;
           }
         } else if (!def.managed && !provider_key) {
           return json({ error: `${def.label} key required` }, 400);
+        } else if (!def.managed) {
+          insert.provider_key_encrypted = await encryptString(provider_key);
         }
 
         const plain = generateApiKey();
         insert.key_hash = await sha256Hex(plain);
         insert.key_prefix = plain.slice(0, 16);
-        insert.provider_key_encrypted = (provider === "custom"
-            ? (provider_key ? await encryptString(provider_key) : null)
-            : (!def.managed ? await encryptString(provider_key) : null));
 
         const { data, error } = await sb.from("api_keys").insert(insert).select("id").single();
         if (error) return json({ error: error.message }, 400);
