@@ -1649,6 +1649,54 @@ const Endpoints = () => {
                 )}
               </div>
 
+              {/* Top models */}
+              <div>
+                <h3 className="text-sm font-medium mb-2">
+                  Top models ({usageRow.top_models?.length ?? 0})
+                </h3>
+                {!usageRow.top_models || usageRow.top_models.length === 0 ? (
+                  <div className="text-xs text-muted-foreground py-3 px-3 rounded-md border border-dashed">
+                    {usageRange === "all"
+                      ? "No model activity recorded for this endpoint yet."
+                      : `No model activity in ${USAGE_RANGES.find((r) => r.value === usageRange)?.longLabel ?? "the selected window"}.`}
+                  </div>
+                ) : (
+                  <div className="rounded-md border divide-y">
+                    {usageRow.top_models.map((m: any, i: number) => {
+                      const tokens = (m.tokens_in_total ?? 0) + (m.tokens_out_total ?? 0);
+                      return (
+                        <div key={`${m.model}-${i}`} className="flex items-center gap-3 px-3 py-2 text-xs">
+                          <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-muted text-[10px] font-semibold tabular-nums shrink-0">
+                            {i + 1}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <code className="text-foreground truncate block">{m.model}</code>
+                            {tokens > 0 && (
+                              <div className="text-[10px] text-muted-foreground tabular-nums">
+                                {(m.tokens_in_total ?? 0).toLocaleString()} in · {(m.tokens_out_total ?? 0).toLocaleString()} out
+                              </div>
+                            )}
+                          </div>
+                          {m.blocked_count > 0 && (
+                            <Badge variant="outline" className="text-[10px] bg-destructive/10 text-destructive border-destructive/30">
+                              {m.blocked_count} blocked
+                            </Badge>
+                          )}
+                          {m.error_count > 0 && (
+                            <Badge variant="outline" className="text-[10px] bg-destructive/10 text-destructive border-destructive/30">
+                              {m.error_count} err
+                            </Badge>
+                          )}
+                          <span className="ml-auto text-muted-foreground tabular-nums shrink-0 text-right">
+                            <span className="text-foreground font-medium">{m.request_count}</span> req · {m.avg_latency_ms}ms
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
               {/* Recent requests */}
               <div>
                 <h3 className="text-sm font-medium mb-2">Recent requests ({usageRow.recent_requests.length})</h3>
