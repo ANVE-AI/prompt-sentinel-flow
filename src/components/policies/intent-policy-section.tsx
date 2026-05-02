@@ -75,6 +75,7 @@ export function IntentPolicySection() {
   const [purpose, setPurpose] = useState("");
   const [guardrailPrompt, setGuardrailPrompt] = useState("");
   const [allowClientPrompt, setAllowClientPrompt] = useState(false);
+  const [systemPromptMax, setSystemPromptMax] = useState<number>(16000);
 
   useEffect(() => {
     const s = settingsQ.data?.settings;
