@@ -23,6 +23,11 @@ const Overview = () => {
     queryKey: ["logs", "recent"],
     queryFn: () => call<any>("list_logs", { query: { limit: "6" } }),
   });
+  const { data: spike } = useQuery({
+    queryKey: ["block_spike_alert"],
+    queryFn: () => call<any>("block_spike_alert"),
+    refetchInterval: 60_000,
+  });
 
   const total = data?.total ?? 0;
   const blocked = data?.blocked ?? 0;
@@ -37,6 +42,57 @@ const Overview = () => {
         title="Overview"
         description="Live signal across every AnveGuard key in the last 14 days."
       />
+
+      {spike?.spike && (
+        <Card className="surface-1 border-status-block/40 bg-status-block/5">
+          <CardContent className="p-4">
+            <div className="flex items-start gap-3">
+              <ShieldAlert className="h-4 w-4 mt-0.5 text-status-block shrink-0" />
+              <div className="flex-1 min-w-0 space-y-2">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <div className="text-body font-medium">
+                      Blocked input spike detected — {spike.last_24h} events in the last 24h
+                    </div>
+                    <div className="text-meta text-muted-foreground mt-0.5 tabular-nums">
+                      {spike.baseline_per_24h > 0
+                        ? <>≈{spike.baseline_per_24h}/day baseline · {spike.ratio ? `${spike.ratio}×` : "—"} above normal</>
+                        : <>No prior baseline — sudden activity over the last 24 hours</>}
+                    </div>
+                  </div>
+                  <Link
+                    to="/dashboard/logs?status=blocked_input"
+                    className="text-meta text-primary hover:underline inline-flex items-center gap-1 shrink-0"
+                  >
+                    Investigate <ArrowUpRight className="h-3.5 w-3.5" />
+                  </Link>
+                </div>
+                {(spike.top_keys ?? []).length > 0 && (
+                  <ul className="grid gap-1.5 sm:grid-cols-2">
+                    {spike.top_keys.map((k: any) => (
+                      <li
+                        key={k.api_key_id}
+                        className="flex items-center justify-between gap-2 rounded border border-border bg-surface-2 px-2.5 py-1.5"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-meta truncate">{k.api_key_name}</div>
+                          {k.api_key_prefix && (
+                            <div className="text-[10px] text-muted-foreground font-mono truncate">{k.api_key_prefix}</div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="text-meta tabular-nums">{k.blocked_24h}</span>
+                          {k.spike && <Badge status="block">spike</Badge>}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Hero KPI block */}
       {isLoading ? (

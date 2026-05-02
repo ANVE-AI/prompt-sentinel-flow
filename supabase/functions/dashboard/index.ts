@@ -1499,6 +1499,86 @@ Deno.serve(async (req) => {
         return json({ logs: (data ?? []).map((l) => ({ ...l, api_key_name: keyMap.get(l.api_key_id) ?? "—" })) });
       }
 
+      // Surfaces a spike in blocked_input events: compares the last 24h against
+      // a 7-day rolling baseline (per-day average over the prior 7 days). A
+      // spike fires when last24h is at least 2x the baseline AND ≥5 events,
+      // so quiet workspaces don't get noisy when a couple of blocks happen.
+      // Also returns the top API keys by blocked_input count in the window.
+      case "block_spike_alert": {
+        const now = Date.now();
+        const since24 = new Date(now - 24 * 3600 * 1000).toISOString();
+        const since8d = new Date(now - 8 * 24 * 3600 * 1000).toISOString();
+        const { data: rows, error } = await sb.from("request_logs")
+          .select("api_key_id,created_at,status")
+          .eq("user_id", userId)
+          .eq("status", "blocked_input")
+          .gte("created_at", since8d)
+          .limit(5000);
+        if (error) return json({ error: error.message }, 400);
+
+        const cutoff24 = now - 24 * 3600 * 1000;
+        const last24: any[] = [];
+        const prior7: any[] = [];
+        for (const r of rows ?? []) {
+          const t = new Date(r.created_at).getTime();
+          if (t >= cutoff24) last24.push(r);
+          else prior7.push(r);
+        }
+        // Baseline = average per-24h over the prior 7 days.
+        const baseline = prior7.length / 7;
+        const last24Count = last24.length;
+
+        // Per-key counts in the 24h window, with prior-7d baseline per key.
+        const keyCounts = new Map<string, { last24: number; prior7: number }>();
+        for (const r of last24) {
+          const k = r.api_key_id ?? "unknown";
+          const v = keyCounts.get(k) ?? { last24: 0, prior7: 0 };
+          v.last24++; keyCounts.set(k, v);
+        }
+        for (const r of prior7) {
+          const k = r.api_key_id ?? "unknown";
+          const v = keyCounts.get(k) ?? { last24: 0, prior7: 0 };
+          v.prior7++; keyCounts.set(k, v);
+        }
+        const { data: keys } = await sb.from("api_keys")
+          .select("id,name,key_prefix").eq("user_id", userId);
+        const keyMeta = new Map((keys ?? []).map((k) => [k.id, k]));
+
+        const minEvents = 5;
+        const ratioThreshold = 2;
+        const ratio = baseline > 0 ? last24Count / baseline : (last24Count >= minEvents ? Infinity : 0);
+        const spike = last24Count >= minEvents && (baseline === 0 || ratio >= ratioThreshold);
+
+        const topKeys = Array.from(keyCounts.entries())
+          .map(([api_key_id, v]) => {
+            const meta = keyMeta.get(api_key_id) as any;
+            const keyBaseline = v.prior7 / 7;
+            const keyRatio = keyBaseline > 0 ? v.last24 / keyBaseline : (v.last24 >= 3 ? Infinity : 0);
+            return {
+              api_key_id,
+              api_key_name: meta?.name ?? "—",
+              api_key_prefix: meta?.key_prefix ?? null,
+              blocked_24h: v.last24,
+              baseline_per_24h: Number(keyBaseline.toFixed(2)),
+              ratio: Number.isFinite(keyRatio) ? Number(keyRatio.toFixed(2)) : null,
+              spike: v.last24 >= 3 && (keyBaseline === 0 || keyRatio >= ratioThreshold),
+            };
+          })
+          .filter((k) => k.blocked_24h > 0)
+          .sort((a, b) => b.blocked_24h - a.blocked_24h)
+          .slice(0, 5);
+
+        return json({
+          spike,
+          last_24h: last24Count,
+          baseline_per_24h: Number(baseline.toFixed(2)),
+          ratio: Number.isFinite(ratio) ? Number(ratio.toFixed(2)) : null,
+          threshold: { min_events: minEvents, ratio: ratioThreshold },
+          top_keys: topKeys,
+          window_hours: 24,
+        });
+      }
+
       // Audit trail of sensitive account actions (e.g. API key revocations).
       // Server-only table; the dashboard function is the sole writer/reader,
       // so this endpoint is the only way the UI surfaces these events.
