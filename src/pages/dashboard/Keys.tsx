@@ -221,6 +221,7 @@ const Keys = () => {
     setOpen(false); setNewKey(null); setName("");
     setProviderId("lovable"); setModel(""); setProviderKey("");
     setCustom(emptyCustom); setTestResult(null);
+    setPrefilledEndpointId(null);
   };
   const copy = (val: string) => { navigator.clipboard.writeText(val); toast.success("Copied"); };
 
