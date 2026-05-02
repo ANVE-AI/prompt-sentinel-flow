@@ -198,19 +198,39 @@ Deno.serve(async (req) => {
 
       case "list_keys": {
         const { data } = await sb.from("api_keys")
-          .select("id,name,key_prefix,provider,model_default,is_active,created_at,last_used_at,custom_base_url,custom_kind")
+          .select("id,name,key_prefix,provider,model_default,is_active,is_admin,created_at,last_used_at,custom_base_url,custom_kind")
           .eq("user_id", userId).order("created_at", { ascending: false });
         return json({ keys: data ?? [] });
       }
 
+      case "set_key_admin": {
+        // Toggle the per-key admin permission. Admin keys are allowed to send
+        // a custom `system_prompt` alongside the workspace guardrail.
+        const { id, is_admin } = body;
+        if (!id) return json({ error: "id required" }, 400);
+        const { error: updErr } = await sb.from("api_keys")
+          .update({ is_admin: !!is_admin }).eq("id", id).eq("user_id", userId);
+        if (updErr) return json({ error: updErr.message }, 400);
+        await sb.from("audit_logs").insert({
+          user_id: userId,
+          actor_user_id: userId,
+          action: is_admin ? "api_key.admin_granted" : "api_key.admin_revoked",
+          target_type: "api_key",
+          target_id: id,
+          metadata: {},
+        });
+        return json({ ok: true });
+      }
+
       case "create_key": {
-        const { name, provider, model, provider_key, custom, endpoint_id } = body;
+        const { name, provider, model, provider_key, custom, endpoint_id, is_admin } = body;
         const def = getProvider(provider);
         if (!name || !def) return json({ error: "Invalid provider" }, 400);
 
         const insert: Record<string, unknown> = {
           user_id: userId, name, provider,
           model_default: model || def.default_model || "",
+          is_admin: !!is_admin,
         };
 
         if (provider === "custom") {
