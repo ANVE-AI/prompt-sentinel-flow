@@ -251,7 +251,13 @@ const Endpoints = () => {
   // is idempotent server-side. On success we invalidate the usage query so
   // the row updates in place, and the global keys list so the Keys page
   // stays in sync.
-  const [confirmRevokeKey, setConfirmRevokeKey] = useState<{ id: string; name: string; key_prefix: string } | null>(null);
+  const [confirmRevokeKey, setConfirmRevokeKey] = useState<{
+    id: string;
+    name: string;
+    key_prefix: string;
+    last_used_at: string | null;
+    last_model: string | null;
+  } | null>(null);
   const revokeKeyMutation = useMutation({
     mutationFn: (id: string) => call("revoke_key", { body: { id } }),
     onSuccess: () => {
@@ -1675,7 +1681,21 @@ const Endpoints = () => {
                               disabled={disabled}
                               aria-busy={isTarget && revokeKeyMutation.isPending}
                               className="h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
-                              onClick={() => setConfirmRevokeKey({ id: k.id, name: k.name, key_prefix: k.key_prefix })}
+                              onClick={() => {
+                                // Derive the most recent model from the windowed
+                                // recent_requests list so the confirm dialog can
+                                // show context. Falls back to null when this key
+                                // hasn't been used inside the active range.
+                                const lastReq = (usageRow.recent_requests ?? [])
+                                  .find((r: any) => r.api_key_id === k.id);
+                                setConfirmRevokeKey({
+                                  id: k.id,
+                                  name: k.name,
+                                  key_prefix: k.key_prefix,
+                                  last_used_at: k.last_used_at ?? null,
+                                  last_model: lastReq?.model ?? null,
+                                });
+                              }}
                               title={
                                 isTarget && revokeKeyMutation.isPending ? "Revoking…"
                                   : disabled ? "Finish the current action first"
@@ -1834,6 +1854,43 @@ const Endpoints = () => {
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
+
+          {confirmRevokeKey && (
+            <div className="space-y-3">
+              {/* Key activity context */}
+              <div className="rounded-md border bg-muted/30 px-3 py-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                <div className="text-muted-foreground">Last used</div>
+                <div className="text-foreground tabular-nums text-right">
+                  {confirmRevokeKey.last_used_at
+                    ? new Date(confirmRevokeKey.last_used_at).toLocaleString()
+                    : <span className="text-muted-foreground italic">never</span>}
+                </div>
+                <div className="text-muted-foreground">Last model</div>
+                <div className="text-foreground text-right truncate">
+                  {confirmRevokeKey.last_model
+                    ? <code>{confirmRevokeKey.last_model}</code>
+                    : <span className="text-muted-foreground italic">
+                        no activity in {USAGE_RANGES.find((r) => r.value === usageRange)?.longLabel ?? "the selected window"}
+                      </span>}
+                </div>
+              </div>
+
+              {/* In-flight requests clarification — important for users worried
+                  about cancelling a streaming response mid-flight. */}
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs flex gap-2">
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-500 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <div className="font-medium text-foreground">In-flight requests will continue.</div>
+                  <div className="text-muted-foreground">
+                    Revocation only blocks <span className="font-medium text-foreground">new</span> requests.
+                    Any call that has already passed authentication (including streaming responses
+                    in progress) will run to completion. Subsequent requests will be rejected with 401.
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <AlertDialogFooter>
             <AlertDialogCancel disabled={revokeKeyMutation.isPending}>Cancel</AlertDialogCancel>
             <AlertDialogAction
