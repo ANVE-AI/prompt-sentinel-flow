@@ -216,6 +216,7 @@ const USAGE_RANGES: { value: UsageRange; label: string; longLabel: string }[] = 
 const Endpoints = () => {
   const { call } = useDashboardApi();
   const qc = useQueryClient();
+  const navigate = useNavigate();
 
   const { data, isLoading } = useQuery({
     queryKey: ["endpoints"],
