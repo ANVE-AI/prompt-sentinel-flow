@@ -219,6 +219,37 @@ export const CommandPalette = () => {
   // dominate the surface. With an empty query we keep the original palette.
   const searching = q.length > 0;
 
+  // Compact icon button for inline row actions. Uses mousedown so the click
+  // fires before Cmdk's keyboard/select handlers, and stops propagation so
+  // the row's `onSelect` deep-link doesn't also run.
+  const RowAction = ({
+    icon,
+    label,
+    onRun,
+    tone = "default",
+  }: {
+    icon: ReactNode;
+    label: string;
+    onRun: () => void;
+    tone?: "default" | "danger";
+  }) => (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      onMouseDown={stop}
+      onClick={(e) => {
+        stop(e);
+        onRun();
+      }}
+      className={`inline-flex h-6 w-6 items-center justify-center rounded-md border border-transparent text-muted-foreground transition-colors hover:border-border hover:bg-surface-2 hover:text-foreground ${
+        tone === "danger" ? "hover:text-destructive" : ""
+      }`}
+    >
+      {icon}
+    </button>
+  );
+
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>
       <CommandInput
