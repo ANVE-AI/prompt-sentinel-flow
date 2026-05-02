@@ -240,42 +240,44 @@ export function DashboardSidebar() {
 }
 
 function NavItemRow({ item }: { item: NavItem }) {
+  // Match logic NavLink uses internally so the wrapper button can reflect the
+  // active state via `isActive` and we can layer distinct hover vs active
+  // styling (active stays primary-tinted even while hovered).
+  const match = useMatch({ path: item.to, end: item.end });
+  const active = !!match;
+
   return (
     <SidebarMenuItem>
       <SidebarMenuButton
         asChild
+        isActive={active}
         tooltip={{ children: item.label, side: "right", align: "center" }}
+        className={cn(
+          // Hover-only state for inactive items: subtle tint.
+          !active && "hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+          // Active item: stronger tinted background that survives hover, plus a
+          // ring so the route is unmistakable even when the cursor is over it.
+          active &&
+            "bg-primary/10 text-foreground hover:bg-primary/15 hover:text-foreground ring-1 ring-inset ring-primary/25",
+        )}
       >
-        <NavLink
-          to={item.to}
-          end={item.end}
-          className={({ isActive }) =>
-            cn(
-              "relative",
-              isActive && "bg-sidebar-accent text-sidebar-accent-foreground font-medium",
-            )
-          }
-        >
-          {({ isActive }) => (
-            <>
-              <span
-                aria-hidden
-                className={cn(
-                  "absolute left-0 top-1 bottom-1 w-[2px] rounded-r-full transition-opacity",
-                  isActive ? "opacity-100 bg-primary" : "opacity-0",
-                )}
-              />
-              <item.icon
-                className={cn(
-                  "h-[15px] w-[15px] shrink-0 transition-colors",
-                  isActive ? "text-primary" : "text-muted-foreground",
-                )}
-              />
-              <span className={cn(isActive ? "text-foreground" : "text-sidebar-foreground/80")}>
-                {item.label}
-              </span>
-            </>
-          )}
+        <NavLink to={item.to} end={item.end} className="relative">
+          <span
+            aria-hidden
+            className={cn(
+              "absolute left-0 top-1 bottom-1 w-[2px] rounded-r-full transition-opacity",
+              active ? "opacity-100 bg-primary" : "opacity-0",
+            )}
+          />
+          <item.icon
+            className={cn(
+              "h-[15px] w-[15px] shrink-0 transition-colors",
+              active ? "text-primary" : "text-muted-foreground",
+            )}
+          />
+          <span className={cn(active ? "font-medium text-foreground" : "text-sidebar-foreground/80")}>
+            {item.label}
+          </span>
         </NavLink>
       </SidebarMenuButton>
     </SidebarMenuItem>
