@@ -1612,7 +1612,10 @@ Deno.serve(async (req) => {
         // Optional simulation overrides used by the wizard "Test" step:
         // - force_intent: pretend the classifier returned this intent (skips
         //   the live LLM call so previews are deterministic and free).
-        const forceIntent = typeof body?.force_intent === "string" && body.force_intent.trim()
+        // - simulate_unknown: pretend the classifier returned no intent, to
+        //   exercise the unknown-intent fallback branch.
+        const simulateUnknown = body?.simulate_unknown === true;
+        const forceIntent = !simulateUnknown && typeof body?.force_intent === "string" && body.force_intent.trim()
           ? body.force_intent.trim()
           : null;
 
