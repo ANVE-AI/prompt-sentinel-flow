@@ -1654,7 +1654,9 @@ const Endpoints = () => {
                 <h3 className="text-sm font-medium mb-2">Recent requests ({usageRow.recent_requests.length})</h3>
                 {usageRow.recent_requests.length === 0 ? (
                   <div className="text-xs text-muted-foreground py-3 px-3 rounded-md border border-dashed">
-                    No requests have been routed through this endpoint yet.
+                    {usageRange === "all"
+                      ? "No requests have been routed through this endpoint yet."
+                      : `No requests in ${USAGE_RANGES.find((r) => r.value === usageRange)?.longLabel ?? "the selected window"}.`}
                   </div>
                 ) : (
                   <div className="rounded-md border divide-y max-h-80 overflow-y-auto">
