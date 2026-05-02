@@ -510,6 +510,9 @@ Deno.serve(async (req) => {
         ...logBase, model: chosenModel, status: "error", block_reason: lastErrorReason,
         latency_ms: Date.now() - start,
       });
+      if (reqShape !== "openai") {
+        return json(errorForShape(reqShape, lastErrorReason, "upstream_error"), resp.status);
+      }
       return new Response(text, {
         status: resp.status,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
