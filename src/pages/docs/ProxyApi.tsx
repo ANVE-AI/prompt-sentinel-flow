@@ -51,23 +51,66 @@ Content-Type: application/json`}</Pre>
     <H2 id="system-prompt">Custom system prompt</H2>
     <P>
       Pass an optional top-level <code>system_prompt</code> string in the request body to
-      inject a per-request system message. It is placed <em>after</em> the workspace
-      guardrail prompt and <em>before</em> the rest of <code>messages</code>, then stripped
+      inject a per-request system message. The proxy injects it as a <code>system</code>
+      message <em>after</em> the workspace guardrail prompt and <em>before</em> any messages
+      the caller sent — so the workspace guardrail always leads — then strips the field
       from the payload before forwarding upstream.
     </P>
-    <Callout kind="note">
-      Only API keys with the <strong>admin</strong> permission may send <code>system_prompt</code>.
-      Requests from non-admin keys that include the field are rejected with{" "}
-      <code>403 system_prompt_forbidden</code>. Toggle the permission from the shield icon
-      next to each key on the <strong>Keys</strong> page.
-    </Callout>
-    <Pre language="json">{`{
-  "model": "gpt-4o-mini",
-  "system_prompt": "You are a billing assistant. Refuse non-billing questions.",
-  "messages": [
-    { "role": "user", "content": "How do refunds work?" }
-  ]
+
+    <H2 id="system-prompt-requirements">Requirements</H2>
+    <P>Two gates must both pass for a <code>system_prompt</code> to be accepted:</P>
+    <UL>
+      <li>
+        <strong>Workspace toggle</strong> — an admin must enable
+        <em> Allow per-request <code>system_prompt</code></em> under
+        <strong> Policies → Guardrail prompt</strong>. When disabled, every request
+        carrying the field is rejected with <code>403 system_prompt_disabled_workspace</code>.
+      </li>
+      <li>
+        <strong>Per-key admin permission</strong> — the API key making the request must
+        have the <strong>admin</strong> flag. Toggle it from the shield icon next to each
+        key on the <strong>Keys</strong> page. Non-admin keys are rejected with
+        <code> 403 system_prompt_forbidden</code>.
+      </li>
+    </UL>
+    <P>
+      Validation: the field must be a non-empty string of at most <strong>16,000</strong>{" "}
+      characters with no control characters. Violations return <code>400 invalid_request_error</code>.
+    </P>
+
+    <H2 id="system-prompt-example">Example request</H2>
+    <Pre language="bash">{`curl https://anveguard.app/v1/chat/completions \\
+  -H "Authorization: Bearer ag_live_…" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "gpt-4o-mini",
+    "system_prompt": "You are a billing assistant. Refuse non-billing questions.",
+    "messages": [
+      { "role": "user", "content": "How do refunds work?" }
+    ]
+  }'`}</Pre>
+
+    <H2 id="system-prompt-403">403 response payload</H2>
+    <P>
+      Both gate failures return an OpenAI-style error envelope. The <code>code</code>{" "}
+      field tells you which gate rejected the call.
+    </P>
+    <Pre language="json">{`HTTP/1.1 403 Forbidden
+Content-Type: application/json
+
+{
+  "error": {
+    "message": "This API key is not permitted to send a custom system_prompt. Ask a workspace admin to enable the admin permission on this key, or remove the field from the request body.",
+    "type": "permission_error",
+    "param": "system_prompt",
+    "code": "system_prompt_forbidden"
+  }
 }`}</Pre>
+    <P>
+      When the workspace toggle is off, the same envelope is returned with{" "}
+      <code>code: "system_prompt_disabled_workspace"</code> and a message pointing the
+      caller at the workspace setting.
+    </P>
 
     <H2 id="non-chat">Non-chat operations</H2>
     <Callout kind="note">
