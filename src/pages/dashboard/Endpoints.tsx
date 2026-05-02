@@ -146,6 +146,13 @@ const Endpoints = () => {
   const [liveModels, setLiveModels] = useState<string[] | null>(null);
   const [modelFilter, setModelFilter] = useState("");
   const [modelsResult, setModelsResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  // True only when the most recent upstream /models fetch succeeded with `source: "live"`.
+  // Persisting `default_model` is gated on this so we never silently save a stale picker.
+  const [lastRefreshOk, setLastRefreshOk] = useState(false);
+  // Tracks the `default_model` currently stored on the endpoint record so the
+  // "Save as default" button can show a dirty state and disable when unchanged.
+  const [savedDefaultModel, setSavedDefaultModel] = useState<string>("");
+  const [savingDefault, setSavingDefault] = useState(false);
 
   const isEdit = !!form.id;
 
