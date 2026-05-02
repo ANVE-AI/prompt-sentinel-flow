@@ -158,7 +158,7 @@ const Routes = () => {
           <SkeletonRows rows={4} cols="grid-cols-[1fr_2fr_120px_auto]" />
         ) : !data?.routes?.length ? (
           <EmptyState
-            icon={GitBranch}
+            icon={<GitBranch className="h-5 w-5" />}
             title="No routes yet"
             description="Create a route to fan out across multiple providers with automatic fallback."
             action={<Button onClick={startCreate} size="sm"><Plus className="h-3.5 w-3.5 mr-1.5" />New route</Button>}
