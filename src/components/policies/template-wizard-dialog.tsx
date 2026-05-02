@@ -427,14 +427,25 @@ function SettingsPicker({
   );
 }
 
+type UnknownFallback = "apply_no_rules" | "apply_default_rules" | "reject";
+
+const FALLBACK_OPTIONS: { value: UnknownFallback; label: string; description: string }[] = [
+  { value: "apply_no_rules", label: "Apply no rules", description: "Skip this template's rules and let the request through unchanged." },
+  { value: "apply_default_rules", label: "Apply default rules", description: "Run the template's rules anyway, treating the request as in-scope." },
+  { value: "reject", label: "Reject the request", description: "Block the request with a policy error when intent can't be detected." },
+];
+
 function IntentScopeStep({
   knownIntents, scope, onChange, customIntent, onCustomChange,
+  unknownFallback, onUnknownFallbackChange,
 }: {
   knownIntents: string[];
   scope: string[];
   onChange: (next: string[]) => void;
   customIntent: string;
   onCustomChange: (v: string) => void;
+  unknownFallback: UnknownFallback;
+  onUnknownFallbackChange: (v: UnknownFallback) => void;
 }) {
   const isAll = scope.length === 0;
   const toggle = (intent: string) => {
