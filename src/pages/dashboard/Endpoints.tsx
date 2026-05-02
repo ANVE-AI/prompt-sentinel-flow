@@ -324,6 +324,7 @@ const Endpoints = () => {
   const fetchModels = async () => {
     setFetchingModels(true);
     setModelsResult(null);
+    setLastRefreshOk(false);
     try {
       const useStoredKey = isEdit && hasKeyOnRecord && !form.provider_key;
       const r = await call<any>("list_endpoint_models", {
@@ -335,6 +336,7 @@ const Endpoints = () => {
       setLiveModels(models);
       const shapeNote = r.shape && r.shape !== "unknown" ? ` · shape: ${r.shape}` : "";
       if (r.source === "live" && models.length) {
+        setLastRefreshOk(true);
         setModelsResult({
           ok: true,
           msg: `Loaded ${models.length} model${models.length === 1 ? "" : "s"} from upstream (${r.latency_ms ?? "?"}ms)${shapeNote}.`,
@@ -354,6 +356,51 @@ const Endpoints = () => {
       setModelsResult({ ok: false, msg: e.message || String(e) });
     } finally {
       setFetchingModels(false);
+    }
+  };
+
+  // Persist `default_model` to the saved endpoint record.
+  // Gated behind `lastRefreshOk` (a successful live upstream refresh in this session)
+  // so we never store a model id that hasn't been confirmed against the provider.
+  const persistDefaultModel = async (force = false) => {
+    if (!isEdit || !form.id) return;
+    const chosen = form.default_model.trim();
+    if (!chosen) {
+      toast.error("Pick a model first.");
+      return;
+    }
+    setSavingDefault(true);
+    try {
+      const r = await call<{ ok: boolean; default_model: string; forced?: boolean }>(
+        "set_endpoint_default_model",
+        { body: { id: form.id, default_model: chosen, force } },
+      );
+      setSavedDefaultModel(r.default_model);
+      qc.invalidateQueries({ queryKey: ["endpoints"] });
+      toast.success(
+        r.forced
+          ? `Saved "${r.default_model}" as default (forced — not in upstream list).`
+          : `Saved "${r.default_model}" as default model.`,
+      );
+    } catch (e: any) {
+      // Server returns a structured error message. If it's the "model not in
+      // upstream list" case, offer a one-click force-save.
+      const msg: string = e?.message || String(e);
+      if (!force && /not.*found.*upstream|model_missing/i.test(msg)) {
+        toast.error(msg, {
+          action: {
+            label: "Save anyway",
+            onClick: () => persistDefaultModel(true),
+          },
+          duration: 8000,
+        });
+      } else if (/upstream_unreachable|upstream_error|parse_failed|empty_list/i.test(msg)) {
+        toast.error(`Couldn't verify against upstream: ${msg}. Refresh the model list and try again.`);
+      } else {
+        toast.error(msg);
+      }
+    } finally {
+      setSavingDefault(false);
     }
   };
 
