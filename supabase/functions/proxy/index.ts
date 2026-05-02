@@ -15,6 +15,7 @@ import {
   detectRequestShape, translateRequestToOpenAI, translateResponseFromOpenAI,
   type RequestShape,
 } from "../_shared/shape_translators.ts";
+import { parseModelsResponse } from "../_shared/models_parsers.ts";
 
 // ---- Error envelope helpers ------------------------------------------------
 // Every error response goes through `errorResponse` so the public shape is
@@ -204,8 +205,23 @@ async function evaluateOutput(
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  // GET /v1/models — OpenAI-spec model listing, served from the upstream
+  // provider configured for the AnveGuard key. POST stays the chat/completions
+  // path. Anything else: 405.
+  if (req.method === "GET") {
+    const path = new URL(req.url).pathname.replace(/\/+$/, "");
+    if (path.endsWith("/v1/models")) {
+      try { return await handleListModels(req); }
+      catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error("[proxy] list_models error:", msg);
+        return errorResponse("openai", 500, "Internal proxy error", { code: "internal_error", anveguard: { detail: msg } });
+      }
+    }
+    return json(openaiErrorShape("Method not allowed.", typeForStatus(405), { code: "method_not_allowed" }), 405, { Allow: "POST, GET, OPTIONS" });
+  }
   if (req.method !== "POST") {
-    return json(openaiErrorShape("Method not allowed. Use POST.", typeForStatus(405), { code: "method_not_allowed" }), 405, { Allow: "POST, OPTIONS" });
+    return json(openaiErrorShape("Method not allowed. Use POST.", typeForStatus(405), { code: "method_not_allowed" }), 405, { Allow: "POST, GET, OPTIONS" });
   }
   try {
     return await handleRequest(req);
@@ -219,6 +235,85 @@ Deno.serve(async (req) => {
     return errorResponse(shape, 500, "Internal proxy error", { code: "internal_error", anveguard: { detail: msg } });
   }
 });
+
+/**
+ * GET /v1/models — auth with the AnveGuard key, resolve the upstream
+ * provider's `models_url`, fetch it with the user's stored provider key,
+ * and return an OpenAI-spec `{ object: "list", data: [...] }` envelope so
+ * SDK consumers (`openai.models.list()`, etc.) work transparently.
+ *
+ * Errors flow through the same standardized OpenAI error envelope used by
+ * /v1/chat/completions.
+ */
+async function handleListModels(req: Request): Promise<Response> {
+  const sb = service();
+  const reqUrl = new URL(req.url);
+
+  const authHeader = req.headers.get("Authorization") || req.headers.get("authorization") || "";
+  const xApiKey = req.headers.get("x-api-key") || req.headers.get("X-API-Key") || "";
+  const queryKey = reqUrl.searchParams.get("key") || "";
+  const bearer = authHeader.match(/^Bearer\s+(ag_live_\S+)/i)?.[1];
+  const apiKeyPlain = bearer
+    || (xApiKey.startsWith("ag_live_") ? xApiKey : "")
+    || (queryKey.startsWith("ag_live_") ? queryKey : "");
+  if (!apiKeyPlain) {
+    return errorResponse("openai", 401, "Missing API key.", { code: "missing_api_key" });
+  }
+  const key_hash = await sha256Hex(apiKeyPlain);
+  const { data: keyRow } = await sb.from("api_keys")
+    .select("id,user_id,provider,provider_key_encrypted,is_active,custom_base_url,custom_models_url,custom_kind,custom_auth_scheme,custom_auth_header,custom_extra_headers,custom_path_prefix,custom_chat_path,custom_models_path,custom_response_format")
+    .eq("key_hash", key_hash).maybeSingle();
+  if (!keyRow || !keyRow.is_active) {
+    return errorResponse("openai", 401, "Invalid or revoked API key.", { code: "invalid_api_key" });
+  }
+
+  // Resolve upstream credentials the same way /v1/chat/completions does.
+  let upstreamKey: string | null = null;
+  if (keyRow.provider === "lovable") {
+    upstreamKey = Deno.env.get("LOVABLE_API_KEY") || null;
+  } else if (keyRow.provider_key_encrypted) {
+    upstreamKey = await decryptString(keyRow.provider_key_encrypted);
+  }
+
+  let resolved;
+  try { resolved = resolveEndpoint(keyRow as any, upstreamKey); }
+  catch (e) {
+    return errorResponse("openai", 500, e instanceof Error ? e.message : String(e), { code: "endpoint_resolution_failed" });
+  }
+  const modelsUrl = resolved.models_url;
+  if (!modelsUrl) {
+    return errorResponse("openai", 501, "This provider does not expose a models listing endpoint.", { code: "models_not_supported" });
+  }
+
+  let upstream: Response;
+  try {
+    upstream = await fetch(modelsUrl, { method: "GET", headers: resolved.headers });
+  } catch (e) {
+    return errorResponse("openai", 502, `Upstream fetch failed: ${e instanceof Error ? e.message : String(e)}`, { code: "upstream_unreachable" });
+  }
+  const text = await upstream.text();
+  if (!upstream.ok) {
+    return errorResponse("openai", upstream.status, `Upstream ${upstream.status}: ${text.slice(0, 500)}`, { code: "upstream_error" });
+  }
+
+  let raw: unknown;
+  try { raw = JSON.parse(text); }
+  catch {
+    return errorResponse("openai", 502, "Upstream did not return JSON for the models listing.", { code: "upstream_invalid_json" });
+  }
+
+  // Normalize to OpenAI-spec shape regardless of upstream provider.
+  const parsed = parseModelsResponse(raw);
+  const data = parsed.models.map((m) => ({
+    id: m.id,
+    object: "model",
+    owned_by: m.owned_by ?? null,
+    ...(m.display_name ? { display_name: m.display_name } : {}),
+    ...(m.context_window != null ? { context_window: m.context_window } : {}),
+  }));
+  await sb.from("api_keys").update({ last_used_at: new Date().toISOString() }).eq("id", keyRow.id);
+  return json({ object: "list", data }, 200);
+}
 
 async function handleRequest(req: Request): Promise<Response> {
 
