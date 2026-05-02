@@ -457,14 +457,15 @@ export async function classifyIntent(
   }
 }
 
-export async function evaluateIntent(
-  normalizedText: string,
+/**
+ * Build the intent layer verdict from a precomputed classifier result.
+ * Separated from `classifyIntent()` so callers can reuse the classification
+ * for rule scoping without paying for two LLM calls.
+ */
+export function intentLayerFrom(
+  result: IntentClassification,
   intents: PolicyIntent[],
-  settings: PolicySettings,
-): Promise<LayerVerdict | null> {
-  if (!settings.enable_intent) return null;
-  const result = await classifyIntent(normalizedText, settings.workspace_purpose);
-  if (!result) return null;
+): LayerVerdict {
   if (result.intent === "legitimate") {
     return { layer: "intent", verdict: "allow", intent: result.intent, confidence: result.confidence, reason: result.reason };
   }
@@ -506,10 +507,21 @@ export async function evaluate(input: EvaluateInput, ctx: { systemPrompt?: strin
 
   const norm = settings.enable_normalizer ? normalize(text) : { normalized: text.toLowerCase(), decoded_segments: [] };
 
+  // 1. Intent classification runs FIRST on input direction so its result can
+  //    scope which pattern rules fire. One classifier call per request.
+  let detected: IntentClassification | null = null;
+  if (settings.enable_intent && direction === "input") {
+    detected = await classifyIntent(norm.normalized, settings.workspace_purpose);
+  }
+  const detectedIntent = detected?.intent;
+
   const layers: LayerVerdict[] = [];
 
   if (settings.enable_patterns) {
-    layers.push(...evaluatePatterns(text, norm.normalized, rules.filter((r) => r.enabled), legacy, direction, ctx));
+    layers.push(...evaluatePatterns(
+      text, norm.normalized, rules.filter((r) => r.enabled), legacy, direction,
+      { ...ctx, detectedIntent },
+    ));
   } else {
     // Even when patterns are disabled we still honor legacy keywords so existing
     // policies keep working unchanged.
@@ -527,19 +539,16 @@ export async function evaluate(input: EvaluateInput, ctx: { systemPrompt?: strin
     layers.push(...evaluateHeuristics(text, norm.normalized, direction));
   }
 
-  // Intent classifier — only on input direction; output classification is rarely useful and adds latency.
+  // 2. Intent layer verdict (built from the same classification, no extra call).
   let shadow_only = false;
-  if (settings.enable_intent && direction === "input") {
-    const intentVerdict = await evaluateIntent(norm.normalized, intents, settings);
-    if (intentVerdict) {
-      if (settings.intent_shadow_mode) {
-        // Record the verdict but downgrade enforcement to "allow".
-        const wouldChange = intentVerdict.verdict !== "allow";
-        layers.push({ ...intentVerdict, verdict: "allow", reason: `[shadow] ${intentVerdict.reason ?? ""}` });
-        if (wouldChange) shadow_only = true;
-      } else {
-        layers.push(intentVerdict);
-      }
+  if (detected) {
+    const intentVerdict = intentLayerFrom(detected, intents);
+    if (settings.intent_shadow_mode) {
+      const wouldChange = intentVerdict.verdict !== "allow";
+      layers.push({ ...intentVerdict, verdict: "allow", reason: `[shadow] ${intentVerdict.reason ?? ""}` });
+      if (wouldChange) shadow_only = true;
+    } else {
+      layers.push(intentVerdict);
     }
   }
 
@@ -549,6 +558,8 @@ export async function evaluate(input: EvaluateInput, ctx: { systemPrompt?: strin
     normalized: norm.normalized,
     decoded_segments: norm.decoded_segments,
     shadow_only,
+    detected_intent: detected?.intent,
+    intent_confidence: detected?.confidence,
   };
 }
 
