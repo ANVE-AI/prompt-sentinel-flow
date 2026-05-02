@@ -1084,6 +1084,8 @@ Deno.serve(async (req) => {
             intent_shadow_mode: true,
             strict_mode: false,
             workspace_purpose: null,
+            enable_injection_guard: true,
+            injection_action: "block",
           },
           known_intents: [
             "jailbreak", "prompt_injection", "data_exfiltration",
@@ -1096,6 +1098,7 @@ Deno.serve(async (req) => {
         const allowedKeys = [
           "enable_normalizer", "enable_patterns", "enable_heuristics",
           "enable_intent", "intent_shadow_mode", "strict_mode",
+          "enable_injection_guard",
         ] as const;
         const patch: Record<string, unknown> = { user_id: userId };
         for (const k of allowedKeys) {
@@ -1104,6 +1107,13 @@ Deno.serve(async (req) => {
         if ("workspace_purpose" in (body ?? {})) {
           const wp = body.workspace_purpose;
           patch.workspace_purpose = typeof wp === "string" && wp.trim() ? wp.trim().slice(0, 2000) : null;
+        }
+        if ("injection_action" in (body ?? {})) {
+          const a = String(body.injection_action);
+          if (!["block", "sanitize", "flag"].includes(a)) {
+            return json({ error: "Invalid injection_action" }, 400);
+          }
+          patch.injection_action = a;
         }
         await sb.from("policy_settings").upsert(patch, { onConflict: "user_id" });
         return json({ ok: true });

@@ -421,9 +421,11 @@ export type Database = {
         Row: {
           created_at: string
           enable_heuristics: boolean
+          enable_injection_guard: boolean
           enable_intent: boolean
           enable_normalizer: boolean
           enable_patterns: boolean
+          injection_action: string
           intent_shadow_mode: boolean
           strict_mode: boolean
           updated_at: string
@@ -433,9 +435,11 @@ export type Database = {
         Insert: {
           created_at?: string
           enable_heuristics?: boolean
+          enable_injection_guard?: boolean
           enable_intent?: boolean
           enable_normalizer?: boolean
           enable_patterns?: boolean
+          injection_action?: string
           intent_shadow_mode?: boolean
           strict_mode?: boolean
           updated_at?: string
@@ -445,9 +449,11 @@ export type Database = {
         Update: {
           created_at?: string
           enable_heuristics?: boolean
+          enable_injection_guard?: boolean
           enable_intent?: boolean
           enable_normalizer?: boolean
           enable_patterns?: boolean
+          injection_action?: string
           intent_shadow_mode?: boolean
           strict_mode?: boolean
           updated_at?: string

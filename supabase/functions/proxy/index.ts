@@ -8,6 +8,7 @@ import { chatToResponsesRequest, responsesToChatResponse,
   responsesStreamToChat } from "../_shared/responses_api.ts";
 import {
   evaluate as evaluatePolicy, DEFAULT_SETTINGS,
+  evaluateInjection, applySanitization,
   type PolicyRule, type PolicyIntent, type PolicySettings, type EvaluateResult,
 } from "../_shared/policy_engine.ts";
 
@@ -237,6 +238,26 @@ Deno.serve(async (req) => {
     });
     await sb.from("api_keys").update({ last_used_at: new Date().toISOString() }).eq("id", keyRow.id);
     return json(responsePayload, 200);
+  }
+
+  // Sanitize action: rewrite each message's content independently (we can't
+  // use the flattened promptText spans because indices don't map back to
+  // individual messages once joined). Original payload object is mutated in
+  // place — every downstream attempt forwards the redacted version.
+  let sanitizationApplied = false;
+  if (inputEval.verdict === "sanitize") {
+    for (const msg of body.messages) {
+      const original = typeof msg.content === "string" ? msg.content : null;
+      if (!original) continue; // skip non-string content (multimodal, tool calls)
+      const norm = original.toLowerCase(); // cheap; engine normalizer is heavier but injection regex is case-insensitive
+      const layers = evaluateInjection(original, norm, "input");
+      const spans = layers.flatMap((l) => l.spans ?? []);
+      if (spans.length > 0) {
+        msg.content = applySanitization(original, spans);
+        sanitizationApplied = true;
+      }
+    }
+    logBase.messages = body.messages; // log the sanitized version
   }
 
   // ---- Build attempt list -------------------------------------------------
