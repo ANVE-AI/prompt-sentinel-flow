@@ -8,6 +8,7 @@ import { chatToResponsesRequest, responsesToChatResponse,
   responsesStreamToChat } from "../_shared/responses_api.ts";
 import {
   evaluate as evaluatePolicy, DEFAULT_SETTINGS,
+  evaluateInjection, applySanitization,
   type PolicyRule, type PolicyIntent, type PolicySettings, type EvaluateResult,
 } from "../_shared/policy_engine.ts";
 
