@@ -246,6 +246,23 @@ const Endpoints = () => {
   });
   const usageRow = usageQuery.data?.usage?.[0];
 
+  // Inline revoke (with confirm step) for keys shown in the usage dialog.
+  // Reuses the existing `revoke_key` action, which enforces ownership and
+  // is idempotent server-side. On success we invalidate the usage query so
+  // the row updates in place, and the global keys list so the Keys page
+  // stays in sync.
+  const [confirmRevokeKey, setConfirmRevokeKey] = useState<{ id: string; name: string; key_prefix: string } | null>(null);
+  const revokeKeyMutation = useMutation({
+    mutationFn: (id: string) => call("revoke_key", { body: { id } }),
+    onSuccess: () => {
+      toast.success("Key revoked");
+      qc.invalidateQueries({ queryKey: ["endpoint_usage"] });
+      qc.invalidateQueries({ queryKey: ["keys"] });
+      setConfirmRevokeKey(null);
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Failed to revoke key"),
+  });
+
   // Drilldown for individual request_log rows in the usage dialog.
   const [openRequestId, setOpenRequestId] = useState<string | null>(null);
   const requestDetailQuery = useQuery({
@@ -1643,6 +1660,18 @@ const Endpoints = () => {
                         <span className="ml-auto text-xs text-muted-foreground">
                           {k.last_used_at ? `last used ${new Date(k.last_used_at).toLocaleString()}` : "never used"}
                         </span>
+                        {k.is_active && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10 shrink-0"
+                            onClick={() => setConfirmRevokeKey({ id: k.id, name: k.name, key_prefix: k.key_prefix })}
+                            title="Revoke this API key"
+                          >
+                            <Ban className="h-3.5 w-3.5 mr-1" />
+                            Revoke
+                          </Button>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1763,6 +1792,48 @@ const Endpoints = () => {
         onClose={() => setOpenRequestId(null)}
         query={requestDetailQuery}
       />
+
+      {/* Confirm revocation of a bound API key from the usage dialog */}
+      <AlertDialog
+        open={!!confirmRevokeKey}
+        onOpenChange={(o) => { if (!o && !revokeKeyMutation.isPending) setConfirmRevokeKey(null); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Ban className="h-4 w-4 text-destructive" />
+              Revoke API key?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmRevokeKey && (
+                <>
+                  <span className="font-medium text-foreground">"{confirmRevokeKey.name}"</span>{" "}
+                  (<code>{confirmRevokeKey.key_prefix}…</code>) will stop working immediately. Any
+                  application or service using this key will start receiving 401 errors. This action
+                  cannot be undone.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={revokeKeyMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={revokeKeyMutation.isPending}
+              onClick={(e) => {
+                e.preventDefault();
+                if (confirmRevokeKey) revokeKeyMutation.mutate(confirmRevokeKey.id);
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {revokeKeyMutation.isPending ? (
+                <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Revoking…</>
+              ) : (
+                <><Ban className="h-4 w-4 mr-2" />Revoke key</>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Import preview dialog */}
       <Dialog open={importOpen} onOpenChange={(o) => { if (!o) { setImportOpen(false); setImportPayload(null); } }}>
