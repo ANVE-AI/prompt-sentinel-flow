@@ -13,6 +13,7 @@ import { useDashboardApi } from "@/lib/api";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
+import { readProxyResponse } from "@/lib/proxy-response";
 
 const PROXY_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proxy`;
 
