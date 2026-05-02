@@ -16,7 +16,11 @@ import {
   type RequestShape,
 } from "../_shared/shape_translators.ts";
 import { parseModelsResponse } from "../_shared/models_parsers.ts";
-import { validateSystemPrompt, resolveSystemPromptMax } from "../_shared/system_prompt.ts";
+import {
+  validateSystemPrompt,
+  resolveSystemPromptMax,
+  SYSTEM_PROMPT_DOC_URL,
+} from "../_shared/system_prompt.ts";
 
 // ---- Error envelope helpers ------------------------------------------------
 // Every error response goes through `errorResponse` so the public shape is
@@ -37,6 +41,10 @@ type ErrorOpts = {
   headers?: Record<string, string>;
   /** Vendor-specific debug info echoed back under the `anveguard` key. */
   anveguard?: Record<string, unknown>;
+  /** Optional public docs URL for this error class. Echoed under
+   *  `error.doc_url` (OpenAI shape) and `error.anveguard.doc_url` so users
+   *  can jump straight to the rule that rejected them. */
+  doc_url?: string;
 };
 
 /** Pick the OpenAI `type` that best matches an HTTP status. */
@@ -50,24 +58,40 @@ function typeForStatus(status: number): string {
 }
 
 function openaiErrorShape(message: string, type: string, opts: ErrorOpts = {}) {
-  return {
-    error: {
-      message,
-      type,
-      param: opts.param ?? null,
-      code: opts.code ?? null,
-    },
+  const err: Record<string, unknown> = {
+    message,
+    type,
+    param: opts.param ?? null,
+    code: opts.code ?? null,
   };
+  if (opts.doc_url) err.doc_url = opts.doc_url;
+  return { error: err };
 }
 
 /** Translate the OpenAI-shape error envelope into the public shape. */
 function errorForShape(shape: RequestShape, status: number, message: string, opts: ErrorOpts = {}): unknown {
   const type = typeForStatus(status);
   if (shape === "anthropic") {
-    return { type: "error", error: { type: opts.code ?? type, message } };
+    return {
+      type: "error",
+      error: {
+        type: opts.code ?? type,
+        message,
+        ...(opts.param ? { param: opts.param } : {}),
+        ...(opts.doc_url ? { doc_url: opts.doc_url } : {}),
+      },
+    };
   }
   if (shape === "gemini") {
-    return { error: { code: status, status: opts.code ?? type, message } };
+    return {
+      error: {
+        code: status,
+        status: opts.code ?? type,
+        message,
+        ...(opts.param ? { param: opts.param } : {}),
+        ...(opts.doc_url ? { doc_url: opts.doc_url } : {}),
+      },
+    };
   }
   const env = openaiErrorShape(message, type, opts);
   if (opts.anveguard) (env as any).anveguard = opts.anveguard;
@@ -494,26 +518,40 @@ async function handleRequest(req: Request): Promise<Response> {
   const systemPromptMax = resolveSystemPromptMax((settings as any)?.system_prompt_max_length);
   const validation = validateSystemPrompt(rawSystemPrompt, systemPromptMax);
   if (validation.error) {
-    return errorResponse(reqShape, 400, validation.error,
-      { code: "invalid_request_error", param: "system_prompt" });
+    // Use the stable per-failure code from the validator (e.g.
+    // "system_prompt_too_long") so SDKs can branch precisely instead of
+    // string-matching the message.
+    return errorResponse(reqShape, 400, validation.error, {
+      code: validation.code,
+      param: "system_prompt",
+      doc_url: SYSTEM_PROMPT_DOC_URL,
+    });
   }
   const customSystemPrompt = validation.value;
   if (customSystemPrompt) {
     // Two gates must pass:
     //   1) workspace policy must permit per-request overrides at all
     //   2) the key itself must carry the admin permission
-    // Either failure returns 403 so callers see exactly which guard rejected
-    // them rather than a generic permission error.
+    // Either failure returns 403 with a stable code + doc URL so callers see
+    // exactly which gate rejected them rather than a generic permission error.
     const workspaceAllows = (settings as any)?.allow_client_system_prompt === true;
     if (!workspaceAllows) {
       return errorResponse(reqShape, 403,
-        "Per-request `system_prompt` overrides are disabled for this workspace. Enable them under Policies → Guardrail prompt, or remove the field from the request body.",
-        { code: "system_prompt_disabled_workspace", param: "system_prompt" });
+        "Per-request `system_prompt` overrides are disabled for this workspace. Ask a workspace admin to enable them under Policies → Guardrails, or remove the `system_prompt` field from the request body.",
+        {
+          code: "system_prompt_disabled_workspace",
+          param: "system_prompt",
+          doc_url: SYSTEM_PROMPT_DOC_URL,
+        });
     }
     if (!keyRow.is_admin) {
       return errorResponse(reqShape, 403,
-        "This API key is not permitted to send a custom system_prompt. Ask a workspace admin to enable the admin permission on this key, or remove the field from the request body.",
-        { code: "system_prompt_forbidden", param: "system_prompt" });
+        "This API key is not permitted to send a custom `system_prompt`. Ask a workspace admin to grant the admin permission to this key on the Keys page, or remove the `system_prompt` field from the request body.",
+        {
+          code: "system_prompt_forbidden",
+          param: "system_prompt",
+          doc_url: SYSTEM_PROMPT_DOC_URL,
+        });
     }
     const insertAt = (typeof guardrail === "string" && guardrail.trim()) ? 1 : 0;
     body.messages = [
