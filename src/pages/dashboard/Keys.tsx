@@ -638,6 +638,17 @@ const Keys = () => {
                           ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           : <Beaker className="h-3.5 w-3.5" />}
                       </Button>
+                      <Button
+                        variant="ghost" size="sm"
+                        onClick={() => setKeyAdmin.mutate({ id: k.id, is_admin: !k.is_admin })}
+                        title={k.is_admin
+                          ? "Revoke admin permission (key can no longer send custom system_prompt)"
+                          : "Grant admin permission (allow this key to send a custom system_prompt)"}
+                      >
+                        {k.is_admin
+                          ? <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
+                          : <ShieldAlert className="h-3.5 w-3.5 text-muted-foreground" />}
+                      </Button>
                       <Button variant="ghost" size="sm" onClick={() => revoke.mutate(k.id)} title="Revoke key">
                         <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
                       </Button>
