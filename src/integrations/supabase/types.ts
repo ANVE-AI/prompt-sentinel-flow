@@ -277,6 +277,42 @@ export type Database = {
         }
         Relationships: []
       }
+      known_intents: {
+        Row: {
+          created_at: string
+          description: string | null
+          examples: string[]
+          id: string
+          keywords: string[]
+          label: string | null
+          name: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          examples?: string[]
+          id?: string
+          keywords?: string[]
+          label?: string | null
+          name: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          examples?: string[]
+          id?: string
+          keywords?: string[]
+          label?: string | null
+          name?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       model_aliases: {
         Row: {
           alias: string
