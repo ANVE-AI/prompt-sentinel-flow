@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { useDashboardApi } from "@/lib/api";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SkeletonBlock } from "@/components/skeletons";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { KeywordChipInput } from "@/components/keyword-chip-input";
