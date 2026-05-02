@@ -139,7 +139,7 @@ export function getProvider(id: string): ProviderDef | undefined {
 // Custom endpoint support
 // =====================================================================
 
-export type AuthScheme = "bearer" | "header" | "x-api-key" | "none";
+export type AuthScheme = "bearer" | "header" | "x-api-key" | "query" | "none";
 
 export interface CustomEndpointInput {
   base_url: string;
@@ -170,6 +170,7 @@ export const CUSTOM_SCHEMA = {
     { id: "bearer", label: "Bearer token (Authorization: Bearer …)" },
     { id: "header", label: "Custom header" },
     { id: "x-api-key", label: "x-api-key header" },
+    { id: "query", label: "Query parameter (e.g. ?key=…)" },
     { id: "none", label: "No auth (e.g. local Ollama)" },
   ],
   templates: [
@@ -348,8 +349,11 @@ export function resolveCustomEndpoint(input: CustomEndpointInput): ResolvedEndpo
     ? validateCustomUrl(input.models_url).toString()
     : withFinalSegment(u.toString(), "/models");
 
-  const auth_scheme: AuthScheme = (["bearer", "header", "x-api-key", "none"] as AuthScheme[])
+  const auth_scheme: AuthScheme = (["bearer", "header", "x-api-key", "query", "none"] as AuthScheme[])
     .includes(input.auth_scheme) ? input.auth_scheme : "bearer";
+
+  // For query auth the auth_header field is repurposed as the param name (default "key").
+  const defaultHeader = auth_scheme === "query" ? "key" : "Authorization";
 
   return {
     url,
@@ -357,8 +361,15 @@ export function resolveCustomEndpoint(input: CustomEndpointInput): ResolvedEndpo
     kind,
     extra_headers: sanitizeExtraHeaders(input.extra_headers),
     auth_scheme,
-    auth_header: (input.auth_header || "Authorization").trim(),
+    auth_header: (input.auth_header || defaultHeader).trim(),
   };
+}
+
+/** Append `?name=value` (or `&`) to a URL, preserving existing query. */
+function withQueryParam(raw: string, name: string, value: string): string {
+  const u = new URL(raw);
+  u.searchParams.set(name, value);
+  return u.toString();
 }
 
 /**
@@ -390,15 +401,21 @@ export function resolveEndpoint(keyRow: {
       extra_headers: keyRow.custom_extra_headers ?? null,
     });
     const headers: Record<string, string> = { ...r.extra_headers };
+    let url = r.url;
+    let models_url = r.models_url;
     if (upstreamKey && r.auth_scheme !== "none") {
       if (r.auth_scheme === "bearer") headers["Authorization"] = `Bearer ${upstreamKey}`;
       else if (r.auth_scheme === "x-api-key") headers["x-api-key"] = upstreamKey;
       else if (r.auth_scheme === "header") headers[r.auth_header] = upstreamKey;
+      else if (r.auth_scheme === "query") {
+        url = withQueryParam(url, r.auth_header, upstreamKey);
+        models_url = withQueryParam(models_url, r.auth_header, upstreamKey);
+      }
     }
     if (r.kind === "anthropic" && !headers["anthropic-version"]) {
       headers["anthropic-version"] = "2023-06-01";
     }
-    return { url: r.url, models_url: r.models_url, kind: r.kind, headers };
+    return { url, models_url, kind: r.kind, headers };
   }
 
   const def = getProvider(keyRow.provider);
