@@ -16,6 +16,7 @@ import Routes_ from "./pages/dashboard/Routes";
 import Policies from "./pages/dashboard/Policies";
 import Logs from "./pages/dashboard/Logs";
 import Playground from "./pages/dashboard/Playground";
+import PolicySandbox from "./pages/dashboard/PolicySandbox";
 import SignInPage from "./pages/SignIn";
 import SignUpPage from "./pages/SignUp";
 
@@ -46,6 +47,7 @@ const App = () => (
               <Route path="providers" element={<Providers />} />
               <Route path="routes" element={<Routes_ />} />
               <Route path="policies" element={<Policies />} />
+              <Route path="policies/sandbox" element={<PolicySandbox />} />
               <Route path="logs" element={<Logs />} />
               <Route path="playground" element={<Playground />} />
             </Route>

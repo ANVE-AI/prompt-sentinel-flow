@@ -9,6 +9,7 @@ import {
   Plug,
   Server,
   GitBranch,
+  FlaskConical,
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { Topbar } from "@/components/topbar";
@@ -41,7 +42,10 @@ const groups: { id: string; label: string; items: NavItem[] }[] = [
   {
     id: "tools",
     label: "Tools",
-    items: [{ to: "/dashboard/playground", label: "Playground", icon: Terminal }],
+    items: [
+      { to: "/dashboard/playground", label: "Playground", icon: Terminal },
+      { to: "/dashboard/policies/sandbox", label: "Policy sandbox", icon: FlaskConical },
+    ],
   },
 ];
 

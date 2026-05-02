@@ -18,6 +18,7 @@ import {
   KeyRound,
   Plug,
   ShieldCheck,
+  FlaskConical,
   ScrollText,
   Terminal,
   Plus,
@@ -413,6 +414,7 @@ export const CommandPalette = () => {
               <CommandItem onSelect={go("/dashboard/policies")}><ShieldCheck className="mr-2 h-4 w-4" />Policies</CommandItem>
               <CommandItem onSelect={go("/dashboard/logs")}><ScrollText className="mr-2 h-4 w-4" />Logs</CommandItem>
               <CommandItem onSelect={go("/dashboard/playground")}><Terminal className="mr-2 h-4 w-4" />Playground</CommandItem>
+              <CommandItem onSelect={go("/dashboard/policies/sandbox")}><FlaskConical className="mr-2 h-4 w-4" />Policy sandbox</CommandItem>
             </CommandGroup>
 
             <CommandSeparator />

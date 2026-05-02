@@ -62,9 +62,14 @@ const Policies = () => {
         title="Policies"
         description="Keyword guardrails applied to every prompt and response."
         actions={
-          <Button onClick={() => save.mutate()} disabled={save.isPending}>
-            {save.isPending ? "Saving…" : "Save changes"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button asChild variant="outline">
+              <a href="/dashboard/policies/sandbox">Open sandbox</a>
+            </Button>
+            <Button onClick={() => save.mutate()} disabled={save.isPending}>
+              {save.isPending ? "Saving…" : "Save changes"}
+            </Button>
+          </div>
         }
       />
 
