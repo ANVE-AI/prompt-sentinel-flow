@@ -49,7 +49,8 @@ const SETTING_KEYS: { key: string; label: string }[] = [
   { key: "intent_shadow_mode", label: "Intent shadow mode" },
 ];
 
-type Step = 1 | 2 | 3 | 4 | 5;
+type Step = 1 | 2 | 3 | 4 | 5 | 6;
+const TOTAL_STEPS = 6;
 
 const FALLBACK_INTENTS = [
   "jailbreak", "prompt_injection", "data_exfiltration",
