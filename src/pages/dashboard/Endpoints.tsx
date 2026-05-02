@@ -844,7 +844,61 @@ const Endpoints = () => {
               )}
 
               <div>
-                <Label className="text-xs">Default model</Label>
+                {(() => {
+                  const chosen = form.default_model.trim();
+                  const dirty = isEdit && chosen !== savedDefaultModel;
+                  const inLive = !!liveModels && liveModels.includes(chosen);
+                  // Only allow persisting after a successful live refresh in this session.
+                  const canPersist = isEdit && lastRefreshOk && !!chosen && dirty && !savingDefault;
+                  let hint: { tone: "ok" | "warn" | "muted"; text: string } | null = null;
+                  if (isEdit) {
+                    if (!lastRefreshOk) {
+                      hint = { tone: "muted", text: "Refresh upstream models to enable saving." };
+                    } else if (!chosen) {
+                      hint = { tone: "muted", text: "Pick a model to enable saving." };
+                    } else if (!dirty) {
+                      hint = { tone: "ok", text: "Saved." };
+                    } else if (!inLive) {
+                      hint = { tone: "warn", text: "Not in upstream list — save will be rejected unless forced." };
+                    } else {
+                      hint = { tone: "ok", text: "Verified against upstream — ready to save." };
+                    }
+                  }
+                  return (
+                    <div className="flex items-center justify-between gap-2">
+                      <Label className="text-xs">Default model</Label>
+                      {isEdit && (
+                        <div className="flex items-center gap-2">
+                          {hint && (
+                            <span className={`text-[11px] ${
+                              hint.tone === "ok" ? "text-primary"
+                                : hint.tone === "warn" ? "text-amber-700 dark:text-amber-400"
+                                : "text-muted-foreground"
+                            }`}>{hint.text}</span>
+                          )}
+                          <Button
+                            type="button" size="sm" variant="outline"
+                            className="h-7 text-xs"
+                            disabled={!canPersist}
+                            onClick={() => persistDefaultModel(false)}
+                            title={
+                              !lastRefreshOk
+                                ? "Refresh upstream models first"
+                                : !dirty
+                                  ? "No changes to save"
+                                  : "Save default model"
+                            }
+                          >
+                            {savingDefault
+                              ? <RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin" />
+                              : <Save className="h-3.5 w-3.5 mr-1" />}
+                            Save as default
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
                 {liveModels && liveModels.length > 0 ? (() => {
                   const q = modelFilter.trim().toLowerCase();
                   const filtered = q
