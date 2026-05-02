@@ -1019,7 +1019,12 @@ export async function evaluate(input: EvaluateInput, ctx: { systemPrompt?: strin
     Array.isArray(input.conversation) &&
     input.conversation.length >= 2
   ) {
-    const behavioralLayers = evaluateBehavioral(input.conversation);
+    const behavioralLayers = evaluateBehavioral(input.conversation, {
+      churn: settings.behavioral_churn_threshold,
+      persona: settings.behavioral_persona_threshold,
+      encodingStep: settings.behavioral_encoding_ratio_step,
+      lengthMultiplier: settings.behavioral_length_multiplier,
+    });
     if (behavioralLayers.length > 0) {
       const action: "block" | "sanitize" | "flag" = settings.behavioral_action ?? "flag";
       // `sanitize` doesn't make sense at conversation level (we'd have to pick
