@@ -1,12 +1,15 @@
 import { createRoot } from "react-dom/client";
-import { GeistSans } from "geist/font/sans";
-import { GeistMono } from "geist/font/mono";
+import "@fontsource/geist-sans/400.css";
+import "@fontsource/geist-sans/500.css";
+import "@fontsource/geist-sans/600.css";
+import "@fontsource/geist-sans/700.css";
+import "@fontsource/geist-mono/400.css";
+import "@fontsource/geist-mono/500.css";
 import App from "./App.tsx";
 import "./index.css";
 
 document.documentElement.classList.add("dark");
-// Wire Geist into the CSS variables consumed by index.css.
-document.documentElement.style.setProperty("--font-sans", GeistSans.style.fontFamily);
-document.documentElement.style.setProperty("--font-mono", GeistMono.style.fontFamily);
+document.documentElement.style.setProperty("--font-sans", '"Geist Sans", ui-sans-serif, system-ui, sans-serif');
+document.documentElement.style.setProperty("--font-mono", '"Geist Mono", ui-monospace, Menlo, monospace');
 
 createRoot(document.getElementById("root")!).render(<App />);
