@@ -447,10 +447,15 @@ export function resolveEndpoint(keyRow: {
   custom_auth_scheme?: string | null;
   custom_auth_header?: string | null;
   custom_extra_headers?: Record<string, string> | null;
+  custom_path_prefix?: string | null;
+  custom_chat_path?: string | null;
+  custom_models_path?: string | null;
+  custom_response_format?: string | null;
 }, upstreamKey: string | null): {
   url: string;
   models_url?: string;
   kind: ProviderKind;
+  response_format: ResponseFormat;
   /** Headers ready to send (auth already applied where applicable). */
   headers: Record<string, string>;
 } {
@@ -462,6 +467,10 @@ export function resolveEndpoint(keyRow: {
       auth_scheme: (keyRow.custom_auth_scheme as AuthScheme) ?? "bearer",
       auth_header: keyRow.custom_auth_header ?? null,
       extra_headers: keyRow.custom_extra_headers ?? null,
+      path_prefix: keyRow.custom_path_prefix ?? null,
+      chat_path: keyRow.custom_chat_path ?? null,
+      models_path: keyRow.custom_models_path ?? null,
+      response_format: (keyRow.custom_response_format as ResponseFormat) ?? null,
     });
     const headers: Record<string, string> = { ...r.extra_headers };
     let url = r.url;
@@ -478,7 +487,7 @@ export function resolveEndpoint(keyRow: {
     if (r.kind === "anthropic" && !headers["anthropic-version"]) {
       headers["anthropic-version"] = "2023-06-01";
     }
-    return { url, models_url, kind: r.kind, headers };
+    return { url, models_url, kind: r.kind, response_format: r.response_format, headers };
   }
 
   const def = getProvider(keyRow.provider);
@@ -494,5 +503,6 @@ export function resolveEndpoint(keyRow: {
     headers["HTTP-Referer"] = "https://anveguard.app";
     headers["X-Title"] = "AnveGuard";
   }
-  return { url: def.url, models_url: def.models_url, kind: def.kind, headers };
+  const response_format: ResponseFormat = def.kind === "anthropic" ? "anthropic_messages" : "chat_completions";
+  return { url: def.url, models_url: def.models_url, kind: def.kind, response_format, headers };
 }
