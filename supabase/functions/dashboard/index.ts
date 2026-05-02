@@ -851,6 +851,109 @@ Deno.serve(async (req) => {
       }
 
 
+      case "set_endpoint_default_model": {
+        // Persist `default_model` for a saved endpoint, but ONLY after re-validating
+        // that the chosen model is actually present in a fresh upstream `/models`
+        // listing. This guarantees we never silently save a model id that the
+        // provider doesn't recognize. The caller may pass `force: true` to skip
+        // upstream re-validation (used when the user explicitly opts in despite
+        // the model not appearing in the live list).
+        const { id, default_model, force } = body;
+        if (!id || typeof id !== "string") return json({ error: "id required" }, 400);
+        if (typeof default_model !== "string" || !default_model.trim()) {
+          return json({ error: "default_model required" }, 400);
+        }
+        const chosen = default_model.trim().slice(0, 200);
+
+        const { data: row } = await sb.from("endpoints").select("*")
+          .eq("id", id).eq("user_id", userId).maybeSingle();
+        if (!row) return json({ error: "Endpoint not found" }, 404);
+
+        if (!force) {
+          // Re-fetch the upstream models list and verify the chosen id is there.
+          let resolved;
+          try {
+            resolved = resolveCustomEndpoint({
+              base_url: row.base_url, models_url: row.models_url || null,
+              kind: row.kind, auth_scheme: row.auth_scheme,
+              auth_header: row.auth_header || null,
+              extra_headers: row.extra_headers || null,
+              path_prefix: row.path_prefix || null,
+              chat_path: row.chat_path || null,
+              models_path: row.models_path || null,
+              response_format: row.response_format || null,
+            });
+          } catch (e) {
+            return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+          }
+
+          const headers: Record<string, string> = { Accept: "application/json", ...resolved.extra_headers };
+          let listUrl = resolved.models_url;
+          const upstreamKey = row.provider_key_encrypted
+            ? await decryptString(row.provider_key_encrypted) : null;
+          if (upstreamKey && resolved.auth_scheme !== "none") {
+            if (resolved.auth_scheme === "bearer") headers["Authorization"] = `Bearer ${upstreamKey}`;
+            else if (resolved.auth_scheme === "x-api-key") headers["x-api-key"] = upstreamKey;
+            else if (resolved.auth_scheme === "header") headers[resolved.auth_header] = upstreamKey;
+            else if (resolved.auth_scheme === "query") {
+              const u = new URL(listUrl);
+              u.searchParams.set(resolved.auth_header, upstreamKey);
+              listUrl = u.toString();
+            }
+          }
+          if (resolved.kind === "anthropic" && !headers["anthropic-version"]) {
+            headers["anthropic-version"] = "2023-06-01";
+          }
+
+          let resp: Response;
+          try {
+            resp = await fetch(listUrl, { headers });
+          } catch (e) {
+            return json({
+              error: `Could not reach upstream to verify the model: ${e instanceof Error ? e.message : String(e)}`,
+              code: "upstream_unreachable",
+            }, 502);
+          }
+          const text = await resp.text();
+          if (!resp.ok) {
+            return json({
+              error: `Upstream rejected the models request (HTTP ${resp.status}). ${text.slice(0, 200)}`,
+              code: "upstream_error", status: resp.status,
+            }, 502);
+          }
+          let parsed;
+          try {
+            const j = JSON.parse(text);
+            const hint = resolved.kind === "anthropic" ? "anthropic"
+              : (resolved.kind === "ollama" ? "ollama" : null);
+            parsed = parseModelsResponse(j, hint);
+          } catch {
+            return json({
+              error: "Upstream did not return JSON for /models — cannot verify the model.",
+              code: "parse_failed",
+            }, 502);
+          }
+          if (parsed.ids.length === 0) {
+            return json({
+              error: "Upstream returned 0 models — cannot verify the model.",
+              code: "empty_list",
+            }, 502);
+          }
+          if (!parsed.ids.includes(chosen)) {
+            return json({
+              error: `Model "${chosen}" was not found in the upstream list (${parsed.ids.length} models). Refresh the list or pass force=true to save anyway.`,
+              code: "model_missing",
+              available: parsed.ids.slice(0, 10),
+            }, 400);
+          }
+        }
+
+        const { error: upErr } = await sb.from("endpoints")
+          .update({ default_model: chosen }).eq("id", id).eq("user_id", userId);
+        if (upErr) return json({ error: upErr.message }, 400);
+        return json({ ok: true, default_model: chosen, forced: !!force });
+      }
+
       case "export_endpoints": {
         // Returns the user's endpoint configurations as a portable JSON document.
         // Provider keys are NEVER included in plain form. By default they are stripped

@@ -20,7 +20,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Plug, Pencil, Trash2, X, Check, Beaker, KeyRound, RefreshCw, AlertTriangle, Activity, Ban, AlertCircle, Download, Upload } from "lucide-react";
+import { Plus, Plug, Pencil, Trash2, X, Check, Beaker, KeyRound, RefreshCw, AlertTriangle, Activity, Ban, AlertCircle, Download, Upload, Save } from "lucide-react";
 import { useDashboardApi } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -146,6 +146,13 @@ const Endpoints = () => {
   const [liveModels, setLiveModels] = useState<string[] | null>(null);
   const [modelFilter, setModelFilter] = useState("");
   const [modelsResult, setModelsResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  // True only when the most recent upstream /models fetch succeeded with `source: "live"`.
+  // Persisting `default_model` is gated on this so we never silently save a stale picker.
+  const [lastRefreshOk, setLastRefreshOk] = useState(false);
+  // Tracks the `default_model` currently stored on the endpoint record so the
+  // "Save as default" button can show a dirty state and disable when unchanged.
+  const [savedDefaultModel, setSavedDefaultModel] = useState<string>("");
+  const [savingDefault, setSavingDefault] = useState(false);
 
   const isEdit = !!form.id;
 
@@ -154,6 +161,8 @@ const Endpoints = () => {
     setTestResult(null);
     setLiveModels(null);
     setModelsResult(null);
+    setLastRefreshOk(false);
+    setSavedDefaultModel("");
     setOpen(true);
   };
 
@@ -180,6 +189,8 @@ const Endpoints = () => {
     setTestResult(null);
     setLiveModels(null);
     setModelsResult(null);
+    setLastRefreshOk(false);
+    setSavedDefaultModel(e.default_model ?? "");
     setOpen(true);
   };
 
@@ -212,6 +223,7 @@ const Endpoints = () => {
     setTestResult(null);
     setLiveModels(null);
     setModelsResult(null);
+    setLastRefreshOk(false);
   };
 
   // When auth scheme changes, give it a sensible default header/param name
@@ -312,6 +324,7 @@ const Endpoints = () => {
   const fetchModels = async () => {
     setFetchingModels(true);
     setModelsResult(null);
+    setLastRefreshOk(false);
     try {
       const useStoredKey = isEdit && hasKeyOnRecord && !form.provider_key;
       const r = await call<any>("list_endpoint_models", {
@@ -323,6 +336,7 @@ const Endpoints = () => {
       setLiveModels(models);
       const shapeNote = r.shape && r.shape !== "unknown" ? ` · shape: ${r.shape}` : "";
       if (r.source === "live" && models.length) {
+        setLastRefreshOk(true);
         setModelsResult({
           ok: true,
           msg: `Loaded ${models.length} model${models.length === 1 ? "" : "s"} from upstream (${r.latency_ms ?? "?"}ms)${shapeNote}.`,
@@ -342,6 +356,51 @@ const Endpoints = () => {
       setModelsResult({ ok: false, msg: e.message || String(e) });
     } finally {
       setFetchingModels(false);
+    }
+  };
+
+  // Persist `default_model` to the saved endpoint record.
+  // Gated behind `lastRefreshOk` (a successful live upstream refresh in this session)
+  // so we never store a model id that hasn't been confirmed against the provider.
+  const persistDefaultModel = async (force = false) => {
+    if (!isEdit || !form.id) return;
+    const chosen = form.default_model.trim();
+    if (!chosen) {
+      toast.error("Pick a model first.");
+      return;
+    }
+    setSavingDefault(true);
+    try {
+      const r = await call<{ ok: boolean; default_model: string; forced?: boolean }>(
+        "set_endpoint_default_model",
+        { body: { id: form.id, default_model: chosen, force } },
+      );
+      setSavedDefaultModel(r.default_model);
+      qc.invalidateQueries({ queryKey: ["endpoints"] });
+      toast.success(
+        r.forced
+          ? `Saved "${r.default_model}" as default (forced — not in upstream list).`
+          : `Saved "${r.default_model}" as default model.`,
+      );
+    } catch (e: any) {
+      // Server returns a structured error message. If it's the "model not in
+      // upstream list" case, offer a one-click force-save.
+      const msg: string = e?.message || String(e);
+      if (!force && /not.*found.*upstream|model_missing/i.test(msg)) {
+        toast.error(msg, {
+          action: {
+            label: "Save anyway",
+            onClick: () => persistDefaultModel(true),
+          },
+          duration: 8000,
+        });
+      } else if (/upstream_unreachable|upstream_error|parse_failed|empty_list/i.test(msg)) {
+        toast.error(`Couldn't verify against upstream: ${msg}. Refresh the model list and try again.`);
+      } else {
+        toast.error(msg);
+      }
+    } finally {
+      setSavingDefault(false);
     }
   };
 
@@ -785,7 +844,61 @@ const Endpoints = () => {
               )}
 
               <div>
-                <Label className="text-xs">Default model</Label>
+                {(() => {
+                  const chosen = form.default_model.trim();
+                  const dirty = isEdit && chosen !== savedDefaultModel;
+                  const inLive = !!liveModels && liveModels.includes(chosen);
+                  // Only allow persisting after a successful live refresh in this session.
+                  const canPersist = isEdit && lastRefreshOk && !!chosen && dirty && !savingDefault;
+                  let hint: { tone: "ok" | "warn" | "muted"; text: string } | null = null;
+                  if (isEdit) {
+                    if (!lastRefreshOk) {
+                      hint = { tone: "muted", text: "Refresh upstream models to enable saving." };
+                    } else if (!chosen) {
+                      hint = { tone: "muted", text: "Pick a model to enable saving." };
+                    } else if (!dirty) {
+                      hint = { tone: "ok", text: "Saved." };
+                    } else if (!inLive) {
+                      hint = { tone: "warn", text: "Not in upstream list — save will be rejected unless forced." };
+                    } else {
+                      hint = { tone: "ok", text: "Verified against upstream — ready to save." };
+                    }
+                  }
+                  return (
+                    <div className="flex items-center justify-between gap-2">
+                      <Label className="text-xs">Default model</Label>
+                      {isEdit && (
+                        <div className="flex items-center gap-2">
+                          {hint && (
+                            <span className={`text-[11px] ${
+                              hint.tone === "ok" ? "text-primary"
+                                : hint.tone === "warn" ? "text-amber-700 dark:text-amber-400"
+                                : "text-muted-foreground"
+                            }`}>{hint.text}</span>
+                          )}
+                          <Button
+                            type="button" size="sm" variant="outline"
+                            className="h-7 text-xs"
+                            disabled={!canPersist}
+                            onClick={() => persistDefaultModel(false)}
+                            title={
+                              !lastRefreshOk
+                                ? "Refresh upstream models first"
+                                : !dirty
+                                  ? "No changes to save"
+                                  : "Save default model"
+                            }
+                          >
+                            {savingDefault
+                              ? <RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin" />
+                              : <Save className="h-3.5 w-3.5 mr-1" />}
+                            Save as default
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
                 {liveModels && liveModels.length > 0 ? (() => {
                   const q = modelFilter.trim().toLowerCase();
                   const filtered = q
