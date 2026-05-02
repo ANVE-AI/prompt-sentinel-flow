@@ -1,16 +1,86 @@
 // AnveGuard proxy — OpenAI-compatible /v1/chat/completions endpoint.
 // Public function; authenticated via AnveGuard API keys (Authorization: Bearer ag_live_...).
-import { corsHeaders, json, service, sha256Hex, decryptString,
-  GLOBAL_DEFAULT_BLOCKED, checkPolicy } from "../_shared/anveguard.ts";
+import { corsHeaders, json, service, sha256Hex, decryptString } from "../_shared/anveguard.ts";
 import { getProvider, resolveEndpoint } from "../_shared/providers.ts";
 import { openaiToAnthropicRequest, anthropicToOpenAIResponse,
   anthropicStreamToOpenAI } from "../_shared/anthropic.ts";
 import { chatToResponsesRequest, responsesToChatResponse,
   responsesStreamToChat } from "../_shared/responses_api.ts";
+import {
+  evaluate as evaluatePolicy, DEFAULT_SETTINGS,
+  type PolicyRule, type PolicyIntent, type PolicySettings, type EvaluateResult,
+} from "../_shared/policy_engine.ts";
 
 function openaiErrorShape(message: string, type = "policy_violation") {
   return { error: { message, type, code: type } };
 }
+
+/**
+ * Load all policy state for a workspace in one round trip.
+ * Falls back to safe defaults if rows are missing.
+ */
+async function loadWorkspacePolicy(sb: any, userId: string): Promise<{
+  legacy: { blocked_keywords: string[]; allowed_keywords: string[]; use_global_defaults: boolean };
+  rules: PolicyRule[];
+  intents: PolicyIntent[];
+  settings: PolicySettings;
+  blockMessage: string;
+}> {
+  const [legacyRes, settingsRes, rulesRes, intentsRes] = await Promise.all([
+    sb.from("policies").select("*").eq("user_id", userId).maybeSingle(),
+    sb.from("policy_settings").select("*").eq("user_id", userId).maybeSingle(),
+    sb.from("policy_rules").select("*").eq("user_id", userId).eq("enabled", true),
+    sb.from("policy_intents").select("*").eq("user_id", userId),
+  ]);
+  return {
+    legacy: {
+      blocked_keywords: legacyRes.data?.blocked_keywords ?? [],
+      allowed_keywords: legacyRes.data?.allowed_keywords ?? [],
+      use_global_defaults: legacyRes.data?.use_global_defaults !== false,
+    },
+    rules: (rulesRes.data ?? []) as PolicyRule[],
+    intents: (intentsRes.data ?? []) as PolicyIntent[],
+    settings: settingsRes.data ?? DEFAULT_SETTINGS,
+    blockMessage: legacyRes.data?.block_message || "This request was blocked by your organization's AI policy.",
+  };
+}
+
+/** Pull the first system-role message text out of an OpenAI-shape body. */
+function extractSystemPrompt(messages: any[]): string | undefined {
+  const sys = messages.find((m) => m?.role === "system");
+  if (!sys) return undefined;
+  return typeof sys.content === "string" ? sys.content : JSON.stringify(sys.content ?? "");
+}
+
+/**
+ * Run the output direction of the layered evaluator and turn its verdict into
+ * the (status, block_reason, verdict_layers) tuple the request log expects.
+ */
+async function evaluateOutput(
+  text: string,
+  policyState: Awaited<ReturnType<typeof loadWorkspacePolicy>>,
+  ctx: { systemPrompt?: string; toolsRequested?: boolean },
+): Promise<{ status: "allowed" | "blocked_output"; blockReason: string | null; layers: any[] }> {
+  if (!text) return { status: "allowed", blockReason: null, layers: [] };
+  const r = await evaluatePolicy(
+    {
+      text,
+      direction: "output",
+      legacy: policyState.legacy,
+      rules: policyState.rules,
+      intents: policyState.intents,
+      settings: policyState.settings,
+    },
+    ctx,
+  );
+  if (r.verdict === "block") {
+    const reason = r.layers.find((l) => l.verdict === "block")?.reason ?? "Output blocked by policy";
+    return { status: "blocked_output", blockReason: reason, layers: r.layers };
+  }
+  return { status: "allowed", blockReason: null, layers: r.layers };
+}
+
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -121,21 +191,23 @@ Deno.serve(async (req) => {
   }
   // For custom + auth_scheme === 'none', upstreamKey remains null which is fine.
 
-  // Load policies
-  const { data: pol } = await sb.from("policies").select("*").eq("user_id", keyRow.user_id).maybeSingle();
-  const blocked = [
-    ...(pol?.blocked_keywords ?? []),
-    ...(pol?.use_global_defaults !== false ? GLOBAL_DEFAULT_BLOCKED : []),
-  ];
-  const allowed = pol?.allowed_keywords ?? [];
-  const blockMessage = pol?.block_message || "This request was blocked by your organization's AI policy.";
+  // Load workspace policy state (legacy + v2 layered).
+  const policyState = await loadWorkspacePolicy(sb, keyRow.user_id);
+  const { legacy, rules, intents, settings, blockMessage } = policyState;
+  const systemPrompt = extractSystemPrompt(body.messages);
+  const toolsRequested = Array.isArray(body.tools) && body.tools.length > 0;
 
-  // Input check
+  // Flatten the prompt for evaluation. Note: original payload is forwarded as-is.
   const promptText = body.messages.map((msg: any) =>
     typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content ?? "")).join("\n");
-  const inputCheck = checkPolicy(promptText, blocked, allowed);
 
-  const logBase = {
+  // ---- Layered input evaluation -----------------------------------------
+  const inputEval: EvaluateResult = await evaluatePolicy(
+    { text: promptText, direction: "input", legacy, rules, intents, settings },
+    { systemPrompt, toolsRequested },
+  );
+
+  const logBase: any = {
     user_id: keyRow.user_id,
     api_key_id: keyRow.id,
     provider: keyRow.provider,
@@ -143,8 +215,8 @@ Deno.serve(async (req) => {
     messages: body.messages,
   };
 
-  if (inputCheck.blocked) {
-    const reason = `Matched blocked keyword: "${inputCheck.matched}"`;
+  if (inputEval.verdict === "block") {
+    const reason = inputEval.layers.find((l) => l.verdict === "block")?.reason ?? "Blocked by policy";
     const responsePayload = {
       id: `chatcmpl-blocked-${crypto.randomUUID()}`,
       object: "chat.completion",
@@ -153,10 +225,11 @@ Deno.serve(async (req) => {
       choices: [{ index: 0, finish_reason: "content_filter",
         message: { role: "assistant", content: blockMessage } }],
       usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
-      anveguard: { blocked: true, reason },
+      anveguard: { blocked: true, reason, layers: inputEval.layers },
     };
     await sb.from("request_logs").insert({
       ...logBase, status: "blocked_input", block_reason: reason,
+      verdict: "block", verdict_layers: inputEval.layers,
       response: responsePayload, latency_ms: Date.now() - start,
       tokens_in: 0, tokens_out: 0,
     });
@@ -311,11 +384,11 @@ Deno.serve(async (req) => {
     if (forwardFormat === "anthropic_messages") {
       const { stream: oaiStream, done } = anthropicStreamToOpenAI(upstream.body, model);
       done.then(async ({ assistantText, usage }) => {
-        const outCheck = checkPolicy(assistantText, blocked, allowed);
-        const status = outCheck.blocked ? "blocked_output" : "allowed";
+        const out = await evaluateOutput(assistantText, policyState, { systemPrompt, toolsRequested });
         await sb.from("request_logs").insert({
-          ...logBase, status,
-          block_reason: outCheck.blocked ? `Output matched: "${outCheck.matched}"` : null,
+          ...logBase, status: out.status, block_reason: out.blockReason,
+          verdict: out.status === "blocked_output" ? "block" : "allow",
+          verdict_layers: out.layers,
           response: { streamed: true, content: assistantText },
           latency_ms: Date.now() - start,
           tokens_in: usage?.prompt_tokens ?? null,
@@ -331,11 +404,11 @@ Deno.serve(async (req) => {
     if (forwardFormat === "responses") {
       const { stream: oaiStream, done } = responsesStreamToChat(upstream.body, model);
       done.then(async ({ assistantText, usage, finalModel }) => {
-        const outCheck = checkPolicy(assistantText, blocked, allowed);
-        const status = outCheck.blocked ? "blocked_output" : "allowed";
+        const out = await evaluateOutput(assistantText, policyState, { systemPrompt, toolsRequested });
         await sb.from("request_logs").insert({
-          ...logBase, model: finalModel, status,
-          block_reason: outCheck.blocked ? `Output matched: "${outCheck.matched}"` : null,
+          ...logBase, model: finalModel, status: out.status, block_reason: out.blockReason,
+          verdict: out.status === "blocked_output" ? "block" : "allow",
+          verdict_layers: out.layers,
           response: { streamed: true, content: assistantText },
           latency_ms: Date.now() - start,
           tokens_in: usage?.prompt_tokens ?? null,
@@ -382,11 +455,11 @@ Deno.serve(async (req) => {
           }
         } finally {
           controller.close();
-          const outCheck = checkPolicy(assistantText, blocked, allowed);
-          const status = outCheck.blocked ? "blocked_output" : "allowed";
+          const out = await evaluateOutput(assistantText, policyState, { systemPrompt, toolsRequested });
           await sb.from("request_logs").insert({
-            ...logBase, model: finalModel, status,
-            block_reason: outCheck.blocked ? `Output matched: "${outCheck.matched}"` : null,
+            ...logBase, model: finalModel, status: out.status, block_reason: out.blockReason,
+            verdict: out.status === "blocked_output" ? "block" : "allow",
+            verdict_layers: out.layers,
             response: { streamed: true, content: assistantText },
             latency_ms: Date.now() - start,
             tokens_in: finalUsage?.prompt_tokens ?? null,
@@ -408,16 +481,15 @@ Deno.serve(async (req) => {
     forwardFormat === "responses" ? responsesToChatResponse(rawData, model) :
     rawData;
   const assistantText = data?.choices?.[0]?.message?.content ?? "";
-  const outCheck = typeof assistantText === "string"
-    ? checkPolicy(assistantText, blocked, allowed) : { blocked: false };
+  const outEval = typeof assistantText === "string"
+    ? await evaluateOutput(assistantText, policyState, { systemPrompt, toolsRequested })
+    : { status: "allowed" as const, blockReason: null, layers: [] as any[] };
 
   let finalResponse = data;
-  let status: "allowed" | "blocked_output" = "allowed";
-  let blockReason: string | null = null;
+  const status = outEval.status;
+  const blockReason = outEval.blockReason;
 
-  if (outCheck.blocked) {
-    status = "blocked_output";
-    blockReason = `Output matched: "${outCheck.matched}"`;
+  if (status === "blocked_output") {
     finalResponse = {
       ...data,
       choices: [{
@@ -425,12 +497,14 @@ Deno.serve(async (req) => {
         finish_reason: "content_filter",
         message: { role: "assistant", content: blockMessage },
       }],
-      anveguard: { blocked: true, reason: blockReason },
+      anveguard: { blocked: true, reason: blockReason, layers: outEval.layers },
     };
   }
 
   await sb.from("request_logs").insert({
     ...logBase, model: data?.model || model, status, block_reason: blockReason,
+    verdict: status === "blocked_output" ? "block" : "allow",
+    verdict_layers: outEval.layers,
     response: finalResponse, latency_ms: Date.now() - start,
     tokens_in: data?.usage?.prompt_tokens ?? null,
     tokens_out: data?.usage?.completion_tokens ?? null,

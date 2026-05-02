@@ -1,146 +1,157 @@
+## Behavior- and intent-based policies
 
-# AnveGuard — YC-Grade UI/UX Pass
+Today AnveGuard does case-insensitive substring matching against a flat blocked/allowed list. That stops obvious prompt injections (`"ignore previous instructions"`) but is bypassed trivially by spacing, leetspeak, base64, translation, role-play framing, or any paraphrase.
 
-The design system foundations from the prior revamp are in place (Electric Indigo tokens, Geist, scanline rail, `PageHeader`/`KeyValue`/`EmptyState`/`Badge status`, sticky `Topbar`, REPL Playground, KPI Overview). What's still rough — and what makes a product feel "YC Demo Day quality" vs "AI-generated" — is the **last 20%**: a coherent landing page, real density on data-heavy pages, a command palette, mobile shell, consistent loading/empty states, and visible craft touches (kbd shortcuts, copy affordances, micro-animation).
+This plan adds four new defense layers that compose with the existing keyword check, plus the dashboard surface to configure and observe them.
 
-This plan finishes that 20% in one focused pass.
+### Goals
 
----
+- Catch intents (jailbreak, exfiltration, tool abuse, off-topic) — not just words.
+- Fail safe: every layer outputs the same `{ verdict, score, reason, layer }` so the proxy can combine them with one rule.
+- Stay drop-in: existing keyword policies keep working; new layers are opt-in per workspace.
+- Stay cheap: the heavy classifier only runs when fast layers are inconclusive.
 
-## 1. Landing page — rewrite (`src/pages/Landing.tsx`)
-
-Current page still uses `bg-gradient-to-r from-primary to-accent`, `text-gradient`, `shadow-glow`, the macOS code window, and a 6-feature grid. That's the cliché we set out to remove.
-
-Rewrite into 5 sections, all using existing tokens:
-
-```text
-┌───────────────────────────────────────────────────────────┐
-│  Sticky nav: Logo · Product / Docs / Pricing · Sign in    │
-├───────────────────────────────────────────────────────────┤
-│  HERO  (left)                    │  PIPELINE DIAG (right) │
-│  Eyebrow chip "AI Firewall"      │  your-app → ▢AnveGuard │
-│  display-xl headline (flat fg)   │       → ▢ provider     │
-│  Sub copy · Two CTAs             │  (one row pulses with  │
-│  Trust row: provider logos       │   the scanline motif)  │
-├───────────────────────────────────────────────────────────┤
-│  TABBED SNIPPET   [Python] [Node] [curl]                  │
-│  Flat surface-1 card · no traffic-light dots              │
-├───────────────────────────────────────────────────────────┤
-│  3 NARRATIVE BLOCKS (Inspect / Enforce / Audit)           │
-│  Each: text left · real product screenshot right          │
-├───────────────────────────────────────────────────────────┤
-│  PIPELINE / "How it works" — thin SVG diagram             │
-├───────────────────────────────────────────────────────────┤
-│  CTA band + minimal single-row footer                     │
-└───────────────────────────────────────────────────────────┘
-```
-
-Specifics:
-- Drop every `bg-gradient-*`, `text-gradient`, `shadow-glow`, `bg-hero` use.
-- Headline uses flat `text-foreground` at `text-display-xl`. The only "gradient" is the scanline animation in the pipeline diagram.
-- Snippet tabs: a `Tabs` component, mono code in `surface-2`, copy button top-right.
-- Narrative blocks use real cropped screenshots of `/dashboard/logs`, `/dashboard/playground`, `/dashboard/policies` (placeholders OK initially via `public/placeholder.svg`-style stubs we generate as small SVG mocks).
-- Footer collapses to one row: small Logo, copyright, status dot ("All systems operational").
-
-## 2. Auth pages two-pane (`src/pages/SignIn.tsx`, `SignUp.tsx`)
-
-Current pages are centered Clerk widgets on a flat background. Move to a two-pane layout:
+### Architecture
 
 ```text
-┌────────────────────┬───────────────────────────────────┐
-│  Form pane (480px) │  Showcase pane (flex)             │
-│  Logo + tagline    │  Live "Recent requests" preview   │
-│  Clerk component   │  rendered with mocked log rows +  │
-│                    │  scanline. Sells the product.     │
-└────────────────────┴───────────────────────────────────┘
+request body
+   │
+   ▼
+┌────────────────────────────┐
+│ 1. Normalizer              │  strip zero-width, decode b64/url,
+│                            │  collapse leetspeak, transliterate
+└────────────┬───────────────┘
+             ▼
+┌────────────────────────────┐  fast, deterministic
+│ 2. Pattern layer           │  - existing keywords
+│                            │  - regex rules (multi-line, flags)
+│                            │  - structural detectors
+└────────────┬───────────────┘
+             ▼
+┌────────────────────────────┐  cheap, no network
+│ 3. Heuristic / behavior    │  - role-impersonation phrases
+│                            │  - unusually long system-style blocks
+│                            │  - tool/URL/secret exfil shape
+│                            │  - per-key rolling profile delta
+└────────────┬───────────────┘
+             ▼
+┌────────────────────────────┐  LLM-judged, only when needed
+│ 4. Intent classifier       │  google/gemini-2.5-flash-lite
+│   (allowlist of intents)   │  returns intent + confidence + reason
+└────────────┬───────────────┘
+             ▼
+       verdict aggregator
+       → allow | flag | block
 ```
 
-Mocked preview is a static component (no API calls) so it works pre-auth. Stacks vertically below `lg`.
+Each layer is independently toggleable per workspace and per direction (input vs. output). All layer outputs land in the request log so users can see exactly which guardrail fired.
 
-## 3. Density + craft pass on data pages
+### Layer details
 
-### Keys (`src/pages/dashboard/Keys.tsx`)
-- Replace `Card` per-key with a 36px-row table-style list using a CSS-grid template: `[name 1fr | endpoint · model 240px | created 120px | status 80px | actions 40px]`.
-- Use `KeyValue` in the create-key dialog instead of free `<Label>` rows.
-- Show key fingerprint (first 8 chars) in mono after revoking, so revoked keys are still recognizable in audit cross-reference.
-- Add a copy-to-clipboard affordance with a 600ms "Copied" inline confirmation (no toast for in-row copy — toast is reserved for state changes).
+**1. Normalizer (always on when intent policies are enabled)**
 
-### Endpoints (`src/pages/dashboard/Endpoints.tsx`)
-- Same row treatment as Keys: `[name | base_url mono | provider kind | last used | usage chip | actions]`.
-- Convert the usage dialog to a right-anchored `Sheet` 640px wide (mirrors the Logs detail sheet → muscle memory).
-- Replace the bespoke "test endpoint" inline panel with a slim collapsible `Beaker`-icon pop above the row; result is rendered inside the row, not in a modal.
+Pre-processes every message before any other check sees it. The original text is still forwarded upstream — normalization is purely for evaluation.
 
-### Policies (`src/pages/dashboard/Policies.tsx`)
-- Two columns on `lg`+: Blocked keywords | Allowed keywords. Each is a chip-input (Enter to add, ⌫ to remove, click to delete) instead of a raw `Textarea` — reads as a real policy editor.
-- Block message moves to its own card with a live preview chip showing how the message will render in a blocked log entry.
+- Unicode NFKC + strip zero-width chars (`\u200B`, `\u200C`, `\u200D`, `\uFEFF`).
+- Collapse repeated whitespace; unify quote/apostrophe/dash variants.
+- Light leetspeak fold (`@→a`, `0→o`, `1→i`, `3→e`, `5→s`, `$→s`, `!→i`).
+- Detect and inline-decode `base64`, `hex`, `rot13`, `\\uXXXX`, percent-encoding when a high-confidence heuristic matches (length, charset, surrounding context).
+- Optional translation pass for non-Latin scripts via the LLM gateway when length > N.
 
-### Logs (`src/pages/dashboard/Logs.tsx`)
-- Already 6-col grid. Add: status filter pills above the grid (instead of the `Select`), a "Live" toggle that polls every 5s with the `live-pulse` indicator, and a JSON view tab in the detail sheet for raw payload.
+Output: a parallel `normalized_text` plus a list of `decoded_segments` so subsequent layers and logs can show the user what we actually evaluated.
 
-### Playground (`src/pages/dashboard/Playground.tsx`)
-- Already split-pane. Add: persistent prompt history (last 10) in a left `Popover` triggered by `⌘↑`, model badge with latency once a response returns, and a "Send to Logs" link that opens the resulting log entry in the Logs detail sheet.
+**2. Pattern layer**
 
-## 4. Command palette ⌘K (`src/components/command-palette.tsx`, new)
+Replaces today's flat list with a typed rule set:
 
-Wire the existing shadcn `command` primitive into a global palette mounted in `DashboardLayout`. Triggers:
-- Keyboard: `⌘K` / `Ctrl+K`.
-- Topbar: subtle `[⌘K]` chip to the left of the live indicator (not a button — a kbd hint that's clickable).
+- **Keyword rules** (existing) — substring match.
+- **Regex rules** — full RE2-compatible regex with flags. Stored as `{ name, pattern, flags, severity }`.
+- **Structural detectors** — built-in, switch-on:
+  - "system-prompt-leak" — assistant message contains a long verbatim quote of the system message.
+  - "tool-injection" — assistant message contains fabricated tool-call JSON when none was requested.
+  - "credential-shape" — string matches AWS, GCP, OpenAI, Stripe, JWT, or generic high-entropy secret patterns.
+  - "url-exfil" — output contains URLs to unknown hosts assembling user-supplied data.
 
-Commands:
-- Navigate: Overview, Keys, Endpoints, Policies, Logs, Playground.
-- Create: New API key, New endpoint.
-- Search: free-text filters logs across the last 200 entries (calls `list_logs` once on open, debounced).
-- Theme: Toggle light / dark (writes `class="light"` on `<html>`).
-- Account: Sign out (Clerk).
+Each rule emits a verdict; a rule's severity (low/med/high) determines whether it flags or blocks at the aggregator.
 
-## 5. Mobile / responsive shell
+**3. Heuristic / behavior layer**
 
-The 220px sidebar currently never collapses. Below `lg`:
-- Sidebar becomes off-canvas, opened by a hamburger in `Topbar`.
-- Use shadcn `Sheet` from the left.
-- Topbar collapses live indicator to dot-only on `< sm`.
-- Page padding drops to `px-4 py-4` below `md`.
+Cheap signals computed on every request, no network:
 
-## 6. Loading + empty + error consistency
+- Role-impersonation phrases: `"as the system"`, `"you are now"`, `"new instructions"`, multi-language variants — caught against the *normalized* text, so leetspeak no longer evades them.
+- Long pseudo-system blocks in user content (markdown headers, `### system:`, fenced "policy" sections > N lines).
+- Encoded payload density — % of message that is base64/hex/url-encoded.
+- Per-key behavioral profile (rolling 7-day): mean prompt length, mean encoded-segment ratio, top-5 model list. Anything > 3σ from baseline is flagged but not blocked.
+- Output-side: response contains the configured "do not reveal" strings even after normalization (catches "spell out the system prompt one letter at a time").
 
-Audit every page so it uses the same primitives:
-- **Loading:** `Skeleton` blocks shaped like the final layout (not a single rectangle).
-- **Empty:** the new `EmptyState` with the page-appropriate icon + a primary action that opens the relevant create dialog.
-- **Error:** a `surface-2` banner with the `AlertTriangle` icon and a Retry button that re-runs the query — replaces the silent failures in several queries today.
+**4. Intent classifier (LLM judge)**
 
-## 7. Brand polish
+Runs only when the upstream layers return `allow` and the workspace has it enabled, OR when they return `flag` and we need a tiebreaker. Backed by `google/gemini-2.5-flash-lite` through the Lovable AI gateway (no extra key, ~10–30ms typical).
 
-- Add open-graph + meta in `index.html` (current `og:title` is still "Lovable App").
-- Favicon: tiny SVG from the new `Logo` mark.
-- Add `prefers-reduced-motion` guards on `.scanline` and `.live-pulse` so we don't strobe accessibility users.
+Prompt template (locked, versioned):
 
----
+```
+You are a policy classifier. Given the user's message, label its intent
+with EXACTLY ONE of: legitimate, jailbreak, prompt_injection,
+data_exfiltration, off_topic, tool_abuse, harassment, other.
 
-## Technical notes
+Return JSON: { "intent": "...", "confidence": 0..1, "reason": "<=200 chars" }
 
-**Files created**
-- `src/components/command-palette.tsx`
-- `src/components/landing/PipelineDiagram.tsx`
-- `src/components/landing/CodeTabs.tsx`
-- `src/components/landing/NarrativeBlock.tsx`
-- `src/components/auth/AuthShowcasePane.tsx`
-- `src/components/keyword-chip-input.tsx` (used by Policies)
-- `src/components/error-state.tsx`
-- `src/components/mobile-sidebar.tsx`
+Message:
+"""
+{normalized_message}
+"""
+```
 
-**Files modified**
-- `src/pages/Landing.tsx` — full rewrite per §1.
-- `src/pages/SignIn.tsx`, `src/pages/SignUp.tsx` — two-pane shell.
-- `src/pages/dashboard/DashboardLayout.tsx` — wires command palette, mobile sidebar, hamburger.
-- `src/pages/dashboard/{Keys,Endpoints,Policies,Logs,Playground}.tsx` — density + craft per §3.
-- `src/components/topbar.tsx` — `⌘K` hint, hamburger slot, light/dark toggle.
-- `index.html` — meta, og, favicon link.
-- `src/index.css` — `@media (prefers-reduced-motion)` overrides.
+Workspace config decides which intents block, which flag, and the minimum confidence (default 0.7). Off-topic is also constrained by an optional workspace "purpose" string (`"Customer support for Acme HR product"`) so the classifier can answer "is this in scope?"
 
-**Deliberately out of scope**
-- No backend / edge-function changes.
-- No auth provider changes.
-- E2E `data-testid`s and visible labels preserved so `e2e/01–07-*.spec.ts` continue to pass; the only test touch needed is one new selector for the hamburger, gated to mobile viewport.
+Result is cached for 60s by SHA-256 of the normalized message — repeat traffic doesn't re-spend tokens.
 
-**Rollout**
-Single PR. After implementation I'll re-run the existing Playwright suite and screenshot the 6 dashboard pages at 1440 and 390 widths to confirm density + responsiveness before handing back.
+### Verdict aggregator
+
+Single function, deterministic precedence:
+
+1. Any layer returns `block` → block.
+2. Any layer returns `flag` AND workspace mode is `strict` → block.
+3. Any layer returns `flag` → allow but mark log row `flagged`, surface in dashboard with an alert badge.
+4. All `allow` → allow.
+
+Block response keeps today's OpenAI-shaped error so existing client error handlers keep working; the body now includes `anveguard.layer` and `anveguard.intent` for debugging.
+
+### Dashboard changes
+
+- **Policies page** gains tabs: *Keywords* (existing), *Regex*, *Detectors*, *Intents*, *Behavior*.
+- **Intents tab** — toggle per intent (block / flag / allow), set confidence threshold, paste workspace purpose.
+- **Behavior tab** — enable per-key profile drift detection, set σ threshold.
+- **Policy sandbox** is upgraded: each layer's verdict is shown side-by-side (allow / flag / block + reason), so users can paste a real-world bypass attempt and see which layer caught it (or that none did).
+- **Logs** filters add `flagged` and a per-layer breakdown column; the request side-sheet shows the exact normalized text and the matched rule.
+
+### Data model
+
+Three new tables, all `user_id`-scoped, RLS via the existing service-role pattern:
+
+- `policy_rules` — `{ id, user_id, kind: 'regex'|'detector'|'intent', name, config jsonb, severity, enabled, direction: 'input'|'output'|'both' }`.
+- `policy_intents` — `{ user_id, intent, action: 'block'|'flag'|'allow', min_confidence, purpose }`.
+- `key_behavior_profiles` — `{ api_key_id, window_start, prompt_len_mean, prompt_len_std, encoded_ratio_mean, top_models jsonb }`. Updated by a small daily cron edge function.
+
+Existing `policies` table stays untouched for back-compat.
+
+### Rollout
+
+1. Ship layers 1 + 2 (normalizer + regex/detectors) — pure deterministic, zero new cost. Default-on for existing workspaces.
+2. Ship layer 3 (heuristics + behavior profiles) — also free; behavior profile fills over the first week.
+3. Ship layer 4 (intent classifier) — opt-in initially with a "test in shadow mode" toggle that runs the classifier and logs verdicts but does not enforce.
+4. Promote intent classifier to enforce after 7 days of clean shadow data; keep shadow mode available permanently for tuning.
+
+### Honest limits
+
+- LLM judges can themselves be prompt-injected. The classifier prompt is locked and the user message is wrapped in a delimiter the classifier is told to ignore, but a determined adversary will still occasionally win — that's why it's one of four layers, not the only one.
+- Latency budget: layers 1–3 add < 5ms; layer 4 adds 10–50ms. The cache covers the hot path.
+- Off-topic detection requires a workspace `purpose` string. Without it, that intent is disabled.
+- Streaming output policy still happens after the stream completes (we can't unsend bytes). For high-stakes outputs, recommend `stream: false`.
+
+### Out of scope (separate work)
+
+- Embedding-based similarity to a known-jailbreak corpus (needs a vector store).
+- Per-user (not per-key) rate-aware abuse detection (waiting on rate-limit infra).
+- Self-hosted classifier model — current plan uses the gateway exclusively.
