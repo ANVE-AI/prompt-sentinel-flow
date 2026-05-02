@@ -55,6 +55,19 @@ async function seedRevokedKey() {
   const key_hash = await sha256Hex(plain);
   const sb = admin();
 
+  // `api_keys.user_id` has a FK to `profiles.clerk_user_id`. Make sure the
+  // fixture profile exists before inserting the key. Upsert is idempotent
+  // across reruns.
+  const { error: profErr } = await sb
+    .from("profiles")
+    .upsert(
+      { clerk_user_id: TEST_USER_ID, email: "test-revoked-key@anveguard.test" },
+      { onConflict: "clerk_user_id" },
+    );
+  if (profErr) {
+    throw new Error(`Failed to seed test profile: ${profErr.message}`);
+  }
+
   const { data, error } = await sb
     .from("api_keys")
     .insert({
@@ -74,6 +87,15 @@ async function seedRevokedKey() {
     throw new Error(`Failed to seed revoked key: ${error?.message ?? "no row"}`);
   }
   return { plain, key_hash, id: data.id as string };
+}
+
+async function teardownKey(id: string) {
+  const sb = admin();
+  // Logs first (just in case something slipped through), then the key row.
+  // We intentionally leave the test profile in place — it's a stable fixture
+  // and removing it would cascade-delete any other test data on parallel runs.
+  await sb.from("request_logs").delete().eq("api_key_id", id);
+  await sb.from("api_keys").delete().eq("id", id);
 }
 
 async function teardownKey(id: string) {
