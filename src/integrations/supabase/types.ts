@@ -458,6 +458,7 @@ export type Database = {
       }
       policy_settings: {
         Row: {
+          allow_client_system_prompt: boolean
           behavioral_action: string
           behavioral_churn_threshold: number
           behavioral_encoding_ratio_step: number
@@ -484,6 +485,7 @@ export type Database = {
           workspace_purpose: string | null
         }
         Insert: {
+          allow_client_system_prompt?: boolean
           behavioral_action?: string
           behavioral_churn_threshold?: number
           behavioral_encoding_ratio_step?: number
@@ -510,6 +512,7 @@ export type Database = {
           workspace_purpose?: string | null
         }
         Update: {
+          allow_client_system_prompt?: boolean
           behavioral_action?: string
           behavioral_churn_threshold?: number
           behavioral_encoding_ratio_step?: number

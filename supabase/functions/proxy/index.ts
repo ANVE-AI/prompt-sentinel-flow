@@ -524,6 +524,17 @@ async function handleRequest(req: Request): Promise<Response> {
       { code: "invalid_request_error", param: "system_prompt" });
   }
   if (customSystemPrompt) {
+    // Two gates must pass:
+    //   1) workspace policy must permit per-request overrides at all
+    //   2) the key itself must carry the admin permission
+    // Either failure returns 403 so callers see exactly which guard rejected
+    // them rather than a generic permission error.
+    const workspaceAllows = (settings as any)?.allow_client_system_prompt === true;
+    if (!workspaceAllows) {
+      return errorResponse(reqShape, 403,
+        "Per-request `system_prompt` overrides are disabled for this workspace. Enable them under Policies → Guardrail prompt, or remove the field from the request body.",
+        { code: "system_prompt_disabled_workspace", param: "system_prompt" });
+    }
     if (!keyRow.is_admin) {
       return errorResponse(reqShape, 403,
         "This API key is not permitted to send a custom system_prompt. Ask a workspace admin to enable the admin permission on this key, or remove the field from the request body.",

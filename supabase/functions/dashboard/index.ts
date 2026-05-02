@@ -1232,6 +1232,7 @@ Deno.serve(async (req) => {
             // to every forwarded request so guardrails are enforced via the
             // API regardless of what the calling client sends.
             guardrail_system_prompt: null,
+            allow_client_system_prompt: false,
             enable_injection_guard: true,
             injection_action: "block",
             enable_behavioral: true,
@@ -1256,6 +1257,7 @@ Deno.serve(async (req) => {
           "enable_intent", "intent_shadow_mode", "strict_mode",
           "enable_injection_guard", "enable_behavioral",
           "enable_fuzzy_keywords", "enable_semantic_keywords",
+          "allow_client_system_prompt",
         ] as const;
         const patch: Record<string, unknown> = { user_id: userId };
         for (const k of allowedKeys) {
