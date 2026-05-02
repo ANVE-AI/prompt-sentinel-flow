@@ -428,6 +428,82 @@ const Endpoints = () => {
     try { return new URL(url).host; } catch { return url; }
   };
 
+  // -------- curl example builder --------
+  // Builds copyable curl commands from the current form state for: GET /models
+  // and POST chat (chat_completions or anthropic_messages). Auth is applied per
+  // the selected scheme; the provider key is shown as a $PROVIDER_KEY shell var
+  // so users never paste a real secret into their clipboard from this UI.
+  const shQuote = (s: string) => `'${String(s).replace(/'/g, `'\\''`)}'`;
+  const joinUrl = (base: string, path: string) => {
+    if (!path) return base;
+    if (/^https?:\/\//i.test(path)) return path;
+    const b = base.replace(/\/+$/, "");
+    const p = path.startsWith("/") ? path : `/${path}`;
+    return `${b}${p}`;
+  };
+  const buildCurlExamples = () => {
+    const base = form.base_url.trim();
+    if (!base) return null;
+    const scheme = form.auth_scheme || "bearer";
+    const headerName = (form.auth_header || "").trim();
+    const prefix = (form.path_prefix || "").replace(/\/+$/, "");
+    const modelsPath = (form.models_path || "/models").trim();
+    const chatPath = (form.chat_path || (form.kind === "anthropic" ? "/messages" : "/chat/completions")).trim();
+    const modelsUrlBase = (form.models_url || "").trim() || joinUrl(base, `${prefix}${modelsPath.startsWith("/") ? "" : "/"}${modelsPath}`);
+    const chatUrl = joinUrl(base, `${prefix}${chatPath.startsWith("/") ? "" : "/"}${chatPath}`);
+
+    // Auth wiring
+    const headerLines: string[] = [];
+    let modelsUrlFinal = modelsUrlBase;
+    let chatUrlFinal = chatUrl;
+    if (scheme === "bearer") {
+      headerLines.push(`-H ${shQuote(`Authorization: Bearer $PROVIDER_KEY`)}`);
+    } else if (scheme === "x-api-key") {
+      headerLines.push(`-H ${shQuote(`x-api-key: $PROVIDER_KEY`)}`);
+    } else if (scheme === "header" && headerName) {
+      headerLines.push(`-H ${shQuote(`${headerName}: $PROVIDER_KEY`)}`);
+    } else if (scheme === "query" && headerName) {
+      const sep = (u: string) => (u.includes("?") ? "&" : "?");
+      modelsUrlFinal = `${modelsUrlBase}${sep(modelsUrlBase)}${headerName}=$PROVIDER_KEY`;
+      chatUrlFinal = `${chatUrl}${sep(chatUrl)}${headerName}=$PROVIDER_KEY`;
+    }
+
+    // Anthropic typically requires an API version header
+    if (form.kind === "anthropic" && !form.extra_headers.some((h) => h.key.toLowerCase() === "anthropic-version")) {
+      headerLines.push(`-H ${shQuote(`anthropic-version: 2023-06-01`)}`);
+    }
+    for (const h of form.extra_headers) {
+      if (h.key.trim()) headerLines.push(`-H ${shQuote(`${h.key.trim()}: ${h.value}`)}`);
+    }
+
+    const indent = " \\\n  ";
+    const modelsCmd = [`curl -sS ${shQuote(modelsUrlFinal)}`, ...headerLines].join(indent);
+
+    const model = form.default_model.trim() || "MODEL_ID";
+    const isAnthropic = (form.response_format || (form.kind === "anthropic" ? "anthropic_messages" : "chat_completions")) === "anthropic_messages";
+    const body = isAnthropic
+      ? { model, max_tokens: 64, messages: [{ role: "user", content: "ping" }] }
+      : { model, messages: [{ role: "user", content: "ping" }], max_tokens: 64 };
+    const jsonBody = JSON.stringify(body);
+    const chatCmd = [
+      `curl -sS -X POST ${shQuote(chatUrlFinal)}`,
+      ...headerLines,
+      `-H ${shQuote("Content-Type: application/json")}`,
+      `-d ${shQuote(jsonBody)}`,
+    ].join(indent);
+
+    return { modelsCmd, chatCmd, needsKey: scheme !== "none" };
+  };
+
+  const copyToClipboard = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(`${label} copied`);
+    } catch {
+      toast.error("Copy failed — select the text manually");
+    }
+  };
+
   const endpoints = data?.endpoints ?? [];
 
   // -------- Export --------
@@ -1119,6 +1195,45 @@ const Endpoints = () => {
                 </div>
               )}
             </div>
+
+            {/* Copyable curl examples — generated from the current form state */}
+            {(() => {
+              const ex = buildCurlExamples();
+              if (!ex) return null;
+              return (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm">curl examples</Label>
+                    <span className="text-[11px] text-muted-foreground">
+                      {ex.needsKey ? "Set $PROVIDER_KEY in your shell first" : "No auth required"}
+                    </span>
+                  </div>
+                  {ex.needsKey && (
+                    <div className="rounded-md border bg-muted/30 px-2.5 py-1.5 text-[11px] font-mono text-muted-foreground">
+                      export PROVIDER_KEY='your-key-here'
+                    </div>
+                  )}
+                  {[
+                    { label: "List models", cmd: ex.modelsCmd },
+                    { label: form.kind === "anthropic" ? "Send a message" : "Chat completion", cmd: ex.chatCmd },
+                  ].map((c) => (
+                    <div key={c.label} className="rounded-md border bg-muted/20">
+                      <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-border/60">
+                        <span className="text-xs font-medium">{c.label}</span>
+                        <Button
+                          type="button" variant="ghost" size="sm"
+                          className="h-6 px-2 text-xs"
+                          onClick={() => copyToClipboard(c.cmd, c.label)}
+                        >
+                          Copy
+                        </Button>
+                      </div>
+                      <pre className="px-2.5 py-2 text-[11px] font-mono leading-relaxed overflow-x-auto whitespace-pre text-foreground/90">{c.cmd}</pre>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
 
           <DialogFooter>
