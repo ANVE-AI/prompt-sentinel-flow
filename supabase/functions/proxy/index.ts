@@ -487,15 +487,47 @@ async function handleRequest(req: Request): Promise<Response> {
   //
   // The field is always stripped from `body` before forwarding upstream so
   // strict OpenAI-compat servers don't 400 on the unknown key.
+  // Validation: reject obviously malformed inputs with OpenAI-style errors so
+  // SDKs surface a clean `param: "system_prompt"` rather than a generic 500.
+  //   - must be a string (when present)
+  //   - must be non-empty after trimming
+  //   - capped at 16 000 chars (~4k tokens) — large enough for real guardrails,
+  //     small enough to prevent prompt-stuffing abuse
+  //   - must not contain NULs or control chars (other than \t/\n/\r) which can
+  //     trip upstream tokenizers and indicate copy-paste corruption
+  const SYSTEM_PROMPT_MAX = 16_000;
   const rawSystemPrompt = (body as any)?.system_prompt;
+  if (rawSystemPrompt !== undefined && rawSystemPrompt !== null) {
+    if (typeof rawSystemPrompt !== "string") {
+      return errorResponse(reqShape, 400,
+        "`system_prompt` must be a string.",
+        { code: "invalid_request_error", param: "system_prompt", type: "invalid_type" });
+    }
+    if (rawSystemPrompt.length > SYSTEM_PROMPT_MAX) {
+      return errorResponse(reqShape, 400,
+        `\`system_prompt\` is too long: ${rawSystemPrompt.length} chars (max ${SYSTEM_PROMPT_MAX}).`,
+        { code: "invalid_request_error", param: "system_prompt", type: "string_above_max_length" });
+    }
+    // eslint-disable-next-line no-control-regex
+    if (/[\u0000\u0001-\u0008\u000B\u000C\u000E-\u001F]/.test(rawSystemPrompt)) {
+      return errorResponse(reqShape, 400,
+        "`system_prompt` contains disallowed control characters.",
+        { code: "invalid_request_error", param: "system_prompt", type: "invalid_value" });
+    }
+  }
   const customSystemPrompt = typeof rawSystemPrompt === "string"
     ? rawSystemPrompt.trim()
     : "";
+  if (typeof rawSystemPrompt === "string" && !customSystemPrompt) {
+    return errorResponse(reqShape, 400,
+      "`system_prompt` cannot be empty or whitespace-only. Omit the field instead.",
+      { code: "invalid_request_error", param: "system_prompt", type: "string_empty" });
+  }
   if (customSystemPrompt) {
     if (!keyRow.is_admin) {
       return errorResponse(reqShape, 403,
         "This API key is not permitted to send a custom system_prompt. Ask a workspace admin to enable the admin permission on this key, or remove the field from the request body.",
-        { code: "system_prompt_forbidden" });
+        { code: "system_prompt_forbidden", param: "system_prompt", type: "permission_error" });
     }
     const insertAt = (typeof guardrail === "string" && guardrail.trim()) ? 1 : 0;
     body.messages = [
