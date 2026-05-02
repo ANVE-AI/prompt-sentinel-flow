@@ -317,10 +317,13 @@ export function PolicyTemplatesSection() {
               </div>
               <h3 className="text-display">Policy templates</h3>
               <p className="text-body text-muted-foreground">
-                Pre-built configurations you can apply in one click. Templates
-                overwrite keyword guardrails and behavior settings.
+                Pre-built configurations you can apply in one click, or save your
+                own from the rules and settings you've already configured.
               </p>
             </div>
+            <Button size="sm" onClick={() => setWizardOpen(true)}>
+              <Plus className="h-3.5 w-3.5 mr-1" /> New template
+            </Button>
           </div>
 
           <div className="grid md:grid-cols-3 gap-3">
