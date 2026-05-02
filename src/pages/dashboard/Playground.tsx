@@ -126,7 +126,11 @@ const Playground = () => {
             <p className="text-xs text-muted-foreground mt-1">Paste here — keys aren't stored client-side.</p>
           </div>
           <Textarea rows={6} value={prompt} onChange={(e) => setPrompt(e.target.value)} className="font-mono text-sm" />
-          <div className="flex justify-end">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Switch id="stream" checked={stream} onCheckedChange={setStream} />
+              <Label htmlFor="stream" className="text-sm cursor-pointer">Stream tokens</Label>
+            </div>
             <Button onClick={send} disabled={loading}>
               <Send className="h-4 w-4 mr-2" />
               {loading ? "Sending…" : "Send through proxy"}
