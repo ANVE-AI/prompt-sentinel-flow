@@ -607,8 +607,9 @@ const Keys = () => {
                 <div className="text-meta text-muted-foreground tabular-nums">
                   {k.last_used_at ? new Date(k.last_used_at).toLocaleDateString() : "never"}
                 </div>
-                <div>
+                <div className="flex items-center gap-1.5 flex-wrap">
                   <Badge status={k.is_active ? "ok" : "neutral"}>{k.is_active ? "active" : "revoked"}</Badge>
+                  {k.is_admin && <Badge status="warn" title="Allowed to send custom system_prompt">admin</Badge>}
                 </div>
                 <div className="flex items-center gap-1 justify-end">
                   {k.is_active && (
