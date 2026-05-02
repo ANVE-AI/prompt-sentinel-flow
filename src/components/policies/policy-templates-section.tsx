@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Beaker, Bot, Building2, Check, Plus, ShieldCheck, Sparkles, Trash2, User } from "lucide-react";
+import { Beaker, Bot, Building2, Check, History, Plus, ShieldCheck, Sparkles, Trash2, User } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +19,7 @@ import { useDashboardApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { TemplateWizardDialog } from "./template-wizard-dialog";
 import { TemplateTestDialog } from "./template-test-dialog";
+import { TemplateHistoryDialog } from "./template-history-dialog";
 
 type TemplateId = "safe_chatbot" | "enterprise_compliance" | "no_pii" | string;
 
@@ -242,6 +243,7 @@ export function PolicyTemplatesSection() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [testTpl, setTestTpl] = useState<Template | null>(null);
+  const [historyTpl, setHistoryTpl] = useState<Template | null>(null);
 
   const customQ = useQuery<{ templates: any[] }>({
     queryKey: ["policy_templates"],
@@ -403,13 +405,22 @@ export function PolicyTemplatesSection() {
                           </span>
                           <div className="font-medium text-body truncate">{tpl.name}</div>
                         </div>
-                        <Button
-                          size="icon" variant="ghost" className="h-7 w-7"
-                          onClick={() => setDeleteId(tpl.id)}
-                          title="Delete template"
-                        >
-                          <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            size="icon" variant="ghost" className="h-7 w-7"
+                            onClick={() => setHistoryTpl(tpl)}
+                            title="Version history"
+                          >
+                            <History className="h-3.5 w-3.5 text-muted-foreground" />
+                          </Button>
+                          <Button
+                            size="icon" variant="ghost" className="h-7 w-7"
+                            onClick={() => setDeleteId(tpl.id)}
+                            title="Delete template"
+                          >
+                            <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                          </Button>
+                        </div>
                       </div>
                       <p className="text-meta text-muted-foreground line-clamp-2">{tpl.tagline}</p>
                       <ul className="space-y-1.5 text-meta">
@@ -458,6 +469,13 @@ export function PolicyTemplatesSection() {
           settings: testTpl.settings as Record<string, any>,
           rules: testTpl.rules as Array<Record<string, any>> | undefined,
         } : null}
+      />
+
+      <TemplateHistoryDialog
+        open={!!historyTpl}
+        onOpenChange={(o) => !o && setHistoryTpl(null)}
+        templateId={historyTpl?.id ?? null}
+        templateName={historyTpl?.name ?? ""}
       />
 
       <AlertDialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>

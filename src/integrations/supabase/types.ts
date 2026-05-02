@@ -495,10 +495,67 @@ export type Database = {
         }
         Relationships: []
       }
+      policy_template_versions: {
+        Row: {
+          applies_to_intents: string[]
+          change_note: string | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          name: string
+          policy: Json
+          rules: Json
+          settings: Json
+          template_id: string
+          user_id: string
+          version: number
+        }
+        Insert: {
+          applies_to_intents?: string[]
+          change_note?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          name: string
+          policy?: Json
+          rules?: Json
+          settings?: Json
+          template_id: string
+          user_id: string
+          version: number
+        }
+        Update: {
+          applies_to_intents?: string[]
+          change_note?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          name?: string
+          policy?: Json
+          rules?: Json
+          settings?: Json
+          template_id?: string
+          user_id?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "policy_template_versions_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "policy_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       policy_templates: {
         Row: {
           applies_to_intents: string[]
           created_at: string
+          current_version: number
           description: string | null
           id: string
           name: string
@@ -511,6 +568,7 @@ export type Database = {
         Insert: {
           applies_to_intents?: string[]
           created_at?: string
+          current_version?: number
           description?: string | null
           id?: string
           name: string
@@ -523,6 +581,7 @@ export type Database = {
         Update: {
           applies_to_intents?: string[]
           created_at?: string
+          current_version?: number
           description?: string | null
           id?: string
           name?: string
