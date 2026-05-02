@@ -202,9 +202,38 @@ Deno.serve(async (req) => {
   const promptText = body.messages.map((msg: any) =>
     typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content ?? "")).join("\n");
 
+  // ---- Throttle check ---------------------------------------------------
+  // Per-API-key risk window: count flag/block verdicts in the recent window.
+  // Threshold of 0 = disabled. We do this BEFORE the (possibly LLM-backed)
+  // policy evaluation so abusive keys can't run up our intent-classifier bill.
+  const throttleThreshold = settings.throttle_flag_threshold ?? 0;
+  const throttleWindowMin = settings.throttle_window_minutes ?? 5;
+  if (throttleThreshold > 0) {
+    const since = new Date(Date.now() - throttleWindowMin * 60_000).toISOString();
+    const { count } = await sb.from("request_logs")
+      .select("id", { count: "exact", head: true })
+      .eq("api_key_id", keyRow.id)
+      .in("verdict", ["flag", "block"])
+      .gte("created_at", since);
+    if ((count ?? 0) >= throttleThreshold) {
+      const reason = `Throttled: ${count} risky requests in the last ${throttleWindowMin} min (threshold ${throttleThreshold}).`;
+      await sb.from("request_logs").insert({
+        user_id: keyRow.user_id, api_key_id: keyRow.id, provider: keyRow.provider,
+        model, messages: body.messages,
+        status: "throttled", verdict: "block", block_reason: reason,
+        verdict_layers: [{ layer: "behavioral", verdict: "block", rule: "throttle", reason }],
+        latency_ms: Date.now() - start, tokens_in: 0, tokens_out: 0,
+      });
+      return json(
+        { ...openaiErrorShape(reason, "rate_limit_exceeded"), anveguard: { throttled: true, reason } },
+        429,
+      );
+    }
+  }
+
   // ---- Layered input evaluation -----------------------------------------
   const inputEval: EvaluateResult = await evaluatePolicy(
-    { text: promptText, direction: "input", legacy, rules, intents, settings },
+    { text: promptText, direction: "input", legacy, rules, intents, settings, conversation: body.messages },
     { systemPrompt, toolsRequested },
   );
 
