@@ -76,11 +76,9 @@ test.describe("end-to-end: create key → policy → playground → logs → rev
   test("step 3 — playground: benign prompt is allowed", async ({ page }) => {
     test.skip(!secretKey, "key not created in step 1");
     await page.goto("/dashboard/playground");
+    await page.waitForResponse((r) => r.url().includes("action=list_keys"));
 
     await page.getByLabel(/anveguard api key/i).fill(secretKey);
-    // Pick our key from the dropdown so the model list loads.
-    await page.getByRole("combobox").first().click();
-    await page.getByRole("option", { name: new RegExp(keyName) }).click();
 
     // Disable streaming for deterministic JSON parsing.
     const streamSwitch = page.getByRole("switch", { name: /stream tokens/i });
@@ -88,8 +86,9 @@ test.describe("end-to-end: create key → policy → playground → logs → rev
       await streamSwitch.click();
     }
 
-    const promptBox = page.locator("textarea").last();
-    await promptBox.fill(benignPrompt);
+    // The prompt textarea is the only visible textarea when no key is
+    // selected from the dropdown (the model picker stays hidden).
+    await page.locator("textarea").first().fill(benignPrompt);
 
     const proxy = waitForProxy(page);
     await page.getByRole("button", { name: /send through proxy/i }).click();
@@ -97,7 +96,6 @@ test.describe("end-to-end: create key → policy → playground → logs → rev
     expect(proxyRes.status, "proxy returned non-2xx").toBeLessThan(400);
 
     await expect(page.getByText(/^allowed$/i).last()).toBeVisible({ timeout: 30_000 });
-    // Response card has non-empty text.
     const responseText = await page.locator("pre").last().innerText();
     expect(responseText.length).toBeGreaterThan(0);
   });
@@ -105,16 +103,15 @@ test.describe("end-to-end: create key → policy → playground → logs → rev
   test("step 4 — playground: sentinel prompt is blocked", async ({ page }) => {
     test.skip(!secretKey, "key not created in step 1");
     await page.goto("/dashboard/playground");
+    await page.waitForResponse((r) => r.url().includes("action=list_keys"));
 
     await page.getByLabel(/anveguard api key/i).fill(secretKey);
-    await page.getByRole("combobox").first().click();
-    await page.getByRole("option", { name: new RegExp(keyName) }).click();
     const streamSwitch = page.getByRole("switch", { name: /stream tokens/i });
     if ((await streamSwitch.getAttribute("aria-checked")) === "true") {
       await streamSwitch.click();
     }
 
-    await page.locator("textarea").last().fill(blockedPrompt);
+    await page.locator("textarea").first().fill(blockedPrompt);
 
     const proxy = waitForProxy(page);
     await page.getByRole("button", { name: /send through proxy/i }).click();
