@@ -185,6 +185,7 @@ const RequestLogs = () => {
                     {selected.block_reason}
                   </div>
                 )}
+                <PolicyVerdictPanel log={selected} />
                 <Tabs defaultValue="pretty">
                   <TabsList className="bg-surface-2 border border-border h-8 p-0.5">
                     <TabsTrigger value="pretty" className="h-7 px-2.5 text-meta data-[state=active]:bg-surface-1">Pretty</TabsTrigger>
