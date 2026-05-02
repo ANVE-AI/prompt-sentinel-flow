@@ -30,6 +30,7 @@ const NAV = [
   { href: "#product", label: "Product" },
   { href: "#how", label: "How it works" },
   { href: "#faq", label: "FAQ" },
+  { href: "/docs", label: "Docs" },
 ];
 
 const STATS: { value: string; label: string }[] = [
