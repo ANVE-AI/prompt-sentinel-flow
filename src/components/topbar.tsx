@@ -6,6 +6,7 @@ import { useDashboardApi } from "@/lib/api";
 import { StatusDot } from "@/components/ui/status-dot";
 import { COMMAND_PALETTE_EVENT } from "@/components/command-palette";
 import { HamburgerButton } from "@/components/mobile-sidebar";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 
 const labelByPath: Record<string, string> = {
   "/dashboard": "Overview",
@@ -43,6 +44,7 @@ export const Topbar = ({ onMenuClick }: { onMenuClick: () => void }) => {
     <header className="sticky top-0 z-30 h-12 flex items-center justify-between gap-3 px-3 sm:px-4 border-b border-border bg-background/85 backdrop-blur">
       <div className="flex items-center gap-2 min-w-0">
         <HamburgerButton onClick={onMenuClick} />
+        <SidebarTrigger className="hidden lg:inline-flex h-8 w-8 text-muted-foreground hover:text-foreground" />
         <nav className="flex items-center gap-2 text-body min-w-0">
           <Link to="/dashboard" className="text-muted-foreground hover:text-foreground transition-colors hidden sm:inline">
             anveguard
