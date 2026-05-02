@@ -826,4 +826,25 @@ await client.messages.create({
   );
 };
 
+/**
+ * Per-shape endpoint card: shows the URL the SDK should target plus a
+ * minimal copy/paste snippet. Kept inline so it can use the local
+ * `PROXY_URL` constant without prop-drilling.
+ */
+const EndpointSnippet = ({
+  label, url, code,
+}: { label: string; url: string; code: string }) => (
+  <div className="space-y-2">
+    <div className="flex items-center justify-between gap-3 flex-wrap">
+      <div className="text-meta uppercase tracking-wider text-muted-foreground">{label}</div>
+      <code className="text-[11px] font-mono px-2 py-0.5 rounded bg-surface-2 border border-border text-foreground break-all">
+        {url}
+      </code>
+    </div>
+    <pre className="rounded-md border border-border bg-surface-2 p-4 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all">
+{code}
+    </pre>
+  </div>
+);
+
 export default Keys;
