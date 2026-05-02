@@ -686,9 +686,7 @@ async function handleRequest(req: Request): Promise<Response> {
         });
         await sb.from("api_keys").update({ last_used_at: new Date().toISOString() }).eq("id", keyRow.id);
       });
-      return new Response(oaiStream, {
-        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
-      });
+      return new Response(oaiStream, { headers: sseHeaders });
     }
 
     if (forwardFormat === "responses") {
