@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Bot, Building2, Check, ShieldCheck, Sparkles } from "lucide-react";
+import { Bot, Building2, Check, Plus, ShieldCheck, Sparkles, Trash2, User } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useDashboardApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { TemplateWizardDialog } from "./template-wizard-dialog";
 
 type TemplateId = "safe_chatbot" | "enterprise_compliance" | "no_pii";
 
