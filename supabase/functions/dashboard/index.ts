@@ -12,6 +12,22 @@ import { parseModelsResponse } from "../_shared/models_parsers.ts";
 // In-memory cache for /models responses (per provider+key, 5 min TTL).
 const modelsCache = new Map<string, { models: string[]; exp: number }>();
 
+// Built-in intent labels the classifier knows about. The user catalog
+// (`known_intents` table) is unioned with these wherever the dashboard
+// returns a `known_intents` list to the UI.
+const BUILTIN_INTENTS = [
+  "jailbreak", "prompt_injection", "data_exfiltration",
+  "off_topic", "tool_abuse", "harassment", "other",
+] as const;
+
+async function loadKnownIntentNames(
+  sb: ReturnType<typeof service>, userId: string,
+): Promise<string[]> {
+  const { data } = await sb.from("known_intents").select("name").eq("user_id", userId);
+  const custom = (data ?? []).map((r: any) => String(r.name)).filter(Boolean);
+  return Array.from(new Set([...BUILTIN_INTENTS, ...custom]));
+}
+
 /**
  * Look up an endpoint row that the caller is allowed to *read*. The caller is
  * allowed to read a row if either:
