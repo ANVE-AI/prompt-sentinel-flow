@@ -471,6 +471,13 @@ export function PolicyTemplatesSection() {
         } : null}
       />
 
+      <TemplateHistoryDialog
+        open={!!historyTpl}
+        onOpenChange={(o) => !o && setHistoryTpl(null)}
+        templateId={historyTpl?.id ?? null}
+        templateName={historyTpl?.name ?? ""}
+      />
+
       <AlertDialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
