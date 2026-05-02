@@ -41,6 +41,10 @@ type ErrorOpts = {
   headers?: Record<string, string>;
   /** Vendor-specific debug info echoed back under the `anveguard` key. */
   anveguard?: Record<string, unknown>;
+  /** Optional public docs URL for this error class. Echoed under
+   *  `error.doc_url` (OpenAI shape) and `error.anveguard.doc_url` so users
+   *  can jump straight to the rule that rejected them. */
+  doc_url?: string;
 };
 
 /** Pick the OpenAI `type` that best matches an HTTP status. */
@@ -54,24 +58,40 @@ function typeForStatus(status: number): string {
 }
 
 function openaiErrorShape(message: string, type: string, opts: ErrorOpts = {}) {
-  return {
-    error: {
-      message,
-      type,
-      param: opts.param ?? null,
-      code: opts.code ?? null,
-    },
+  const err: Record<string, unknown> = {
+    message,
+    type,
+    param: opts.param ?? null,
+    code: opts.code ?? null,
   };
+  if (opts.doc_url) err.doc_url = opts.doc_url;
+  return { error: err };
 }
 
 /** Translate the OpenAI-shape error envelope into the public shape. */
 function errorForShape(shape: RequestShape, status: number, message: string, opts: ErrorOpts = {}): unknown {
   const type = typeForStatus(status);
   if (shape === "anthropic") {
-    return { type: "error", error: { type: opts.code ?? type, message } };
+    return {
+      type: "error",
+      error: {
+        type: opts.code ?? type,
+        message,
+        ...(opts.param ? { param: opts.param } : {}),
+        ...(opts.doc_url ? { doc_url: opts.doc_url } : {}),
+      },
+    };
   }
   if (shape === "gemini") {
-    return { error: { code: status, status: opts.code ?? type, message } };
+    return {
+      error: {
+        code: status,
+        status: opts.code ?? type,
+        message,
+        ...(opts.param ? { param: opts.param } : {}),
+        ...(opts.doc_url ? { doc_url: opts.doc_url } : {}),
+      },
+    };
   }
   const env = openaiErrorShape(message, type, opts);
   if (opts.anveguard) (env as any).anveguard = opts.anveguard;
