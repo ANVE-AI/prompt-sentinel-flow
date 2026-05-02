@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Bot, Building2, Check, ShieldCheck, Sparkles } from "lucide-react";
+import { Bot, Building2, Check, Plus, ShieldCheck, Sparkles, Trash2, User } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -17,8 +17,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useDashboardApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { TemplateWizardDialog } from "./template-wizard-dialog";
 
-type TemplateId = "safe_chatbot" | "enterprise_compliance" | "no_pii";
+type TemplateId = "safe_chatbot" | "enterprise_compliance" | "no_pii" | string;
 
 type Template = {
   id: TemplateId;
@@ -28,10 +29,10 @@ type Template = {
   accent: string;
   highlights: string[];
   policy: {
-    blocked_keywords: string[];
-    allowed_keywords: string[];
-    use_global_defaults: boolean;
-    block_message: string;
+    blocked_keywords?: string[];
+    allowed_keywords?: string[];
+    use_global_defaults?: boolean;
+    block_message?: string;
   };
   settings: Record<string, unknown>;
   rules?: Array<{
@@ -43,6 +44,7 @@ type Template = {
     config: Record<string, unknown>;
     applies_to_intents?: string[];
   }>;
+  custom?: boolean;
 };
 
 const TEMPLATES: Template[] = [
@@ -234,14 +236,25 @@ const TEMPLATES: Template[] = [
 export function PolicyTemplatesSection() {
   const { call } = useDashboardApi();
   const qc = useQueryClient();
-  const [pending, setPending] = useState<TemplateId | null>(null);
+  const [pending, setPending] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Template | null>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  const customQ = useQuery<{ templates: any[] }>({
+    queryKey: ["policy_templates"],
+    queryFn: () => call("list_policy_templates"),
+  });
 
   const apply = useMutation({
     mutationFn: async (tpl: Template) => {
       setPending(tpl.id);
-      await call("save_policies", { body: tpl.policy });
-      await call("save_policy_settings", { body: tpl.settings });
+      if (tpl.policy && Object.keys(tpl.policy).length) {
+        await call("save_policies", { body: tpl.policy });
+      }
+      if (tpl.settings && Object.keys(tpl.settings).length) {
+        await call("save_policy_settings", { body: tpl.settings });
+      }
       if (tpl.rules?.length) {
         for (const rule of tpl.rules) {
           await call("save_policy_rule", {
@@ -261,6 +274,35 @@ export function PolicyTemplatesSection() {
     onSettled: () => setPending(null),
   });
 
+  const remove = useMutation({
+    mutationFn: (id: string) => call("delete_policy_template", { body: { id } }),
+    onSuccess: () => {
+      toast.success("Template deleted");
+      qc.invalidateQueries({ queryKey: ["policy_templates"] });
+      setDeleteId(null);
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Failed to delete template"),
+  });
+
+  const customTemplates: Template[] = (customQ.data?.templates ?? []).map((t: any) => ({
+    id: t.id,
+    name: t.name,
+    tagline: t.description || "Custom template",
+    icon: <User className="h-4 w-4" />,
+    accent: "text-foreground",
+    highlights: [
+      `${Array.isArray(t.rules) ? t.rules.length : 0} rule${(Array.isArray(t.rules) ? t.rules.length : 0) === 1 ? "" : "s"}`,
+      `${Object.keys(t.settings ?? {}).length} setting${Object.keys(t.settings ?? {}).length === 1 ? "" : "s"}`,
+      ((t.policy?.blocked_keywords?.length ?? 0) + (t.policy?.allowed_keywords?.length ?? 0))
+        ? `${(t.policy?.blocked_keywords?.length ?? 0) + (t.policy?.allowed_keywords?.length ?? 0)} keywords`
+        : "No keyword snapshot",
+    ],
+    policy: t.policy ?? {},
+    settings: t.settings ?? {},
+    rules: Array.isArray(t.rules) ? t.rules : [],
+    custom: true,
+  } as Template & { custom?: boolean }));
+
   return (
     <>
       <Card className="surface-1 border-border">
@@ -275,10 +317,13 @@ export function PolicyTemplatesSection() {
               </div>
               <h3 className="text-display">Policy templates</h3>
               <p className="text-body text-muted-foreground">
-                Pre-built configurations you can apply in one click. Templates
-                overwrite keyword guardrails and behavior settings.
+                Pre-built configurations you can apply in one click, or save your
+                own from the rules and settings you've already configured.
               </p>
             </div>
+            <Button size="sm" onClick={() => setWizardOpen(true)}>
+              <Plus className="h-3.5 w-3.5 mr-1" /> New template
+            </Button>
           </div>
 
           <div className="grid md:grid-cols-3 gap-3">
@@ -323,8 +368,86 @@ export function PolicyTemplatesSection() {
               );
             })}
           </div>
+
+          {customTemplates.length > 0 && (
+            <div className="space-y-2 pt-2">
+              <div className="flex items-center gap-2 pt-1 border-t border-border">
+                <span className="text-meta uppercase tracking-wide text-muted-foreground pt-3">
+                  Your templates
+                </span>
+              </div>
+              <div className="grid md:grid-cols-3 gap-3">
+                {customTemplates.map((tpl) => {
+                  const isPending = pending === tpl.id;
+                  return (
+                    <div
+                      key={tpl.id}
+                      className="rounded-lg border border-border surface-2 p-4 flex flex-col gap-3"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className={cn("inline-flex items-center justify-center h-7 w-7 rounded-md border border-border surface-1", tpl.accent)}>
+                            {tpl.icon}
+                          </span>
+                          <div className="font-medium text-body truncate">{tpl.name}</div>
+                        </div>
+                        <Button
+                          size="icon" variant="ghost" className="h-7 w-7"
+                          onClick={() => setDeleteId(tpl.id)}
+                          title="Delete template"
+                        >
+                          <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                        </Button>
+                      </div>
+                      <p className="text-meta text-muted-foreground line-clamp-2">{tpl.tagline}</p>
+                      <ul className="space-y-1.5 text-meta">
+                        {tpl.highlights.map((h) => (
+                          <li key={h} className="flex items-start gap-1.5">
+                            <Check className="h-3 w-3 mt-0.5 text-primary shrink-0" />
+                            <span>{h}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      <div className="mt-auto pt-1">
+                        <Button
+                          size="sm"
+                          className="w-full"
+                          disabled={isPending || apply.isPending}
+                          onClick={() => setConfirm(tpl)}
+                        >
+                          {isPending ? "Applying…" : "Apply template"}
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
+
+      <TemplateWizardDialog open={wizardOpen} onOpenChange={setWizardOpen} />
+
+      <AlertDialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this template?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The saved snapshot will be removed. Your live policy is not affected.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={remove.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={remove.isPending}
+              onClick={(e) => { e.preventDefault(); if (deleteId) remove.mutate(deleteId); }}
+            >
+              {remove.isPending ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!confirm} onOpenChange={(o) => !o && setConfirm(null)}>
         <AlertDialogContent>
