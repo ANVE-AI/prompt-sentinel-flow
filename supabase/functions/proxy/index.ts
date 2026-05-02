@@ -561,8 +561,11 @@ Deno.serve(async (req) => {
         ...logBase, model: chosenModel, status: "error", block_reason: lastErrorReason,
         latency_ms: Date.now() - start,
       });
+      // Pass-through OpenAI-shape upstream errors verbatim (the upstream
+      // already used the OpenAI envelope) so SDK error handlers see exactly
+      // what they expect. For other shapes, translate.
       if (reqShape !== "openai") {
-        return json(errorForShape(reqShape, lastErrorReason, "upstream_error"), resp.status);
+        return errorResponse(reqShape, resp.status, lastErrorReason, { code: "upstream_error" });
       }
       return new Response(text, {
         status: resp.status,
