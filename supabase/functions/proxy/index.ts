@@ -190,11 +190,11 @@ Deno.serve(async (req) => {
   // translate back at the very end.
   let publicBody: any;
   try { publicBody = await req.json(); }
-  catch { return json(errorForShape(reqShape, "Invalid JSON body", "invalid_request_error"), 400); }
+  catch { return errorResponse(reqShape, 400, "Invalid JSON body.", { code: "invalid_json" }); }
 
   const body: any = translateRequestToOpenAI(reqShape, publicBody, route.pathModel);
   if (!Array.isArray(body?.messages) || body.messages.length === 0) {
-    return json(errorForShape(reqShape, "messages must be a non-empty array", "invalid_request_error"), 400);
+    return errorResponse(reqShape, 400, "messages must be a non-empty array.", { code: "missing_messages", param: "messages" });
   }
   // Non-OpenAI shapes are served non-stream in this first pass; SDK consumers
   // get a single JSON response in their native format. OpenAI shape keeps
