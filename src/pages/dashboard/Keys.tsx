@@ -603,6 +603,13 @@ const Keys = () => {
                     <>
                       <Button
                         variant="ghost" size="sm"
+                        onClick={() => setIntegrateFor({ id: k.id, name: k.name, key_prefix: k.key_prefix })}
+                        title="Show integration snippets for this key"
+                      >
+                        <Code2 className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost" size="sm"
                         onClick={() => setAliasesFor({ id: k.id, name: k.name })}
                         title="Manage model aliases for this key"
                       >
