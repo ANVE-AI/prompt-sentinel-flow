@@ -243,6 +243,8 @@ const AuditLog = () => {
       </div>
 
       <Card className="surface-1 border-border overflow-hidden">
+        <div className="overflow-x-auto">
+        <div className="min-w-[720px]">
         <div className={`grid ${auditCols} gap-3 px-4 h-9 items-center border-b border-border bg-surface-2/60 text-[10px] font-medium text-muted-foreground uppercase tracking-[0.1em]`}>
           <div>Time</div><div>Action</div><div>Target</div><div>Actor</div>
         </div>
