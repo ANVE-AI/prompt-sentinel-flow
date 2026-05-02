@@ -217,6 +217,31 @@ export function IntentPolicySection() {
               </div>
               <Switch checked={allowClientPrompt} onCheckedChange={setAllowClientPrompt} />
             </div>
+            <div className={`mt-3 flex items-center justify-between gap-4 ${allowClientPrompt ? "" : "opacity-50 pointer-events-none"}`}>
+              <div className="min-w-0">
+                <Label htmlFor="system-prompt-max" className="text-body">Max <code className="font-mono text-xs">system_prompt</code> length</Label>
+                <p className="text-meta text-muted-foreground mt-0.5">
+                  Caller prompts longer than this return <code className="font-mono">400 invalid_request_error</code>.
+                  Allowed range: 100–64,000 characters. Default is 16,000 (~4k tokens).
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="system-prompt-max"
+                  type="number"
+                  min={100}
+                  max={64000}
+                  step={100}
+                  value={systemPromptMax}
+                  onChange={(e) => {
+                    const n = Number(e.target.value);
+                    if (Number.isFinite(n)) setSystemPromptMax(Math.max(100, Math.min(64000, Math.floor(n))));
+                  }}
+                  className="w-28 text-right tabular-nums surface-2 border-border"
+                />
+                <span className="text-meta text-muted-foreground">chars</span>
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>
