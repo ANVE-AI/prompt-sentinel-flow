@@ -92,6 +92,7 @@ export function TemplateWizardDialog({
   const [pickedRuleIds, setPickedRuleIds] = useState<Record<string, boolean>>({});
   const [intentScope, setIntentScope] = useState<string[]>([]);
   const [customIntent, setCustomIntent] = useState("");
+  const [unknownFallback, setUnknownFallback] = useState<"apply_no_rules" | "apply_default_rules" | "reject">("apply_no_rules");
 
   // Reset wizard state every time it opens.
   useEffect(() => {
