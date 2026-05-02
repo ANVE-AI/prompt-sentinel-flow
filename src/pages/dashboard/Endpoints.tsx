@@ -1573,10 +1573,30 @@ const Endpoints = () => {
       <Dialog open={!!usageEndpoint} onOpenChange={(o) => !o && setUsageEndpoint(null)}>
         <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Activity className="h-4 w-4" />
-              Usage · {usageEndpoint?.name}
-            </DialogTitle>
+            <div className="flex items-start justify-between gap-3">
+              <DialogTitle className="flex items-center gap-2">
+                <Activity className="h-4 w-4" />
+                Usage · {usageEndpoint?.name}
+              </DialogTitle>
+              {/* Time-range segmented control */}
+              <div className="inline-flex items-center rounded-md border bg-muted/30 p-0.5 shrink-0">
+                {USAGE_RANGES.map((r) => (
+                  <button
+                    key={r.value}
+                    type="button"
+                    onClick={() => setUsageRange(r.value)}
+                    aria-pressed={usageRange === r.value}
+                    className={`px-2.5 py-1 text-xs rounded-sm transition-colors ${
+                      usageRange === r.value
+                        ? "bg-background text-foreground shadow-sm font-medium"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </DialogHeader>
 
           {usageQuery.isLoading ? (
@@ -1595,11 +1615,12 @@ const Endpoints = () => {
                 <StatTile label="Blocked" value={usageRow.stats.blocked_count} tone={usageRow.stats.blocked_count ? "warn" : undefined} />
                 <StatTile label="Avg latency" value={`${usageRow.stats.avg_latency_ms}ms`} />
               </div>
-              {usageRow.stats.last_request_at && (
-                <p className="text-xs text-muted-foreground">
-                  Last request {new Date(usageRow.stats.last_request_at).toLocaleString()}
-                </p>
-              )}
+              <p className="text-xs text-muted-foreground">
+                Showing data from {USAGE_RANGES.find((r) => r.value === usageRange)?.longLabel ?? "the last 24 hours"}
+                {usageRow.stats.last_request_at && (
+                  <> · last request {new Date(usageRow.stats.last_request_at).toLocaleString()}</>
+                )}
+              </p>
 
               {/* Bound API keys */}
               <div>
