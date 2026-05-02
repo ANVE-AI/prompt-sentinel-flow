@@ -653,3 +653,198 @@ function ReviewStep({
     </div>
   );
 }
+
+// ---------- Step 5: Test runner -------------------------------------------
+
+type TestResult = {
+  verdict: string;
+  detected_intent: string | null;
+  forced_intent: string | null;
+  unknown_intent_fallback_applied: string | null;
+  applicable_rules: { id: string; name: string; kind: string; severity: string; applies_to_intents: string[] }[];
+  skipped_rules: { id: string; name: string; applies_to_intents: string[] }[];
+  fired_layers: { layer: string; verdict: string; rule: string | null; reason: string | null }[];
+  latency_ms: number;
+  error?: string;
+};
+
+function TestRunnerStep({
+  knownIntents, intentScope, unknownFallback, policy, settings, rules,
+}: {
+  knownIntents: string[];
+  intentScope: string[];
+  unknownFallback: UnknownFallback;
+  policy: Record<string, any>;
+  settings: Record<string, unknown>;
+  rules: Rule[];
+}) {
+  const { call } = useDashboardApi();
+  const [prompt, setPrompt] = useState("");
+  const [intent, setIntent] = useState<string>("__auto__");
+  const [result, setResult] = useState<TestResult | null>(null);
+
+  const intentChoices = useMemo(() => {
+    // Prefer the template's own scope when set, otherwise show every known intent.
+    const base = intentScope.length > 0 ? intentScope : knownIntents;
+    return Array.from(new Set(base));
+  }, [intentScope, knownIntents]);
+
+  const run = useMutation({
+    mutationFn: async () => {
+      const body: Record<string, unknown> = {
+        input: prompt,
+        policy,
+        settings,
+        rules,
+        applies_to_intents: intentScope,
+        unknown_intent_fallback: unknownFallback,
+      };
+      if (intent !== "__auto__") body.force_intent = intent;
+      else body.force_intent = "__unknown__"; // forces fallback simulation
+      // Special case: when "__auto__" is picked we don't force; clear it.
+      if (intent === "__auto__") delete body.force_intent;
+      return await call("evaluate_template", { body }) as TestResult;
+    },
+    onSuccess: (r) => setResult(r),
+    onError: (e: any) => setResult({
+      verdict: "error", detected_intent: null, forced_intent: null,
+      unknown_intent_fallback_applied: null,
+      applicable_rules: [], skipped_rules: [], fired_layers: [],
+      latency_ms: 0, error: e?.message ?? "Failed",
+    }),
+  });
+
+  const verdictColor = (v: string) =>
+    v === "block" ? "text-destructive"
+    : v === "sanitize" ? "text-amber-500"
+    : v === "flag" ? "text-amber-500"
+    : v === "allow" ? "text-emerald-500"
+    : "text-muted-foreground";
+
+  return (
+    <div className="space-y-3 py-2">
+      <p className="text-meta text-muted-foreground">
+        Simulate a request against the template you're about to save. Pick an intent to
+        preview which rules apply — useful for verifying intent routing and the unknown-intent
+        fallback before saving.
+      </p>
+
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_180px] gap-2">
+        <Textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="Type a sample user message…"
+          className="min-h-[90px]"
+        />
+        <div className="space-y-2">
+          <Label className="text-meta">Simulated intent</Label>
+          <select
+            value={intent}
+            onChange={(e) => setIntent(e.target.value)}
+            className="w-full h-9 rounded-md border border-border surface-2 px-2 text-sm"
+          >
+            <option value="__auto__">Auto-detect (live classifier)</option>
+            <option value="__unknown__">Unknown intent (test fallback)</option>
+            <optgroup label="Specific intent">
+              {intentChoices.map((i) => (
+                <option key={i} value={i}>{i}</option>
+              ))}
+            </optgroup>
+          </select>
+          <Button
+            size="sm"
+            className="w-full"
+            disabled={!prompt.trim() || run.isPending}
+            onClick={() => run.mutate()}
+          >
+            {run.isPending ? "Running…" : "Run test"}
+          </Button>
+        </div>
+      </div>
+
+      {result && (
+        <div className="rounded-md border border-border surface-2 p-3 space-y-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-meta uppercase tracking-wider text-muted-foreground">Verdict</span>
+            <span className={cn("text-body font-medium font-mono", verdictColor(result.verdict))}>
+              {result.verdict}
+            </span>
+            <span className="text-meta text-muted-foreground tabular-nums">· {result.latency_ms}ms</span>
+            {result.detected_intent && (
+              <Badge variant="outline" className="text-[10px] font-mono">
+                intent: {result.detected_intent}
+                {result.forced_intent ? " (forced)" : ""}
+              </Badge>
+            )}
+            {result.unknown_intent_fallback_applied && (
+              <Badge variant="outline" className="text-[10px]">
+                fallback: {result.unknown_intent_fallback_applied}
+              </Badge>
+            )}
+          </div>
+
+          {result.error && (
+            <div className="text-meta text-destructive font-mono">{result.error}</div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <div className="text-meta uppercase tracking-wider text-muted-foreground mb-1.5">
+                Applicable rules ({result.applicable_rules.length})
+              </div>
+              {result.applicable_rules.length === 0 ? (
+                <div className="text-meta text-muted-foreground">None — no rules will run for this intent.</div>
+              ) : (
+                <ul className="space-y-1">
+                  {result.applicable_rules.map((r) => (
+                    <li key={r.id} className="flex items-center gap-2 text-meta">
+                      <Badge variant="outline" className="text-[10px]">{r.kind}</Badge>
+                      <span className="truncate">{r.name}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div>
+              <div className="text-meta uppercase tracking-wider text-muted-foreground mb-1.5">
+                Skipped ({result.skipped_rules.length})
+              </div>
+              {result.skipped_rules.length === 0 ? (
+                <div className="text-meta text-muted-foreground">None.</div>
+              ) : (
+                <ul className="space-y-1">
+                  {result.skipped_rules.map((r) => (
+                    <li key={r.id} className="flex items-center gap-2 text-meta text-muted-foreground">
+                      <span className="truncate">{r.name}</span>
+                      <span className="font-mono text-[10px]">
+                        {r.applies_to_intents.length ? `→ ${r.applies_to_intents.join(",")}` : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+
+          {result.fired_layers.length > 0 && (
+            <div>
+              <div className="text-meta uppercase tracking-wider text-muted-foreground mb-1.5">
+                Fired layers
+              </div>
+              <ul className="space-y-1">
+                {result.fired_layers.map((l, i) => (
+                  <li key={i} className="text-meta">
+                    <span className={cn("font-mono", verdictColor(l.verdict))}>{l.verdict}</span>
+                    <span className="text-muted-foreground"> · {l.layer}</span>
+                    {l.rule && <span className="text-muted-foreground"> · {l.rule}</span>}
+                    {l.reason && <div className="text-muted-foreground pl-3 italic">{l.reason}</div>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
