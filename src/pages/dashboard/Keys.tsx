@@ -85,6 +85,7 @@ const Keys = () => {
   // the one being revoked.
   const [prefilledEndpointId, setPrefilledEndpointId] = useState<string | null>(null);
   const [aliasesFor, setAliasesFor] = useState<{ id: string; name: string } | null>(null);
+  const [integrateFor, setIntegrateFor] = useState<{ id: string; name: string; key_prefix: string } | null>(null);
 
   // ---- Deep-link: open the New Key dialog from a URL like
   //      /dashboard/keys?new=1&name=foo&endpoint=<uuid>
