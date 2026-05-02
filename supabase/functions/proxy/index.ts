@@ -738,4 +738,4 @@ async function handleRequest(req: Request): Promise<Response> {
   await sb.from("api_keys").update({ last_used_at: new Date().toISOString() }).eq("id", keyRow.id);
 
   return json(translateResponseFromOpenAI(reqShape, finalResponse), 200);
-});
+}
