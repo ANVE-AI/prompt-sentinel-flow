@@ -771,11 +771,13 @@ const Endpoints = () => {
             </div>
 
             {customSchema && !isEdit && (
-              <div>
+              <div className="space-y-2">
                 <Label>Template (optional)</Label>
-                <Select value={form.template} onValueChange={applyTemplate}>
+                {/* Selecting a template only stages a preview — nothing is written
+                    to the form until the user clicks "Apply changes" below. */}
+                <Select value={previewTemplateId} onValueChange={setPreviewTemplateId}>
                   <SelectTrigger className="mt-1.5">
-                    <SelectValue placeholder="Pick a provider to prefill URL, auth, models…" />
+                    <SelectValue placeholder="Pick a provider to preview which fields will change…" />
                   </SelectTrigger>
                   <SelectContent className="max-h-80">
                     {customSchema.templates.map((t) => (
@@ -792,9 +794,85 @@ const Endpoints = () => {
                     ))}
                   </SelectContent>
                 </Select>
-                {form.template && (
-                  <p className="text-[11px] text-muted-foreground mt-1.5">
-                    Template applied — review and tweak before saving.
+
+                {/* Live diff preview — shown only while a template is staged */}
+                {previewDiff && (
+                  <div className="rounded-md border bg-muted/20">
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-border/60">
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="font-medium">{previewDiff.template.label}</span>
+                        <span className="text-muted-foreground">
+                          {changedCount === 0
+                            ? "No changes — your form already matches this template."
+                            : `${changedCount} field${changedCount === 1 ? "" : "s"} will change`}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs"
+                          onClick={() => setPreviewTemplateId("")}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          type="button" size="sm" className="h-7 px-2 text-xs"
+                          disabled={changedCount === 0}
+                          onClick={() => applyTemplate(previewTemplateId)}
+                        >
+                          <Check className="h-3.5 w-3.5 mr-1" />
+                          Apply changes
+                        </Button>
+                      </div>
+                    </div>
+                    <ul className="divide-y divide-border/60 max-h-72 overflow-y-auto">
+                      {previewDiff.rows.map((r) => (
+                        <li key={r.field as string} className="px-3 py-1.5 text-xs">
+                          <div className="flex items-center gap-2">
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] px-1.5 py-0 h-4 font-normal ${
+                                r.status === "change"
+                                  ? "border-primary/40 text-primary"
+                                  : r.status === "add"
+                                    ? "border-accent/40 text-accent-foreground bg-accent/20"
+                                    : "border-border text-muted-foreground"
+                              }`}
+                            >
+                              {r.status}
+                            </Badge>
+                            <span className="font-medium">{r.label}</span>
+                          </div>
+                          {r.status === "unchanged" ? (
+                            <div className="mt-0.5 ml-12 font-mono text-muted-foreground break-all">
+                              {r.current || <span className="italic">(empty)</span>}
+                            </div>
+                          ) : (
+                            <div className="mt-0.5 ml-12 space-y-0.5 font-mono">
+                              {r.status === "change" && (
+                                <div className="flex gap-1.5">
+                                  <span className="text-muted-foreground shrink-0">−</span>
+                                  <span className="line-through text-muted-foreground break-all">
+                                    {r.current || <span className="italic no-underline">(empty)</span>}
+                                  </span>
+                                </div>
+                              )}
+                              <div className="flex gap-1.5">
+                                <span className="text-primary shrink-0">+</span>
+                                <span className="text-foreground break-all">
+                                  {r.next || <span className="italic text-muted-foreground">(empty)</span>}
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {form.template && !previewTemplateId && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Last applied: <span className="font-medium">{form.template}</span> — pick another template above to preview a different one.
                   </p>
                 )}
               </div>
