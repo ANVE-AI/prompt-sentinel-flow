@@ -156,6 +156,8 @@ const RequestLogs = () => {
             })}
           </ul>
         )}
+        </div>
+        </div>
       </Card>
 
       <Sheet open={!!selected} onOpenChange={(v) => !v && setSelected(null)}>
