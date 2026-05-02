@@ -366,6 +366,8 @@ Deno.serve(async (req) => {
             base_url: row.base_url, models_url: row.models_url,
             kind: row.kind, auth_scheme: row.auth_scheme,
             auth_header: row.auth_header, extra_headers: row.extra_headers,
+            path_prefix: row.path_prefix, chat_path: row.chat_path,
+            models_path: row.models_path, response_format: row.response_format,
           };
           if (row.provider_key_encrypted && !upstreamKey) {
             upstreamKey = await decryptString(row.provider_key_encrypted);
@@ -380,6 +382,10 @@ Deno.serve(async (req) => {
             kind: cfg.kind, auth_scheme: cfg.auth_scheme,
             auth_header: cfg.auth_header || null,
             extra_headers: cfg.extra_headers || null,
+            path_prefix: cfg.path_prefix || null,
+            chat_path: cfg.chat_path || null,
+            models_path: cfg.models_path || null,
+            response_format: cfg.response_format || null,
           });
         } catch (e) {
           return json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 400);
