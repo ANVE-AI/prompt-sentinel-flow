@@ -490,6 +490,14 @@ async function handleRequest(req: Request): Promise<Response> {
       tokens_in: 0, tokens_out: 0,
     });
     await sb.from("api_keys").update({ last_used_at: new Date().toISOString() }).eq("id", keyRow.id);
+    // If the caller asked for SSE, deliver the block as a synthetic stream so
+    // OpenAI SDKs that iterate the stream finish cleanly instead of hanging.
+    if (stream && reqShape === "openai") {
+      return new Response(buildSyntheticSseStream({
+        model, content: blockMessage, finishReason: "content_filter",
+        anveguard: { blocked: true, reason, layers: inputEval.layers },
+      }), { headers: sseHeaders });
+    }
     return json(translateResponseFromOpenAI(reqShape, responsePayload), 200);
   }
 
