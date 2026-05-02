@@ -844,6 +844,179 @@ Deno.serve(async (req) => {
         return json({ usage });
       }
 
+
+      case "export_endpoints": {
+        // Returns the user's endpoint configurations as a portable JSON document.
+        // Provider keys are NEVER included in plain form. By default they are stripped
+        // (`include_keys: "none"`). When `include_keys: "encrypted"` is requested we
+        // emit the at-rest ciphertext (only restorable on this same project, since the
+        // encryption secret stays server-side). We never return decrypted keys.
+        const includeKeys = (body.include_keys === "encrypted") ? "encrypted" : "none";
+        const idsFilter: string[] | null = Array.isArray(body.ids) && body.ids.length > 0
+          ? body.ids.filter((x: unknown) => typeof x === "string")
+          : null;
+
+        let q = sb.from("endpoints")
+          .select("id,name,base_url,models_url,kind,auth_scheme,auth_header,extra_headers,model_suggestions,default_model,path_prefix,chat_path,models_path,response_format,provider_key_encrypted,created_at,updated_at")
+          .eq("user_id", userId).order("created_at", { ascending: true });
+        if (idsFilter) q = q.in("id", idsFilter);
+        const { data, error } = await q;
+        if (error) return json({ error: error.message }, 400);
+
+        const endpoints = (data ?? []).map((e: any) => {
+          const base = {
+            name: e.name,
+            base_url: e.base_url,
+            models_url: e.models_url,
+            kind: e.kind,
+            auth_scheme: e.auth_scheme,
+            auth_header: e.auth_header,
+            extra_headers: e.extra_headers ?? {},
+            model_suggestions: e.model_suggestions ?? [],
+            default_model: e.default_model,
+            path_prefix: e.path_prefix,
+            chat_path: e.chat_path,
+            models_path: e.models_path,
+            response_format: e.response_format,
+            has_key: !!e.provider_key_encrypted,
+          };
+          if (includeKeys === "encrypted" && e.provider_key_encrypted) {
+            return { ...base, provider_key_encrypted: e.provider_key_encrypted };
+          }
+          return base;
+        });
+
+        return json({
+          format: "anveguard.endpoints",
+          version: 1,
+          exported_at: new Date().toISOString(),
+          include_keys: includeKeys,
+          count: endpoints.length,
+          endpoints,
+        });
+      }
+
+      case "import_endpoints": {
+        // Restore endpoints from a previously-exported JSON document.
+        // - Strategy: "skip" (default) keeps existing endpoints with the same name
+        //             "rename" appends " (imported)" if name collides
+        //             "overwrite" updates the existing same-name endpoint in place
+        // - Provider keys: imported only when `provider_key_encrypted` is present and
+        //   `accept_encrypted_keys: true` (encrypted blobs only restore on the same project).
+        //   Plaintext provider keys in payloads are intentionally ignored.
+        const payload = body.payload;
+        if (!payload || typeof payload !== "object") {
+          return json({ error: "Missing import payload" }, 400);
+        }
+        if (payload.format && payload.format !== "anveguard.endpoints") {
+          return json({ error: `Unsupported format: ${payload.format}` }, 400);
+        }
+        if (payload.version && Number(payload.version) > 1) {
+          return json({ error: `Unsupported export version: ${payload.version}` }, 400);
+        }
+        const items = Array.isArray(payload.endpoints) ? payload.endpoints : [];
+        if (items.length === 0) return json({ imported: 0, skipped: 0, updated: 0, errors: [] });
+
+        const strategy = ["skip", "rename", "overwrite"].includes(body.strategy) ? body.strategy : "skip";
+        const acceptEncrypted = body.accept_encrypted_keys === true;
+
+        // Existing endpoints for collision checks.
+        const { data: existing } = await sb.from("endpoints")
+          .select("id,name").eq("user_id", userId);
+        const byName = new Map<string, string>();
+        for (const e of existing ?? []) byName.set(e.name, e.id);
+
+        const errors: { name?: string; error: string }[] = [];
+        let imported = 0, skipped = 0, updated = 0;
+
+        for (const raw of items) {
+          if (!raw || typeof raw !== "object") {
+            errors.push({ error: "Invalid entry (not an object)" });
+            continue;
+          }
+          const name = typeof raw.name === "string" ? raw.name.trim().slice(0, 120) : "";
+          const base_url = typeof raw.base_url === "string" ? raw.base_url.trim() : "";
+          if (!name || !base_url) {
+            errors.push({ name, error: "Missing name or base_url" });
+            continue;
+          }
+
+          // Normalize + validate via the same resolver used by save_endpoint.
+          let resolved;
+          try {
+            resolved = resolveCustomEndpoint({
+              base_url,
+              models_url: raw.models_url || null,
+              kind: raw.kind,
+              auth_scheme: raw.auth_scheme,
+              auth_header: raw.auth_header || null,
+              extra_headers: raw.extra_headers || null,
+              path_prefix: raw.path_prefix || null,
+              chat_path: raw.chat_path || null,
+              models_path: raw.models_path || null,
+              response_format: raw.response_format || null,
+            });
+          } catch (e) {
+            errors.push({ name, error: e instanceof Error ? e.message : String(e) });
+            continue;
+          }
+
+          const row: Record<string, unknown> = {
+            user_id: userId,
+            name,
+            base_url,
+            models_url: raw.models_url || null,
+            kind: resolved.kind,
+            auth_scheme: resolved.auth_scheme,
+            auth_header: resolved.auth_header,
+            extra_headers: sanitizeExtraHeaders(raw.extra_headers || null),
+            model_suggestions: Array.isArray(raw.model_suggestions)
+              ? raw.model_suggestions
+                  .filter((x: unknown) => typeof x === "string" && x.trim())
+                  .map((x: string) => String(x).trim())
+              : [],
+            default_model: raw.default_model ? String(raw.default_model).slice(0, 200) : null,
+            path_prefix: raw.path_prefix ? String(raw.path_prefix).slice(0, 200) : null,
+            chat_path: raw.chat_path ? String(raw.chat_path).slice(0, 200) : null,
+            models_path: raw.models_path ? String(raw.models_path).slice(0, 200) : null,
+            response_format: resolved.response_format,
+          };
+
+          // Only accept already-encrypted keys, and only when explicitly opted in.
+          // Plaintext keys in the payload are ignored on purpose.
+          if (acceptEncrypted && typeof raw.provider_key_encrypted === "string" && raw.provider_key_encrypted.length > 0) {
+            row.provider_key_encrypted = raw.provider_key_encrypted;
+          }
+
+          const collisionId = byName.get(name);
+          try {
+            if (collisionId) {
+              if (strategy === "skip") { skipped++; continue; }
+              if (strategy === "overwrite") {
+                const { error } = await sb.from("endpoints")
+                  .update(row).eq("id", collisionId).eq("user_id", userId);
+                if (error) { errors.push({ name, error: error.message }); continue; }
+                updated++; continue;
+              }
+              // rename
+              let suffix = 2;
+              let candidate = `${name} (imported)`;
+              while (byName.has(candidate)) { candidate = `${name} (imported ${suffix++})`; }
+              row.name = candidate;
+            }
+            const { data: ins, error } = await sb.from("endpoints")
+              .insert(row).select("id,name").single();
+            if (error) { errors.push({ name, error: error.message }); continue; }
+            byName.set(ins.name, ins.id);
+            imported++;
+          } catch (e) {
+            errors.push({ name, error: e instanceof Error ? e.message : String(e) });
+          }
+        }
+
+        return json({ imported, updated, skipped, errors });
+      }
+
       default:
         return json({ error: "Unknown action" }, 400);
     }

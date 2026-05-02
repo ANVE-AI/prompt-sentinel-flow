@@ -14,10 +14,13 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Plug, Pencil, Trash2, X, Check, Beaker, KeyRound, RefreshCw, AlertTriangle, Activity, Ban, AlertCircle } from "lucide-react";
+import { Plus, Plug, Pencil, Trash2, X, Check, Beaker, KeyRound, RefreshCw, AlertTriangle, Activity, Ban, AlertCircle, Download, Upload } from "lucide-react";
 import { useDashboardApi } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -366,6 +369,87 @@ const Endpoints = () => {
 
   const endpoints = data?.endpoints ?? [];
 
+  // -------- Export --------
+  const [exporting, setExporting] = useState(false);
+  const handleExport = async (includeKeys: "none" | "encrypted") => {
+    setExporting(true);
+    try {
+      const r = await call<any>("export_endpoints", { body: { include_keys: includeKeys } });
+      const blob = new Blob([JSON.stringify(r, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      a.download = `anveguard-endpoints-${stamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success(`Exported ${r.count} endpoint${r.count === 1 ? "" : "s"}${includeKeys === "encrypted" ? " (with encrypted keys)" : ""}.`);
+    } catch (e: any) {
+      toast.error(e.message || "Export failed");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // -------- Import --------
+  const [importOpen, setImportOpen] = useState(false);
+  const [importPayload, setImportPayload] = useState<any | null>(null);
+  const [importStrategy, setImportStrategy] = useState<"skip" | "rename" | "overwrite">("rename");
+  const [acceptKeys, setAcceptKeys] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useMemo(() => ({ current: null as HTMLInputElement | null }), []);
+
+  const onPickFile = () => fileInputRef.current?.click();
+  const onFileChosen = async (file: File | null) => {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      if (parsed?.format && parsed.format !== "anveguard.endpoints") {
+        toast.error(`Unexpected file format: ${parsed.format}`);
+        return;
+      }
+      if (!Array.isArray(parsed?.endpoints)) {
+        toast.error("File doesn't contain an 'endpoints' array.");
+        return;
+      }
+      setImportPayload(parsed);
+      setImportOpen(true);
+    } catch (e: any) {
+      toast.error(`Couldn't read file: ${e.message || e}`);
+    }
+  };
+
+  const runImport = async () => {
+    if (!importPayload) return;
+    setImporting(true);
+    try {
+      const r = await call<{ imported: number; updated: number; skipped: number; errors: any[] }>(
+        "import_endpoints",
+        { body: { payload: importPayload, strategy: importStrategy, accept_encrypted_keys: acceptKeys } },
+      );
+      const parts: string[] = [];
+      if (r.imported) parts.push(`${r.imported} imported`);
+      if (r.updated) parts.push(`${r.updated} updated`);
+      if (r.skipped) parts.push(`${r.skipped} skipped`);
+      const summary = parts.join(", ") || "No changes";
+      if (r.errors?.length) {
+        toast.error(`${summary} · ${r.errors.length} error(s): ${r.errors[0]?.error ?? ""}`);
+      } else {
+        toast.success(summary);
+      }
+      qc.invalidateQueries({ queryKey: ["endpoints"] });
+      setImportOpen(false);
+      setImportPayload(null);
+    } catch (e: any) {
+      toast.error(e.message || "Import failed");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <div className="p-8 space-y-6">
       <div className="flex items-start justify-between">
@@ -375,12 +459,50 @@ const Endpoints = () => {
             Save self-hosted or third-party LLM endpoints once and reuse them across API keys.
           </p>
         </div>
-        <Button
-          onClick={startCreate}
-          className="bg-gradient-to-r from-primary to-accent text-primary-foreground hover:opacity-90"
-        >
-          <Plus className="h-4 w-4 mr-2" /> New endpoint
-        </Button>
+        <div className="flex items-center gap-2">
+          <input
+            ref={(el) => { fileInputRef.current = el; }}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0] ?? null;
+              onFileChosen(f);
+              e.target.value = "";
+            }}
+          />
+          <Button variant="outline" onClick={onPickFile} disabled={importing}>
+            <Upload className="h-4 w-4 mr-2" /> Import
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" disabled={exporting || endpoints.length === 0}>
+                <Download className="h-4 w-4 mr-2" /> Export
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-72">
+              <DropdownMenuItem onClick={() => handleExport("none")}>
+                <div>
+                  <div className="font-medium">Without provider keys</div>
+                  <div className="text-xs text-muted-foreground">Safe to share. Keys must be re-entered after import.</div>
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => handleExport("encrypted")}>
+                <div>
+                  <div className="font-medium">With encrypted keys</div>
+                  <div className="text-xs text-muted-foreground">Only restorable on this same project (server-side secret).</div>
+                </div>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button
+            onClick={startCreate}
+            className="bg-gradient-to-r from-primary to-accent text-primary-foreground hover:opacity-90"
+          >
+            <Plus className="h-4 w-4 mr-2" /> New endpoint
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -983,6 +1105,91 @@ const Endpoints = () => {
               Refresh
             </Button>
             <Button onClick={() => setUsageEndpoint(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Import preview dialog */}
+      <Dialog open={importOpen} onOpenChange={(o) => { if (!o) { setImportOpen(false); setImportPayload(null); } }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="h-4 w-4" /> Import endpoints
+            </DialogTitle>
+          </DialogHeader>
+
+          {importPayload && (
+            <div className="space-y-4 text-sm">
+              <div className="rounded-md border p-3 space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Endpoints in file</span>
+                  <span className="font-medium">{importPayload.endpoints?.length ?? 0}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Format</span>
+                  <code className="text-xs">{importPayload.format ?? "—"} v{importPayload.version ?? 1}</code>
+                </div>
+                {importPayload.exported_at && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Exported</span>
+                    <span className="text-xs">{new Date(importPayload.exported_at).toLocaleString()}</span>
+                  </div>
+                )}
+                {importPayload.endpoints?.some((e: any) => e.provider_key_encrypted) && (
+                  <div className="flex items-start gap-2 mt-2 text-xs text-muted-foreground">
+                    <KeyRound className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                    <span>This file contains encrypted provider keys. They will only restore on this same project.</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label>On name conflict</Label>
+                <Select value={importStrategy} onValueChange={(v: any) => setImportStrategy(v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="rename">Import as new (append "(imported)")</SelectItem>
+                    <SelectItem value="skip">Skip existing endpoints</SelectItem>
+                    <SelectItem value="overwrite">Overwrite existing endpoints</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {importPayload.endpoints?.some((e: any) => e.provider_key_encrypted) && (
+                <label className="flex items-start gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 mt-0.5 accent-primary"
+                    checked={acceptKeys}
+                    onChange={(e) => setAcceptKeys(e.target.checked)}
+                  />
+                  <span>Restore encrypted provider keys from this file (only works on the project that exported them).</span>
+                </label>
+              )}
+
+              <div className="rounded-md border p-2 max-h-40 overflow-y-auto space-y-1">
+                {(importPayload.endpoints ?? []).slice(0, 30).map((e: any, i: number) => (
+                  <div key={i} className="flex items-center gap-2 text-xs">
+                    <Plug className="h-3 w-3 text-muted-foreground shrink-0" />
+                    <span className="font-medium truncate">{e.name || "(unnamed)"}</span>
+                    <code className="text-muted-foreground truncate">{e.base_url}</code>
+                    {e.provider_key_encrypted && <KeyRound className="h-3 w-3 text-primary ml-auto shrink-0" />}
+                  </div>
+                ))}
+                {(importPayload.endpoints?.length ?? 0) > 30 && (
+                  <div className="text-[11px] text-muted-foreground pt-1">
+                    + {importPayload.endpoints.length - 30} more…
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => { setImportOpen(false); setImportPayload(null); }}>Cancel</Button>
+            <Button onClick={runImport} disabled={importing || !importPayload}>
+              {importing ? "Importing…" : "Import"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
