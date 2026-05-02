@@ -136,3 +136,11 @@ Deno.test("validateSystemPrompt: default cap matches SYSTEM_PROMPT_MAX export", 
   const r = validateSystemPrompt("a".repeat(SYSTEM_PROMPT_MAX_DEFAULT));
   assertEquals(r.error, null);
 });
+
+Deno.test("system_prompt: stable error codes per failure mode", () => {
+  assertEquals(validateSystemPrompt(42).code, "system_prompt_invalid_type");
+  assertEquals(validateSystemPrompt("").code, "system_prompt_empty");
+  assertEquals(validateSystemPrompt("   ").code, "system_prompt_empty");
+  assertEquals(validateSystemPrompt("a\u0000b").code, "system_prompt_invalid_chars");
+  assertEquals(validateSystemPrompt("a".repeat(20), 10).code, "system_prompt_too_long");
+});
