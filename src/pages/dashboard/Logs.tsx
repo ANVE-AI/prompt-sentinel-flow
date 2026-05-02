@@ -215,10 +215,8 @@ const RequestLogs = () => {
                   <KeyValue label="Tokens in">{selected.tokens_in ?? "—"}</KeyValue>
                   <KeyValue label="Tokens out">{selected.tokens_out ?? "—"}</KeyValue>
                 </div>
-                {selected.block_reason && (
-                  <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-status-block text-meta">
-                    {selected.block_reason}
-                  </div>
+                {(selected.block_reason || selected.status?.startsWith("blocked")) && (
+                  <BlockReasonBlock log={selected} />
                 )}
                 <PolicyVerdictPanel log={selected} />
                 <Tabs defaultValue="pretty">
