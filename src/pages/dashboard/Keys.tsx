@@ -542,14 +542,22 @@ const Keys = () => {
           <div className="text-right">Actions</div>
         </div>
         {isLoading ? (
-          <div className="p-4 space-y-2">
-            <Skeleton className="h-9" /><Skeleton className="h-9" /><Skeleton className="h-9" />
-          </div>
+          <SkeletonRows
+            rows={5}
+            cols="grid-cols-[minmax(0,1.4fr)_minmax(0,1.2fr)_120px_92px_auto]"
+            rowClassName="h-12"
+          />
         ) : (data?.keys?.length ?? 0) === 0 ? (
-          <div className="px-6 py-12 text-center">
-            <p className="text-body font-medium">No keys yet</p>
-            <p className="text-meta text-muted-foreground mt-1">Click <strong>New key</strong> to issue your first AnveGuard key.</p>
-          </div>
+          <EmptyState
+            icon={<KeyRound className="h-5 w-5" />}
+            title="No keys yet"
+            description="Issue your first AnveGuard key to start proxying requests."
+            action={
+              <Button onClick={() => setOpen(true)} size="sm">
+                <Plus className="h-3.5 w-3.5 mr-1.5" /> New key
+              </Button>
+            }
+          />
         ) : (
           <ul className="divide-y divide-border">
             {data.keys.map((k: any) => (
