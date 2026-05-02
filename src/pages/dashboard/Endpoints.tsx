@@ -121,6 +121,16 @@ const Endpoints = () => {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [confirmDelete, setConfirmDelete] = useState<EndpointRow | null>(null);
+  const [usageEndpoint, setUsageEndpoint] = useState<EndpointRow | null>(null);
+
+  const usageQuery = useQuery({
+    enabled: !!usageEndpoint,
+    queryKey: ["endpoint_usage", usageEndpoint?.id],
+    queryFn: () => call<{ usage: any[] }>("endpoint_usage", {
+      query: { endpoint_id: usageEndpoint!.id, limit: "25" },
+    }),
+  });
+  const usageRow = usageQuery.data?.usage?.[0];
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{
     ok: boolean;
