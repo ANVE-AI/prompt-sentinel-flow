@@ -236,15 +236,17 @@ const Keys = () => {
   );
 
   return (
-    <div className="p-8 space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">API Keys</h1>
-          <p className="text-muted-foreground text-sm mt-1">Issue keys for each environment. Revoke anytime.</p>
+    <div className="px-4 md:px-6 py-5 space-y-5 max-w-[1320px] mx-auto">
+      <div className="flex items-start justify-between gap-4 pb-1">
+        <div className="min-w-0">
+          <h1 className="text-h1 font-semibold tracking-tight">API Keys</h1>
+          <p className="text-body text-muted-foreground mt-1 max-w-2xl">
+            Issue keys for each environment. Test, rotate, and revoke without touching provider credentials.
+          </p>
         </div>
         <Dialog open={open} onOpenChange={(v) => (v ? setOpen(true) : reset())}>
           <DialogTrigger asChild>
-            <Button className="bg-gradient-to-r from-primary to-accent text-primary-foreground hover:opacity-90">
+            <Button>
               <Plus className="h-4 w-4 mr-2" /> New key
             </Button>
           </DialogTrigger>
@@ -499,63 +501,81 @@ const Keys = () => {
         </Dialog>
       </div>
 
-      <Card>
-        <CardHeader><CardTitle className="text-base font-medium">Your keys</CardTitle></CardHeader>
-        <CardContent>
-          {isLoading ? <Skeleton className="h-24" /> :
-            (data?.keys?.length ?? 0) === 0 ? (
-              <p className="text-sm text-muted-foreground py-8 text-center">No keys yet. Click <strong>New key</strong> to create one.</p>
-            ) : (
-              <div className="divide-y divide-border">
-                {data.keys.map((k: any) => (
-                  <div key={k.id} className="py-4 flex items-center gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="font-medium">{k.name}</p>
-                        {!k.is_active && <Badge variant="outline" className="text-xs">revoked</Badge>}
-                        <Badge variant="secondary" className="text-xs">{k.provider}</Badge>
-                        {k.provider === "custom" && k.custom_base_url && (
-                          <Badge variant="outline" className="text-xs font-mono">
-                            {(() => { try { return new URL(k.custom_base_url).host; } catch { return k.custom_base_url; } })()}
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                        <span className="font-mono">{k.key_prefix}…</span>
-                        <span>·</span>
-                        <span>{k.model_default}</span>
-                        <span>·</span>
-                        <span>last used {k.last_used_at ? new Date(k.last_used_at).toLocaleDateString() : "never"}</span>
-                      </div>
-                    </div>
-                    {k.is_active && (
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="outline" size="sm"
-                          disabled={testKey.isPending && testingKey?.id === k.id}
-                          onClick={() => { setTestingKey({ id: k.id, name: k.name }); testKey.mutate({ id: k.id, parallel: testParallel }); }}
-                          title="Send a tiny test request through this key's upstream"
-                        >
-                          {testKey.isPending && testingKey?.id === k.id
-                            ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Testing…</>
-                            : <><Beaker className="h-3.5 w-3.5 mr-1.5" />Test</>}
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => revoke.mutate(k.id)} title="Revoke key">
-                          <Trash2 className="h-4 w-4 text-muted-foreground" />
-                        </Button>
-                      </div>
-                    )}
+      {/* High-density key table */}
+      <Card className="surface-1 border-border overflow-hidden">
+        <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.2fr)_120px_92px_auto] gap-3 px-4 h-9 items-center border-b border-border bg-surface-2/60 text-[10px] font-medium text-muted-foreground uppercase tracking-[0.1em]">
+          <div>Key</div>
+          <div>Provider · Model</div>
+          <div>Last used</div>
+          <div>Status</div>
+          <div className="text-right">Actions</div>
+        </div>
+        {isLoading ? (
+          <div className="p-4 space-y-2">
+            <Skeleton className="h-9" /><Skeleton className="h-9" /><Skeleton className="h-9" />
+          </div>
+        ) : (data?.keys?.length ?? 0) === 0 ? (
+          <div className="px-6 py-12 text-center">
+            <p className="text-body font-medium">No keys yet</p>
+            <p className="text-meta text-muted-foreground mt-1">Click <strong>New key</strong> to issue your first AnveGuard key.</p>
+          </div>
+        ) : (
+          <ul className="divide-y divide-border">
+            {data.keys.map((k: any) => (
+              <li key={k.id} className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.2fr)_120px_92px_auto] gap-3 px-4 h-12 items-center hover:bg-surface-2/60 transition-colors">
+                <div className="min-w-0">
+                  <div className="text-body font-medium truncate flex items-center gap-2">
+                    {k.name}
+                    <span className="text-meta text-muted-foreground font-mono">{k.key_prefix}…</span>
                   </div>
-                ))}
-              </div>
-            )}
-        </CardContent>
+                  {k.provider === "custom" && k.custom_base_url && (
+                    <div className="text-meta text-muted-foreground font-mono truncate">
+                      {(() => { try { return new URL(k.custom_base_url).host; } catch { return k.custom_base_url; } })()}
+                    </div>
+                  )}
+                </div>
+                <div className="min-w-0 text-meta text-muted-foreground font-mono truncate">
+                  {k.provider} · {k.model_default}
+                </div>
+                <div className="text-meta text-muted-foreground tabular-nums">
+                  {k.last_used_at ? new Date(k.last_used_at).toLocaleDateString() : "never"}
+                </div>
+                <div>
+                  <Badge status={k.is_active ? "ok" : "neutral"}>{k.is_active ? "active" : "revoked"}</Badge>
+                </div>
+                <div className="flex items-center gap-1 justify-end">
+                  {k.is_active && (
+                    <>
+                      <Button
+                        variant="ghost" size="sm"
+                        disabled={testKey.isPending && testingKey?.id === k.id}
+                        onClick={() => { setTestingKey({ id: k.id, name: k.name }); testKey.mutate({ id: k.id, parallel: testParallel }); }}
+                        title="Send a tiny test request through this key's upstream"
+                      >
+                        {testKey.isPending && testingKey?.id === k.id
+                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          : <Beaker className="h-3.5 w-3.5" />}
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => revoke.mutate(k.id)} title="Revoke key">
+                        <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </Card>
 
-      <Card>
-        <CardHeader><CardTitle className="text-base font-medium">Use it in your app</CardTitle></CardHeader>
-        <CardContent>
-          <pre className="rounded-md border border-border bg-muted/40 p-4 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all">
+      {/* Snippet card */}
+      <Card className="surface-1 border-border">
+        <div className="px-5 pt-4 pb-3 border-b border-border">
+          <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Quick start</div>
+          <div className="text-h2 font-medium mt-0.5">Use it in your app</div>
+        </div>
+        <CardContent className="p-5">
+          <pre className="rounded-md border border-border bg-surface-2 p-4 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all">
 {`from openai import OpenAI
 
 client = OpenAI(
@@ -563,7 +583,7 @@ client = OpenAI(
     api_key="ag_live_••••••••",
 )
 
-# Note: pass the proxy URL as base_url and your AnveGuard key as api_key.
+# Pass the proxy URL as base_url and your AnveGuard key as api_key.
 # The endpoint follows the OpenAI Chat Completions schema.`}
           </pre>
         </CardContent>
