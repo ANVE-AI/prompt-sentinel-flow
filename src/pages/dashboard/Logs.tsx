@@ -250,7 +250,7 @@ const AuditLog = () => {
           <div>Time</div><div>Action</div><div>Target</div><div>Actor</div>
         </div>
         {isLoading ? (
-          <Skeleton className="h-48 m-4" />
+          <SkeletonRows rows={6} cols={auditCols} />
         ) : entries.length === 0 ? (
           <EmptyState
             icon={<ShieldCheck className="h-5 w-5" />}
