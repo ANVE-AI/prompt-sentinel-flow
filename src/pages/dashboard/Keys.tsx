@@ -479,9 +479,21 @@ const Keys = () => {
                       </div>
                     </div>
                     {k.is_active && (
-                      <Button variant="ghost" size="icon" onClick={() => revoke.mutate(k.id)}>
-                        <Trash2 className="h-4 w-4 text-muted-foreground" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="outline" size="sm"
+                          disabled={testKey.isPending && testingKey?.id === k.id}
+                          onClick={() => { setTestingKey({ id: k.id, name: k.name }); testKey.mutate(k.id); }}
+                          title="Send a tiny test request through this key's upstream"
+                        >
+                          {testKey.isPending && testingKey?.id === k.id
+                            ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Testing…</>
+                            : <><Beaker className="h-3.5 w-3.5 mr-1.5" />Test</>}
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => revoke.mutate(k.id)} title="Revoke key">
+                          <Trash2 className="h-4 w-4 text-muted-foreground" />
+                        </Button>
+                      </div>
                     )}
                   </div>
                 ))}
