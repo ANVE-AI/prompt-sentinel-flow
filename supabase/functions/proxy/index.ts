@@ -462,10 +462,13 @@ async function handleRequest(req: Request): Promise<Response> {
   // before evaluation also means the guardrail itself is included in
   // input/output policy checks and request logs, which is what operators want
   // when auditing.
-  const guardrail = (settings as any)?.guardrail_system_prompt;
-  if (typeof guardrail === "string" && guardrail.trim()) {
+  const guardrailRaw = (settings as any)?.guardrail_system_prompt;
+  const injectedGuardrail = (typeof guardrailRaw === "string" && guardrailRaw.trim())
+    ? guardrailRaw.trim() : null;
+  const guardrail = guardrailRaw;
+  if (injectedGuardrail) {
     body.messages = [
-      { role: "system", content: guardrail.trim() },
+      { role: "system", content: injectedGuardrail },
       ...body.messages,
     ];
   }
