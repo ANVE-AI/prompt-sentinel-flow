@@ -1,30 +1,51 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { mockApiKeys } from "@/lib/mock-data";
 import { Send, ShieldAlert, ShieldCheck } from "lucide-react";
+import { useDashboardApi } from "@/lib/api";
+import { toast } from "sonner";
+
+const PROXY_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proxy`;
 
 const Playground = () => {
-  const [keyId, setKeyId] = useState(mockApiKeys[0].id);
+  const { call } = useDashboardApi();
+  const { data: keysData } = useQuery({ queryKey: ["keys"], queryFn: () => call<any>("list_keys") });
+  const activeKeys = (keysData?.keys ?? []).filter((k: any) => k.is_active);
+
+  const [keyId, setKeyId] = useState<string>("");
+  const [apiKey, setApiKey] = useState("");
   const [prompt, setPrompt] = useState("Write a haiku about firewalls.");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{ blocked: boolean; text: string } | null>(null);
+  const [result, setResult] = useState<{ blocked: boolean; text: string; reason?: string } | null>(null);
 
-  const send = () => {
+  const send = async () => {
+    if (!apiKey.startsWith("ag_live_")) {
+      toast.error("Paste an AnveGuard key (starts with ag_live_) — you can only see it once when you create it.");
+      return;
+    }
     setLoading(true);
     setResult(null);
-    setTimeout(() => {
-      const blocked = /password|ignore previous/i.test(prompt);
-      setResult(
-        blocked
-          ? { blocked: true, text: "This request was blocked by your organization's AI policy." }
-          : { blocked: false, text: "Steel walls, silent guard / packets parsed and judged with care / safe traffic flows on." }
-      );
+    try {
+      const res = await fetch(PROXY_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ messages: [{ role: "user", content: prompt }] }),
+      });
+      const data = await res.json();
+      const blocked = !!data?.anveguard?.blocked;
+      const text = data?.choices?.[0]?.message?.content ?? data?.error?.message ?? JSON.stringify(data);
+      setResult({ blocked, text, reason: data?.anveguard?.reason });
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
       setLoading(false);
-    }, 700);
+    }
   };
 
   return (
@@ -37,14 +58,24 @@ const Playground = () => {
       <Card>
         <CardHeader><CardTitle className="text-base font-medium">Request</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          <Select value={keyId} onValueChange={setKeyId}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {mockApiKeys.filter((k) => k.isActive).map((k) => (
-                <SelectItem key={k.id} value={k.id}>{k.name} — {k.modelDefault}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {activeKeys.length > 0 && (
+            <div>
+              <Label className="text-xs">Reference (your active keys)</Label>
+              <Select value={keyId} onValueChange={setKeyId}>
+                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Pick a key for reference…" /></SelectTrigger>
+                <SelectContent>
+                  {activeKeys.map((k: any) => (
+                    <SelectItem key={k.id} value={k.id}>{k.name} — {k.model_default}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <div>
+            <Label htmlFor="ak">AnveGuard API key</Label>
+            <Input id="ak" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="ag_live_…" className="mt-1.5 font-mono text-sm" />
+            <p className="text-xs text-muted-foreground mt-1">Paste here — keys aren't stored client-side.</p>
+          </div>
           <Textarea rows={6} value={prompt} onChange={(e) => setPrompt(e.target.value)} className="font-mono text-sm" />
           <div className="flex justify-end">
             <Button onClick={send} disabled={loading}>
@@ -71,7 +102,8 @@ const Playground = () => {
               )}
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
+            {result.reason && <div className="text-xs text-destructive">{result.reason}</div>}
             <pre className="rounded-md border border-border bg-muted/40 p-4 text-sm whitespace-pre-wrap">{result.text}</pre>
           </CardContent>
         </Card>
