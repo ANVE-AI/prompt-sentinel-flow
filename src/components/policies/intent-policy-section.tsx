@@ -69,6 +69,7 @@ export function IntentPolicySection() {
   const [shadow, setShadow] = useState(true);
   const [strict, setStrict] = useState(false);
   const [purpose, setPurpose] = useState("");
+  const [guardrailPrompt, setGuardrailPrompt] = useState("");
 
   useEffect(() => {
     const s = settingsQ.data?.settings;
@@ -77,6 +78,7 @@ export function IntentPolicySection() {
     setShadow(s.intent_shadow_mode);
     setStrict(s.strict_mode);
     setPurpose(s.workspace_purpose ?? "");
+    setGuardrailPrompt(s.guardrail_system_prompt ?? "");
   }, [settingsQ.data]);
 
   const saveSettings = useMutation({
@@ -85,6 +87,7 @@ export function IntentPolicySection() {
       intent_shadow_mode: shadow,
       strict_mode: strict,
       workspace_purpose: purpose,
+      guardrail_system_prompt: guardrailPrompt,
     } }),
     onSuccess: () => { toast.success("Intent settings saved"); qc.invalidateQueries({ queryKey: ["policy_settings"] }); },
     onError: (e: any) => toast.error(e?.message ?? "Failed to save"),
