@@ -15,6 +15,7 @@ import { KeywordChipInput } from "@/components/keyword-chip-input";
 import { ShieldAlert } from "lucide-react";
 import { IntentPolicySection } from "@/components/policies/intent-policy-section";
 import { InjectionGuardSection } from "@/components/policies/injection-guard-section";
+import { BehavioralSection } from "@/components/policies/behavioral-section";
 
 const Policies = () => {
   const { call } = useDashboardApi();
@@ -163,6 +164,7 @@ const Policies = () => {
       </Card>
 
       <InjectionGuardSection />
+      <BehavioralSection />
       <IntentPolicySection />
     </div>
   );

@@ -22,7 +22,8 @@ export type LayerName =
   | "patterns"
   | "heuristics"
   | "intent"
-  | "injection";
+  | "injection"
+  | "behavioral";
 
 export type Verdict = "allow" | "flag" | "block" | "sanitize";
 
@@ -71,6 +72,10 @@ export interface PolicySettings {
   /** What the injection guard does on a hit. `sanitize` rewrites the offending
    *  spans to `[redacted]` before forwarding upstream. */
   injection_action?: "block" | "sanitize" | "flag";
+  /** Multi-turn behavioral analysis across the conversation history. */
+  enable_behavioral?: boolean;
+  /** Action when behavioral heuristics fire. */
+  behavioral_action?: "block" | "sanitize" | "flag";
 }
 
 export interface LegacyPolicy {
@@ -86,6 +91,10 @@ export interface EvaluateInput {
   rules: PolicyRule[];
   intents: PolicyIntent[];
   settings: PolicySettings;
+  /** Optional full conversation history (OpenAI message shape). When supplied,
+   *  the behavioral layer can reason about multi-turn patterns. The single
+   *  `text` field is still used by every other layer. */
+  conversation?: { role: string; content: unknown }[];
 }
 
 export interface EvaluateResult {
@@ -674,6 +683,115 @@ export function aggregate(layers: LayerVerdict[], settings: PolicySettings): Ver
   return "allow";
 }
 
+// ---------- 6. Behavioral heuristics (multi-turn) -------------------------
+
+/** Personas commonly used to "soften" the model into role-play jailbreaks. */
+const ROLEPLAY_PERSONAS = [
+  "dan", "aim", "stan", "jailbreak", "developer mode", "do anything now",
+  "evil ai", "uncensored ai", "unfiltered ai", "rogue ai", "anti-ai",
+  "grandma", "dead grandmother", "fictional character", "actor playing",
+];
+
+/** Verbs that indicate the user is *flipping* the prior instruction. */
+const FLIP_PHRASES = [
+  /\b(?:actually|wait|hold on|scratch that|never mind|on second thought)\b/i,
+  /\b(?:ignore|disregard|forget)\s+(?:what\s+i\s+(?:just\s+)?(?:said|asked)|that\s+last|the\s+last|my\s+previous)\b/i,
+  /\b(?:do(?:n'?t)?\s+do\s+(?:that|what\s+i\s+said))\b/i,
+];
+
+function turnText(msg: { role: string; content: unknown }): string {
+  if (typeof msg.content === "string") return msg.content;
+  if (Array.isArray(msg.content)) {
+    return msg.content
+      .map((p: any) => (typeof p?.text === "string" ? p.text : ""))
+      .join(" ");
+  }
+  return "";
+}
+
+function encodedRatio(s: string): number {
+  if (!s) return 0;
+  let enc = 0;
+  s.replace(BASE64_RE, (m) => { enc += m.length; return m; });
+  s.replace(HEX_RE, (m) => { enc += m.length; return m; });
+  s.replace(PERCENT_RE, (m) => { enc += m.length; return m; });
+  return enc / s.length;
+}
+
+/**
+ * Multi-turn behavioral analysis. Returns at most one verdict (the
+ * highest-priority finding) so we don't spam the layers list with overlapping
+ * signals. Bounded to the most recent ~12 user turns.
+ *
+ * Detected patterns:
+ *   1. Rapid instruction churn — ≥3 user turns in a row that contain a flip
+ *      phrase ("actually", "ignore that", "scratch that", …).
+ *   2. Role-play escalation — repeated invocations of known jailbreak personas.
+ *   3. Escalating obfuscation — encoded-payload ratio strictly increasing
+ *      across the last 3 user turns and crossing 25%.
+ *   4. Length spike — latest user turn is 8× the conversation mean and >1500
+ *      chars (typical wall-of-text jailbreak prompt).
+ */
+export function evaluateBehavioral(
+  conversation: { role: string; content: unknown }[],
+): LayerVerdict[] {
+  const userTurns = conversation
+    .filter((m) => m?.role === "user")
+    .slice(-12)
+    .map(turnText)
+    .filter((t) => t.length > 0);
+
+  if (userTurns.length < 2) return [];
+
+  const recent = userTurns.slice(-4);
+  const flipHits = recent.filter((t) => FLIP_PHRASES.some((re) => re.test(t))).length;
+  if (flipHits >= 3) {
+    return [{
+      layer: "behavioral", verdict: "flag", rule: "instruction_churn",
+      reason: `Rapid instruction changes: ${flipHits}/${recent.length} recent user turns countermand the prior turn.`,
+    }];
+  }
+
+  const personaHits = userTurns.reduce((n, t) => {
+    const lower = t.toLowerCase();
+    const hit = ROLEPLAY_PERSONAS.some((p) => {
+      const escaped = p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp(`\\b${escaped}\\b`, "i").test(lower);
+    });
+    return hit ? n + 1 : n;
+  }, 0);
+  if (personaHits >= 3) {
+    return [{
+      layer: "behavioral", verdict: "flag", rule: "roleplay_escalation",
+      reason: `Repeated jailbreak persona references across ${personaHits} user turns.`,
+    }];
+  }
+
+  if (userTurns.length >= 3) {
+    const last3 = userTurns.slice(-3).map(encodedRatio);
+    if (last3[0] < last3[1] && last3[1] < last3[2] && last3[2] > 0.25) {
+      return [{
+        layer: "behavioral", verdict: "flag", rule: "encoding_escalation",
+        reason: `Encoded-payload ratio is increasing (${(last3[0] * 100).toFixed(0)}% → ${(last3[1] * 100).toFixed(0)}% → ${(last3[2] * 100).toFixed(0)}%).`,
+      }];
+    }
+  }
+
+  if (userTurns.length >= 3) {
+    const prior = userTurns.slice(0, -1);
+    const mean = prior.reduce((s, t) => s + t.length, 0) / prior.length;
+    const last = userTurns[userTurns.length - 1].length;
+    if (mean > 0 && last > 1500 && last > mean * 8) {
+      return [{
+        layer: "behavioral", verdict: "flag", rule: "length_spike",
+        reason: `Latest user turn is ${last} chars, ${(last / mean).toFixed(1)}× the conversation average.`,
+      }];
+    }
+  }
+
+  return [];
+}
+
 // ---------- Top-level entry ------------------------------------------------
 
 export async function evaluate(input: EvaluateInput, ctx: { systemPrompt?: string; toolsRequested?: boolean } = {}): Promise<EvaluateResult> {
@@ -737,6 +855,25 @@ export async function evaluate(input: EvaluateInput, ctx: { systemPrompt?: strin
     }
   }
 
+  // Multi-turn behavioral analysis (input direction only — needs the full
+  // conversation, which only the inbound side has).
+  if (
+    settings.enable_behavioral !== false &&
+    direction === "input" &&
+    Array.isArray(input.conversation) &&
+    input.conversation.length >= 2
+  ) {
+    const behavioralLayers = evaluateBehavioral(input.conversation);
+    if (behavioralLayers.length > 0) {
+      const action: "block" | "sanitize" | "flag" = settings.behavioral_action ?? "flag";
+      // `sanitize` doesn't make sense at conversation level (we'd have to pick
+      // a turn to redact and there's no precise span). Coerce to `flag`.
+      const effective = action === "sanitize" ? "flag" : action;
+      for (const layer of behavioralLayers) layer.verdict = effective;
+      layers.push(...behavioralLayers);
+    }
+  }
+
   // 2. Intent layer verdict (built from the same classification, no extra call).
   let shadow_only = false;
   if (detected) {
@@ -775,6 +912,8 @@ export const DEFAULT_SETTINGS: PolicySettings = {
   workspace_purpose: null,
   enable_injection_guard: true,
   injection_action: "block",
+  enable_behavioral: true,
+  behavioral_action: "flag",
 };
 
 export const KNOWN_INTENTS = [

@@ -1086,6 +1086,10 @@ Deno.serve(async (req) => {
             workspace_purpose: null,
             enable_injection_guard: true,
             injection_action: "block",
+            enable_behavioral: true,
+            behavioral_action: "flag",
+            throttle_window_minutes: 5,
+            throttle_flag_threshold: 10,
           },
           known_intents: [
             "jailbreak", "prompt_injection", "data_exfiltration",
@@ -1098,7 +1102,7 @@ Deno.serve(async (req) => {
         const allowedKeys = [
           "enable_normalizer", "enable_patterns", "enable_heuristics",
           "enable_intent", "intent_shadow_mode", "strict_mode",
-          "enable_injection_guard",
+          "enable_injection_guard", "enable_behavioral",
         ] as const;
         const patch: Record<string, unknown> = { user_id: userId };
         for (const k of allowedKeys) {
@@ -1114,6 +1118,27 @@ Deno.serve(async (req) => {
             return json({ error: "Invalid injection_action" }, 400);
           }
           patch.injection_action = a;
+        }
+        if ("behavioral_action" in (body ?? {})) {
+          const a = String(body.behavioral_action);
+          if (!["block", "sanitize", "flag"].includes(a)) {
+            return json({ error: "Invalid behavioral_action" }, 400);
+          }
+          patch.behavioral_action = a;
+        }
+        if ("throttle_window_minutes" in (body ?? {})) {
+          const n = Number(body.throttle_window_minutes);
+          if (!Number.isInteger(n) || n < 1 || n > 1440) {
+            return json({ error: "throttle_window_minutes must be an integer 1-1440" }, 400);
+          }
+          patch.throttle_window_minutes = n;
+        }
+        if ("throttle_flag_threshold" in (body ?? {})) {
+          const n = Number(body.throttle_flag_threshold);
+          if (!Number.isInteger(n) || n < 0 || n > 100000) {
+            return json({ error: "throttle_flag_threshold must be a non-negative integer" }, 400);
+          }
+          patch.throttle_flag_threshold = n;
         }
         await sb.from("policy_settings").upsert(patch, { onConflict: "user_id" });
         return json({ ok: true });
