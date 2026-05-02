@@ -2,9 +2,9 @@
 // Public function; authenticated via AnveGuard API keys (Authorization: Bearer ag_live_...).
 import { corsHeaders, json, service, sha256Hex, decryptString,
   GLOBAL_DEFAULT_BLOCKED, checkPolicy } from "../_shared/anveguard.ts";
-
-const LOVABLE_GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
+import { getProvider } from "../_shared/providers.ts";
+import { openaiToAnthropicRequest, anthropicToOpenAIResponse,
+  anthropicStreamToOpenAI } from "../_shared/anthropic.ts";
 
 function openaiErrorShape(message: string, type = "policy_violation") {
   return { error: { message, type, code: type } };
@@ -31,12 +31,25 @@ Deno.serve(async (req) => {
     return json(openaiErrorShape("Invalid or revoked API key", "invalid_request_error"), 401);
   }
 
+  const provider = getProvider(keyRow.provider);
+  if (!provider) return json(openaiErrorShape(`Unknown provider: ${keyRow.provider}`, "server_error"), 500);
+
   // Body
   let body: any;
   try { body = await req.json(); } catch { return json(openaiErrorShape("Invalid JSON body", "invalid_request_error"), 400); }
   if (!Array.isArray(body?.messages)) return json(openaiErrorShape("messages must be an array", "invalid_request_error"), 400);
   const model = body.model || keyRow.model_default;
   const stream = !!body.stream;
+
+  // Resolve upstream credentials
+  let upstreamKey: string | null = null;
+  if (provider.managed) {
+    upstreamKey = Deno.env.get("LOVABLE_API_KEY") || null;
+    if (!upstreamKey) return json(openaiErrorShape("LOVABLE_API_KEY not configured", "server_error"), 500);
+  } else {
+    if (!keyRow.provider_key_encrypted) return json(openaiErrorShape(`${provider.label} key not stored`, "server_error"), 500);
+    upstreamKey = await decryptString(keyRow.provider_key_encrypted);
+  }
 
   // Load policies
   const { data: pol } = await sb.from("policies").select("*").eq("user_id", keyRow.user_id).maybeSingle();
@@ -81,21 +94,22 @@ Deno.serve(async (req) => {
     return json(responsePayload, 200);
   }
 
-  // Build forward request
-  const forwardBody = { ...body, model, stream };
-  let forwardUrl: string;
+  // Build forward request per provider kind
+  let forwardUrl = provider.url;
+  let forwardBody: any;
   let forwardHeaders: Record<string, string> = { "Content-Type": "application/json" };
 
-  if (keyRow.provider === "lovable") {
-    const apiKey = Deno.env.get("LOVABLE_API_KEY");
-    if (!apiKey) return json(openaiErrorShape("LOVABLE_API_KEY not configured", "server_error"), 500);
-    forwardUrl = LOVABLE_GATEWAY;
-    forwardHeaders.Authorization = `Bearer ${apiKey}`;
+  if (provider.kind === "anthropic") {
+    forwardBody = openaiToAnthropicRequest({ ...body, model });
+    forwardHeaders["x-api-key"] = upstreamKey!;
+    forwardHeaders["anthropic-version"] = "2023-06-01";
   } else {
-    if (!keyRow.provider_key_encrypted) return json(openaiErrorShape("OpenAI key not stored", "server_error"), 500);
-    const openaiKey = await decryptString(keyRow.provider_key_encrypted);
-    forwardUrl = OPENAI_URL;
-    forwardHeaders.Authorization = `Bearer ${openaiKey}`;
+    forwardBody = { ...body, model, stream };
+    forwardHeaders.Authorization = `Bearer ${upstreamKey}`;
+    if (provider.id === "openrouter") {
+      forwardHeaders["HTTP-Referer"] = "https://anveguard.app";
+      forwardHeaders["X-Title"] = "AnveGuard";
+    }
   }
 
   let upstream: Response;
@@ -116,13 +130,33 @@ Deno.serve(async (req) => {
     return new Response(text, { status: upstream.status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
-  // Streaming path
+  // ===== Streaming =====
   if (stream && upstream.body) {
+    if (provider.kind === "anthropic") {
+      const { stream: oaiStream, done } = anthropicStreamToOpenAI(upstream.body, model);
+      done.then(async ({ assistantText, usage }) => {
+        const outCheck = checkPolicy(assistantText, blocked, allowed);
+        const status = outCheck.blocked ? "blocked_output" : "allowed";
+        await sb.from("request_logs").insert({
+          ...logBase, status,
+          block_reason: outCheck.blocked ? `Output matched: "${outCheck.matched}"` : null,
+          response: { streamed: true, content: assistantText },
+          latency_ms: Date.now() - start,
+          tokens_in: usage?.prompt_tokens ?? null,
+          tokens_out: usage?.completion_tokens ?? null,
+        });
+        await sb.from("api_keys").update({ last_used_at: new Date().toISOString() }).eq("id", keyRow.id);
+      });
+      return new Response(oaiStream, {
+        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+      });
+    }
+
+    // OpenAI-compatible passthrough w/ tap
     let buffered = "";
     let assistantText = "";
     let finalUsage: any = null;
     let finalModel = model;
-    const encoder = new TextEncoder();
     const decoder = new TextDecoder();
 
     const transformed = new ReadableStream({
@@ -152,7 +186,6 @@ Deno.serve(async (req) => {
           }
         } finally {
           controller.close();
-          // Output policy check (post-hoc)
           const outCheck = checkPolicy(assistantText, blocked, allowed);
           const status = outCheck.blocked ? "blocked_output" : "allowed";
           await sb.from("request_logs").insert({
@@ -172,8 +205,9 @@ Deno.serve(async (req) => {
     });
   }
 
-  // Non-streaming
-  const data = await upstream.json();
+  // ===== Non-streaming =====
+  const rawData = await upstream.json();
+  const data = provider.kind === "anthropic" ? anthropicToOpenAIResponse(rawData) : rawData;
   const assistantText = data?.choices?.[0]?.message?.content ?? "";
   const outCheck = typeof assistantText === "string"
     ? checkPolicy(assistantText, blocked, allowed) : { blocked: false };
