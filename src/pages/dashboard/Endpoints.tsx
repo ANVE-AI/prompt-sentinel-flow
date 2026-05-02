@@ -786,29 +786,71 @@ const Endpoints = () => {
 
               <div>
                 <Label className="text-xs">Default model</Label>
-                {liveModels && liveModels.length > 0 ? (
-                  <div className="flex gap-2 mt-1">
-                    <Select
-                      value={liveModels.includes(form.default_model) ? form.default_model : ""}
-                      onValueChange={(v) => setForm({ ...form, default_model: v })}
-                    >
-                      <SelectTrigger className="font-mono text-xs">
-                        <SelectValue placeholder="Pick from live list…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {liveModels.map((m) => (
-                          <SelectItem key={m} value={m} className="font-mono text-xs">{m}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Input
-                      value={form.default_model}
-                      onChange={(e) => setForm({ ...form, default_model: e.target.value })}
-                      placeholder="or type manually"
-                      className="font-mono text-xs"
-                    />
-                  </div>
-                ) : (
+                {liveModels && liveModels.length > 0 ? (() => {
+                  const q = modelFilter.trim().toLowerCase();
+                  const filtered = q
+                    ? liveModels.filter((m) => m.toLowerCase().includes(q))
+                    : liveModels;
+                  return (
+                    <div className="space-y-2 mt-1">
+                      {liveModels.length > 6 && (
+                        <div className="relative">
+                          <Input
+                            value={modelFilter}
+                            onChange={(e) => setModelFilter(e.target.value)}
+                            placeholder={`Search ${liveModels.length} models…`}
+                            className="font-mono text-xs pr-7"
+                          />
+                          {modelFilter && (
+                            <button
+                              type="button"
+                              onClick={() => setModelFilter("")}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                              aria-label="Clear search"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      <div className="flex gap-2">
+                        <Select
+                          value={filtered.includes(form.default_model) ? form.default_model : ""}
+                          onValueChange={(v) => setForm({ ...form, default_model: v })}
+                        >
+                          <SelectTrigger className="font-mono text-xs">
+                            <SelectValue
+                              placeholder={
+                                filtered.length === 0
+                                  ? "No matches"
+                                  : q
+                                    ? `Pick from ${filtered.length} of ${liveModels.length}…`
+                                    : "Pick from live list…"
+                              }
+                            />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            {filtered.length === 0 ? (
+                              <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                                No models match "{modelFilter}"
+                              </div>
+                            ) : (
+                              filtered.map((m) => (
+                                <SelectItem key={m} value={m} className="font-mono text-xs">{m}</SelectItem>
+                              ))
+                            )}
+                          </SelectContent>
+                        </Select>
+                        <Input
+                          value={form.default_model}
+                          onChange={(e) => setForm({ ...form, default_model: e.target.value })}
+                          placeholder="or type manually"
+                          className="font-mono text-xs"
+                        />
+                      </div>
+                    </div>
+                  );
+                })() : (
                   <Input
                     value={form.default_model}
                     onChange={(e) => setForm({ ...form, default_model: e.target.value })}
