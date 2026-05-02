@@ -206,27 +206,92 @@ Deno.serve(async (req) => {
   // Per-API-key risk window: count flag/block verdicts in the recent window.
   // Threshold of 0 = disabled. We do this BEFORE the (possibly LLM-backed)
   // policy evaluation so abusive keys can't run up our intent-classifier bill.
+  //
+  // Exponential backoff: each prior `throttled` event for this key inside the
+  // window doubles the cool-down (60s base, capped at the full window). While
+  // a key is in cool-down we deny with 429 + Retry-After. Once the key clears
+  // both the cool-down AND drops back below the risky-request threshold, it
+  // resumes normal traffic.
   const throttleThreshold = settings.throttle_flag_threshold ?? 0;
   const throttleWindowMin = settings.throttle_window_minutes ?? 5;
   if (throttleThreshold > 0) {
-    const since = new Date(Date.now() - throttleWindowMin * 60_000).toISOString();
-    const { count } = await sb.from("request_logs")
-      .select("id", { count: "exact", head: true })
-      .eq("api_key_id", keyRow.id)
-      .in("verdict", ["flag", "block"])
-      .gte("created_at", since);
-    if ((count ?? 0) >= throttleThreshold) {
-      const reason = `Throttled: ${count} risky requests in the last ${throttleWindowMin} min (threshold ${throttleThreshold}).`;
+    const windowMs = throttleWindowMin * 60_000;
+    const sinceIso = new Date(Date.now() - windowMs).toISOString();
+
+    // Pull both signals in parallel: the rolling risky-count and the most
+    // recent throttle event (with the running streak count) for backoff.
+    const [riskyRes, throttleRes] = await Promise.all([
+      sb.from("request_logs")
+        .select("id", { count: "exact", head: true })
+        .eq("api_key_id", keyRow.id)
+        .in("verdict", ["flag", "block"])
+        .gte("created_at", sinceIso),
+      sb.from("request_logs")
+        .select("created_at", { count: "exact" })
+        .eq("api_key_id", keyRow.id)
+        .eq("status", "throttled")
+        .gte("created_at", sinceIso)
+        .order("created_at", { ascending: false })
+        .limit(1),
+    ]);
+
+    const riskyCount = riskyRes.count ?? 0;
+    const throttledCount = throttleRes.count ?? 0;
+    const lastThrottleAt = throttleRes.data?.[0]?.created_at
+      ? Date.parse(throttleRes.data[0].created_at) : 0;
+
+    // Cool-down doubles per prior throttle: 60s, 2m, 4m, 8m, ... capped at
+    // the configured window so a single bad burst can't lock the key out
+    // beyond the operator's risk window.
+    const BACKOFF_BASE_MS = 60_000;
+    const backoffMs = Math.min(
+      BACKOFF_BASE_MS * Math.pow(2, throttledCount),
+      windowMs,
+    );
+    const remainingCooldownMs = lastThrottleAt
+      ? Math.max(0, lastThrottleAt + backoffMs - Date.now()) : 0;
+
+    const overThreshold = riskyCount >= throttleThreshold;
+    const inCooldown = remainingCooldownMs > 0;
+
+    if (overThreshold || inCooldown) {
+      const retryAfterSec = Math.max(
+        1,
+        Math.ceil((inCooldown ? remainingCooldownMs : backoffMs) / 1000),
+      );
+      const reason = inCooldown
+        ? `Throttled: backoff active (${throttledCount} prior throttle${throttledCount === 1 ? "" : "s"} in ${throttleWindowMin} min). Retry in ${retryAfterSec}s.`
+        : `Throttled: ${riskyCount} risky requests in the last ${throttleWindowMin} min (threshold ${throttleThreshold}). Retry in ${retryAfterSec}s.`;
+
       await sb.from("request_logs").insert({
         user_id: keyRow.user_id, api_key_id: keyRow.id, provider: keyRow.provider,
         model, messages: body.messages,
         status: "throttled", verdict: "block", block_reason: reason,
-        verdict_layers: [{ layer: "behavioral", verdict: "block", rule: "throttle", reason }],
+        verdict_layers: [{
+          layer: "behavioral", verdict: "block", rule: "throttle",
+          reason,
+          // Surface the backoff state for observability / dashboard.
+          matched: JSON.stringify({
+            risky_count: riskyCount,
+            prior_throttles: throttledCount,
+            backoff_ms: backoffMs,
+            retry_after_sec: retryAfterSec,
+          }),
+        }],
         latency_ms: Date.now() - start, tokens_in: 0, tokens_out: 0,
       });
       return json(
-        { ...openaiErrorShape(reason, "rate_limit_exceeded"), anveguard: { throttled: true, reason } },
+        {
+          ...openaiErrorShape(reason, "rate_limit_exceeded"),
+          anveguard: {
+            throttled: true, reason,
+            retry_after_sec: retryAfterSec,
+            backoff_ms: backoffMs,
+            prior_throttles: throttledCount,
+          },
+        },
         429,
+        { "Retry-After": String(retryAfterSec) },
       );
     }
   }
