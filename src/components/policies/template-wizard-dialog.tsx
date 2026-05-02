@@ -273,6 +273,8 @@ export function TemplateWizardDialog({
               onChange={setIntentScope}
               customIntent={customIntent}
               onCustomChange={setCustomIntent}
+              unknownFallback={unknownFallback}
+              onUnknownFallbackChange={setUnknownFallback}
             />
           ) : (
             <ReviewStep
@@ -283,6 +285,7 @@ export function TemplateWizardDialog({
               settings={selectedSettings}
               rules={selectedRules}
               intentScope={intentScope}
+              unknownFallback={unknownFallback}
             />
           )}
         </div>
