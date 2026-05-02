@@ -412,9 +412,34 @@ const Endpoints = () => {
 
   const requiresKey = form.auth_scheme !== "none";
   const hasKeyOnRecord = isEdit && data?.endpoints.find((e) => e.id === form.id)?.has_key;
-  const canSave =
-    !!form.name && !!form.base_url &&
-    (!requiresKey || hasKeyOnRecord || !!form.provider_key);
+
+  // Validate the template-prefilled fields on every change. Errors are surfaced
+  // inline next to each field AND in a summary banner above the action buttons.
+  // Both Test connection and Save are gated on `validation.success` so users
+  // can't fire half-configured requests at upstream providers.
+  const validation = useMemo(() => {
+    const r = endpointFormSchema.safeParse(form);
+    if (r.success) return { success: true as const, errors: {} as EndpointFormErrors };
+    const errors: EndpointFormErrors = {};
+    for (const issue of r.error.issues) {
+      const key = issue.path[0] as keyof EndpointFormErrors | undefined;
+      if (key && !errors[key]) errors[key] = issue.message;
+    }
+    return { success: false as const, errors };
+  }, [form]);
+
+  const errorEntries = Object.entries(validation.errors) as Array<[keyof EndpointFormErrors, string]>;
+  const FIELD_LABELS: Record<keyof EndpointFormErrors, string> = {
+    name: "Name", base_url: "Base URL", kind: "Kind",
+    auth_scheme: "Auth scheme", auth_header: "Auth header/param",
+    response_format: "Response format",
+    models_url: "Models URL", path_prefix: "Path prefix",
+    chat_path: "Chat path", models_path: "Models path",
+    default_model: "Default model",
+  };
+
+  const canSave = validation.success && (!requiresKey || hasKeyOnRecord || !!form.provider_key);
+  const canTest = validation.success;
 
   const test = async () => {
     setTesting(true); setTestResult(null);
