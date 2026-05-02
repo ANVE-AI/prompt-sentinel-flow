@@ -294,7 +294,7 @@ export function TemplateWizardDialog({
               Cancel
             </Button>
           )}
-          {step < 4 ? (
+          {step < 5 ? (
             <Button
               disabled={!canNext}
               onClick={() => setStep((s) => (s + 1) as Step)}
