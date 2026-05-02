@@ -122,7 +122,13 @@ const Endpoints = () => {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [confirmDelete, setConfirmDelete] = useState<EndpointRow | null>(null);
   const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [testResult, setTestResult] = useState<{
+    ok: boolean;
+    msg: string;
+    checks?: { name: string; ok: boolean; detail?: string }[];
+    chat_probe?: { ok: boolean; status?: number; latency_ms?: number; model?: string; error?: string | null } | null;
+  } | null>(null);
+  const [probeChat, setProbeChat] = useState(false);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [liveModels, setLiveModels] = useState<string[] | null>(null);
   const [modelsResult, setModelsResult] = useState<{ ok: boolean; msg: string } | null>(null);
