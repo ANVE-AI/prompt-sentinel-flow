@@ -62,6 +62,12 @@ export interface PolicySettings {
   intent_shadow_mode: boolean;
   strict_mode: boolean;
   workspace_purpose?: string | null;
+  /** Dedicated jailbreak / prompt-injection detector (separate from heuristics so it
+   *  can be configured independently and produce sanitization spans). */
+  enable_injection_guard?: boolean;
+  /** What the injection guard does on a hit. `sanitize` rewrites the offending
+   *  spans to `[redacted]` before forwarding upstream. */
+  injection_action?: "block" | "sanitize" | "flag";
 }
 
 export interface LegacyPolicy {
