@@ -44,6 +44,10 @@ interface EndpointRow {
   extra_headers: Record<string, string>;
   model_suggestions: string[];
   default_model: string | null;
+  path_prefix: string | null;
+  chat_path: string | null;
+  models_path: string | null;
+  response_format: string | null;
   has_key: boolean;
   key_count: number;
   updated_at: string;
@@ -63,6 +67,10 @@ interface FormState {
   provider_key: string;
   clear_provider_key: boolean;
   extra_headers: { key: string; value: string }[];
+  path_prefix: string;
+  chat_path: string;
+  models_path: string;
+  response_format: string;
 }
 
 const emptyForm: FormState = {
@@ -78,6 +86,10 @@ const emptyForm: FormState = {
   provider_key: "",
   clear_provider_key: false,
   extra_headers: [],
+  path_prefix: "",
+  chat_path: "",
+  models_path: "",
+  response_format: "chat_completions",
 };
 
 const Endpoints = () => {
