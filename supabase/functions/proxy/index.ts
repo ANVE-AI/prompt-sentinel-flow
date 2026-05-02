@@ -542,7 +542,7 @@ Deno.serve(async (req) => {
         ...logBase, model: chosenModel, status: "error", block_reason: lastErrorReason,
         latency_ms: Date.now() - start,
       });
-      return json(errorForShape(reqShape, lastErrorReason, "server_error"), lastErrorStatus);
+      return errorResponse(reqShape, lastErrorStatus, lastErrorReason, { code: lastErrorStatus === 504 ? "upstream_timeout" : "upstream_unreachable" });
     }
     if (tid) clearTimeout(tid);
 
