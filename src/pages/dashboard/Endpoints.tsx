@@ -200,6 +200,17 @@ const emptyForm: FormState = {
   response_format: "chat_completions",
 };
 
+// Time-range presets for the endpoint usage dialog. Mirrors the values
+// accepted by the `endpoint_usage` action's `range` parameter.
+type UsageRange = "1h" | "24h" | "7d" | "30d" | "all";
+const USAGE_RANGES: { value: UsageRange; label: string; longLabel: string }[] = [
+  { value: "1h", label: "1h", longLabel: "the last 1 hour" },
+  { value: "24h", label: "24h", longLabel: "the last 24 hours" },
+  { value: "7d", label: "7d", longLabel: "the last 7 days" },
+  { value: "30d", label: "30d", longLabel: "the last 30 days" },
+  { value: "all", label: "All", longLabel: "all time" },
+];
+
 const Endpoints = () => {
   const { call } = useDashboardApi();
   const qc = useQueryClient();
@@ -218,12 +229,19 @@ const Endpoints = () => {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [confirmDelete, setConfirmDelete] = useState<EndpointRow | null>(null);
   const [usageEndpoint, setUsageEndpoint] = useState<EndpointRow | null>(null);
+  // Rolling window applied to both the stats tiles and the recent requests
+  // list inside the usage dialog. Resets to "24h" each time the dialog is
+  // (re-)opened so users get a predictable starting view.
+  const [usageRange, setUsageRange] = useState<UsageRange>("24h");
+  useEffect(() => {
+    if (usageEndpoint) setUsageRange("24h");
+  }, [usageEndpoint?.id]);
 
   const usageQuery = useQuery({
     enabled: !!usageEndpoint,
-    queryKey: ["endpoint_usage", usageEndpoint?.id],
-    queryFn: () => call<{ usage: any[] }>("endpoint_usage", {
-      query: { endpoint_id: usageEndpoint!.id, limit: "25" },
+    queryKey: ["endpoint_usage", usageEndpoint?.id, usageRange],
+    queryFn: () => call<{ usage: any[]; range: UsageRange; since: string | null }>("endpoint_usage", {
+      query: { endpoint_id: usageEndpoint!.id, limit: "25", range: usageRange },
     }),
   });
   const usageRow = usageQuery.data?.usage?.[0];
@@ -1555,10 +1573,30 @@ const Endpoints = () => {
       <Dialog open={!!usageEndpoint} onOpenChange={(o) => !o && setUsageEndpoint(null)}>
         <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Activity className="h-4 w-4" />
-              Usage · {usageEndpoint?.name}
-            </DialogTitle>
+            <div className="flex items-start justify-between gap-3">
+              <DialogTitle className="flex items-center gap-2">
+                <Activity className="h-4 w-4" />
+                Usage · {usageEndpoint?.name}
+              </DialogTitle>
+              {/* Time-range segmented control */}
+              <div className="inline-flex items-center rounded-md border bg-muted/30 p-0.5 shrink-0">
+                {USAGE_RANGES.map((r) => (
+                  <button
+                    key={r.value}
+                    type="button"
+                    onClick={() => setUsageRange(r.value)}
+                    aria-pressed={usageRange === r.value}
+                    className={`px-2.5 py-1 text-xs rounded-sm transition-colors ${
+                      usageRange === r.value
+                        ? "bg-background text-foreground shadow-sm font-medium"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </DialogHeader>
 
           {usageQuery.isLoading ? (
@@ -1577,11 +1615,12 @@ const Endpoints = () => {
                 <StatTile label="Blocked" value={usageRow.stats.blocked_count} tone={usageRow.stats.blocked_count ? "warn" : undefined} />
                 <StatTile label="Avg latency" value={`${usageRow.stats.avg_latency_ms}ms`} />
               </div>
-              {usageRow.stats.last_request_at && (
-                <p className="text-xs text-muted-foreground">
-                  Last request {new Date(usageRow.stats.last_request_at).toLocaleString()}
-                </p>
-              )}
+              <p className="text-xs text-muted-foreground">
+                Showing data from {USAGE_RANGES.find((r) => r.value === usageRange)?.longLabel ?? "the last 24 hours"}
+                {usageRow.stats.last_request_at && (
+                  <> · last request {new Date(usageRow.stats.last_request_at).toLocaleString()}</>
+                )}
+              </p>
 
               {/* Bound API keys */}
               <div>
@@ -1615,7 +1654,9 @@ const Endpoints = () => {
                 <h3 className="text-sm font-medium mb-2">Recent requests ({usageRow.recent_requests.length})</h3>
                 {usageRow.recent_requests.length === 0 ? (
                   <div className="text-xs text-muted-foreground py-3 px-3 rounded-md border border-dashed">
-                    No requests have been routed through this endpoint yet.
+                    {usageRange === "all"
+                      ? "No requests have been routed through this endpoint yet."
+                      : `No requests in ${USAGE_RANGES.find((r) => r.value === usageRange)?.longLabel ?? "the selected window"}.`}
                   </div>
                 ) : (
                   <div className="rounded-md border divide-y max-h-80 overflow-y-auto">
