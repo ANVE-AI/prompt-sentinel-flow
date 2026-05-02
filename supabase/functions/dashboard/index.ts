@@ -353,10 +353,12 @@ Deno.serve(async (req) => {
       }
 
       case "test_endpoint": {
-        // Test a saved endpoint by id (uses stored provider key) OR ad-hoc form values.
-        const { id } = body;
+        // Deep test: validates URL resolution, auth scheme requirements, models listing,
+        // and (optionally) a low-cost chat completion probe.
+        const { id, probe_chat, probe_model } = body;
         let cfg: any = body;
         let upstreamKey: string | null = body.provider_key || null;
+        let hasStoredKey = false;
 
         if (id) {
           const { data: row } = await sb.from("endpoints").select("*")
@@ -368,18 +370,65 @@ Deno.serve(async (req) => {
             auth_header: row.auth_header, extra_headers: row.extra_headers,
             path_prefix: row.path_prefix, chat_path: row.chat_path,
             models_path: row.models_path, response_format: row.response_format,
+            default_model: row.default_model,
           };
+          hasStoredKey = !!row.provider_key_encrypted;
           if (row.provider_key_encrypted && !upstreamKey) {
             upstreamKey = await decryptString(row.provider_key_encrypted);
           }
         }
 
-        if (!cfg.base_url) return json({ ok: false, error: "Base URL required" }, 400);
+        const checks: { name: string; ok: boolean; detail?: string }[] = [];
+        const addCheck = (name: string, ok: boolean, detail?: string) =>
+          checks.push({ name, ok, detail });
+
+        // ---------- Check 1: Base URL ----------
+        if (!cfg.base_url) {
+          addCheck("Base URL provided", false, "Missing base_url");
+          return json({ ok: false, checks, error: "Base URL required" }, 400);
+        }
+        try {
+          new URL(cfg.base_url);
+          addCheck("Base URL valid", true, cfg.base_url);
+        } catch {
+          addCheck("Base URL valid", false, "Not a valid URL");
+          return json({ ok: false, checks, error: "Invalid base_url" }, 400);
+        }
+
+        // ---------- Check 2: Auth scheme requirements ----------
+        const scheme = cfg.auth_scheme || "bearer";
+        const authHeaderName = (cfg.auth_header || "").trim();
+        if (scheme === "none") {
+          addCheck("Auth scheme: none", true, "No credentials required");
+        } else {
+          const keyAvailable = !!upstreamKey || hasStoredKey;
+          if (!keyAvailable) {
+            addCheck(`Auth scheme: ${scheme}`, false, "Provider key missing");
+            return json({ ok: false, checks, error: `Auth scheme '${scheme}' requires a provider key` }, 400);
+          }
+          if ((scheme === "header" || scheme === "query") && !authHeaderName) {
+            addCheck(
+              `Auth scheme: ${scheme}`,
+              false,
+              `'${scheme}' requires a header/param name (auth_header)`,
+            );
+            return json({
+              ok: false, checks,
+              error: `Auth scheme '${scheme}' requires the header/param name to be set`,
+            }, 400);
+          }
+          if (scheme === "bearer") addCheck("Auth: Bearer token", true, "Authorization: Bearer ***");
+          else if (scheme === "x-api-key") addCheck("Auth: x-api-key", true, "x-api-key: ***");
+          else if (scheme === "header") addCheck(`Auth: custom header`, true, `${authHeaderName}: ***`);
+          else if (scheme === "query") addCheck(`Auth: query param`, true, `?${authHeaderName}=***`);
+        }
+
+        // ---------- Check 3: URL resolution ----------
         let resolved;
         try {
           resolved = resolveCustomEndpoint({
             base_url: cfg.base_url, models_url: cfg.models_url || null,
-            kind: cfg.kind, auth_scheme: cfg.auth_scheme,
+            kind: cfg.kind, auth_scheme: scheme,
             auth_header: cfg.auth_header || null,
             extra_headers: cfg.extra_headers || null,
             path_prefix: cfg.path_prefix || null,
@@ -387,51 +436,156 @@ Deno.serve(async (req) => {
             models_path: cfg.models_path || null,
             response_format: cfg.response_format || null,
           });
+          addCheck("Resolved chat URL", true, resolved.url);
+          addCheck("Resolved models URL", true, resolved.models_url);
         } catch (e) {
-          return json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 400);
+          addCheck("URL resolution", false, e instanceof Error ? e.message : String(e));
+          return json({
+            ok: false, checks,
+            error: e instanceof Error ? e.message : String(e),
+          }, 400);
         }
 
-        const headers: Record<string, string> = { Accept: "application/json", ...resolved.extra_headers };
-        let pingUrl = resolved.models_url;
-        if (upstreamKey && resolved.auth_scheme !== "none") {
-          if (resolved.auth_scheme === "bearer") headers["Authorization"] = `Bearer ${upstreamKey}`;
-          else if (resolved.auth_scheme === "x-api-key") headers["x-api-key"] = upstreamKey;
-          else if (resolved.auth_scheme === "header") headers[resolved.auth_header] = upstreamKey;
-          else if (resolved.auth_scheme === "query") {
-            const u = new URL(pingUrl);
-            u.searchParams.set(resolved.auth_header, upstreamKey);
-            pingUrl = u.toString();
+        // Build headers + URL with auth applied
+        const buildAuthed = (rawUrl: string) => {
+          const h: Record<string, string> = { Accept: "application/json", ...resolved.extra_headers };
+          let url = rawUrl;
+          if (upstreamKey && resolved.auth_scheme !== "none") {
+            if (resolved.auth_scheme === "bearer") h["Authorization"] = `Bearer ${upstreamKey}`;
+            else if (resolved.auth_scheme === "x-api-key") h["x-api-key"] = upstreamKey;
+            else if (resolved.auth_scheme === "header") h[resolved.auth_header] = upstreamKey;
+            else if (resolved.auth_scheme === "query") {
+              const u = new URL(url);
+              u.searchParams.set(resolved.auth_header, upstreamKey);
+              url = u.toString();
+            }
+          }
+          if (resolved.kind === "anthropic" && !h["anthropic-version"]) {
+            h["anthropic-version"] = "2023-06-01";
+          }
+          return { headers: h, url };
+        };
+
+        // ---------- Check 4: Models listing ----------
+        const { headers: listHeaders, url: pingUrl } = buildAuthed(resolved.models_url);
+        const t0 = Date.now();
+        let r: Response;
+        try {
+          r = await fetch(pingUrl, { headers: listHeaders });
+        } catch (e) {
+          addCheck("Models endpoint reachable", false, e instanceof Error ? e.message : String(e));
+          return json({
+            ok: false, checks, url: pingUrl,
+            chat_url: resolved.url, response_format: resolved.response_format,
+            error: `Network error: ${e instanceof Error ? e.message : String(e)}`,
+          });
+        }
+        const latency_ms = Date.now() - t0;
+        const text = await r.text();
+        addCheck(`Models HTTP ${r.status}`, r.ok, r.ok ? `${latency_ms}ms` : text.slice(0, 200));
+
+        if (r.status === 401 || r.status === 403) {
+          return json({
+            ok: false, checks, status: r.status, latency_ms,
+            url: pingUrl, chat_url: resolved.url,
+            response_format: resolved.response_format,
+            error: `Auth rejected (HTTP ${r.status}). Verify '${scheme}'${authHeaderName ? ` with '${authHeaderName}'` : ""} and key value. Upstream: ${text.slice(0, 200)}`,
+          });
+        }
+
+        let sample: string | null = null;
+        let count = 0;
+        let modelIds: string[] = [];
+        let parsedOk = false;
+        try {
+          const j = JSON.parse(text);
+          const arr: any[] = j?.data ?? j?.models ?? (Array.isArray(j) ? j : []);
+          parsedOk = true;
+          modelIds = arr
+            .map((m: any) => (typeof m === "string" ? m : (m?.id || m?.name || m?.model)))
+            .filter((x: unknown): x is string => typeof x === "string" && x.length > 0);
+          count = modelIds.length;
+          sample = modelIds[0] ?? null;
+          addCheck("Parsed models JSON", true, `${count} model(s) found`);
+        } catch {
+          addCheck("Parsed models JSON", false, "Upstream did not return JSON");
+        }
+
+        // ---------- Check 5: default_model present in upstream list ----------
+        const defaultModel: string | undefined = cfg.default_model || undefined;
+        if (defaultModel && parsedOk && count > 0) {
+          const found = modelIds.includes(defaultModel);
+          addCheck(
+            `Default model "${defaultModel}" available`,
+            found,
+            found ? "Found in upstream list" : "Not in upstream list (may still work)",
+          );
+        }
+
+        // ---------- Check 6 (optional): chat completion probe ----------
+        let chatProbe: any = null;
+        if (probe_chat && r.ok) {
+          const probeModel = (probe_model && String(probe_model).trim())
+            || defaultModel
+            || sample
+            || null;
+          if (!probeModel) {
+            addCheck("Chat probe", false, "No model available to probe");
+          } else {
+            const { headers: chatHeaders, url: chatUrl } = buildAuthed(resolved.url);
+            chatHeaders["Content-Type"] = "application/json";
+            const fmt = resolved.response_format || "chat_completions";
+            let payload: any;
+            if (fmt === "anthropic_messages") {
+              payload = {
+                model: probeModel, max_tokens: 8,
+                messages: [{ role: "user", content: "ping" }],
+              };
+            } else if (fmt === "responses") {
+              payload = { model: probeModel, input: "ping", max_output_tokens: 8 };
+            } else {
+              payload = {
+                model: probeModel, max_tokens: 8,
+                messages: [{ role: "user", content: "ping" }],
+              };
+            }
+            const tc = Date.now();
+            try {
+              const cr = await fetch(chatUrl, {
+                method: "POST", headers: chatHeaders, body: JSON.stringify(payload),
+              });
+              const ctext = await cr.text();
+              chatProbe = {
+                ok: cr.ok, status: cr.status,
+                latency_ms: Date.now() - tc, model: probeModel,
+                error: cr.ok ? null : ctext.slice(0, 300),
+              };
+              addCheck(
+                `Chat probe (${fmt})`,
+                cr.ok,
+                cr.ok ? `${probeModel} · ${chatProbe.latency_ms}ms` : `HTTP ${cr.status}: ${ctext.slice(0, 160)}`,
+              );
+            } catch (e) {
+              chatProbe = { ok: false, error: e instanceof Error ? e.message : String(e), model: probeModel };
+              addCheck(`Chat probe (${fmt})`, false, chatProbe.error);
+            }
           }
         }
-        if (resolved.kind === "anthropic" && !headers["anthropic-version"]) {
-          headers["anthropic-version"] = "2023-06-01";
-        }
-        const t0 = Date.now();
-        try {
-          const r = await fetch(pingUrl, { headers });
-          const text = await r.text();
-          let sample: string | null = null;
-          let count = 0;
-          try {
-            const j = JSON.parse(text);
-            const arr: any[] = j?.data ?? j?.models ?? [];
-            count = arr.length;
-            sample = arr.find((m) => m?.id || m?.name)?.id ?? arr[0]?.name ?? null;
-          } catch { /* not JSON */ }
-          return json({
-            ok: r.ok,
-            status: r.status,
-            latency_ms: Date.now() - t0,
-            url: pingUrl,
-            chat_url: resolved.url,
-            response_format: resolved.response_format,
-            sample_model: sample,
-            model_count: count,
-            error: r.ok ? null : text.slice(0, 300),
-          });
-        } catch (e) {
-          return json({ ok: false, error: e instanceof Error ? e.message : String(e) });
-        }
+
+        const allOk = checks.every((c) => c.ok);
+        return json({
+          ok: allOk,
+          status: r.status,
+          latency_ms,
+          url: pingUrl,
+          chat_url: resolved.url,
+          response_format: resolved.response_format,
+          sample_model: sample,
+          model_count: count,
+          checks,
+          chat_probe: chatProbe,
+          error: allOk ? null : (checks.find((c) => !c.ok)?.detail || text.slice(0, 300)),
+        });
       }
 
       case "list_endpoint_models": {
