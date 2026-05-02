@@ -237,7 +237,7 @@ Deno.serve(async (req) => {
       // =====================================================================
       case "list_endpoints": {
         const { data } = await sb.from("endpoints")
-          .select("id,name,base_url,models_url,kind,auth_scheme,auth_header,extra_headers,model_suggestions,default_model,created_at,updated_at,provider_key_encrypted")
+          .select("id,name,base_url,models_url,kind,auth_scheme,auth_header,extra_headers,model_suggestions,default_model,path_prefix,chat_path,models_path,response_format,created_at,updated_at,provider_key_encrypted")
           .eq("user_id", userId).order("created_at", { ascending: false });
         // Mask the encrypted key — return only a "has key" bool to the UI.
         const endpoints = (data ?? []).map((e: any) => {
