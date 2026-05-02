@@ -243,6 +243,7 @@ export function PolicyTemplatesSection() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [testTpl, setTestTpl] = useState<Template | null>(null);
+  const [historyTpl, setHistoryTpl] = useState<Template | null>(null);
 
   const customQ = useQuery<{ templates: any[] }>({
     queryKey: ["policy_templates"],
