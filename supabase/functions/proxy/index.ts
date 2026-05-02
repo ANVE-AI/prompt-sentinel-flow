@@ -162,21 +162,23 @@ Deno.serve(async (req) => {
   }
   // For custom + auth_scheme === 'none', upstreamKey remains null which is fine.
 
-  // Load policies
-  const { data: pol } = await sb.from("policies").select("*").eq("user_id", keyRow.user_id).maybeSingle();
-  const blocked = [
-    ...(pol?.blocked_keywords ?? []),
-    ...(pol?.use_global_defaults !== false ? GLOBAL_DEFAULT_BLOCKED : []),
-  ];
-  const allowed = pol?.allowed_keywords ?? [];
-  const blockMessage = pol?.block_message || "This request was blocked by your organization's AI policy.";
+  // Load workspace policy state (legacy + v2 layered).
+  const policyState = await loadWorkspacePolicy(sb, keyRow.user_id);
+  const { legacy, rules, intents, settings, blockMessage } = policyState;
+  const systemPrompt = extractSystemPrompt(body.messages);
+  const toolsRequested = Array.isArray(body.tools) && body.tools.length > 0;
 
-  // Input check
+  // Flatten the prompt for evaluation. Note: original payload is forwarded as-is.
   const promptText = body.messages.map((msg: any) =>
     typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content ?? "")).join("\n");
-  const inputCheck = checkPolicy(promptText, blocked, allowed);
 
-  const logBase = {
+  // ---- Layered input evaluation -----------------------------------------
+  const inputEval: EvaluateResult = await evaluatePolicy(
+    { text: promptText, direction: "input", legacy, rules, intents, settings },
+    { systemPrompt, toolsRequested },
+  );
+
+  const logBase: any = {
     user_id: keyRow.user_id,
     api_key_id: keyRow.id,
     provider: keyRow.provider,
@@ -184,8 +186,8 @@ Deno.serve(async (req) => {
     messages: body.messages,
   };
 
-  if (inputCheck.blocked) {
-    const reason = `Matched blocked keyword: "${inputCheck.matched}"`;
+  if (inputEval.verdict === "block") {
+    const reason = inputEval.layers.find((l) => l.verdict === "block")?.reason ?? "Blocked by policy";
     const responsePayload = {
       id: `chatcmpl-blocked-${crypto.randomUUID()}`,
       object: "chat.completion",
@@ -194,10 +196,11 @@ Deno.serve(async (req) => {
       choices: [{ index: 0, finish_reason: "content_filter",
         message: { role: "assistant", content: blockMessage } }],
       usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
-      anveguard: { blocked: true, reason },
+      anveguard: { blocked: true, reason, layers: inputEval.layers },
     };
     await sb.from("request_logs").insert({
       ...logBase, status: "blocked_input", block_reason: reason,
+      verdict: "block", verdict_layers: inputEval.layers,
       response: responsePayload, latency_ms: Date.now() - start,
       tokens_in: 0, tokens_out: 0,
     });
