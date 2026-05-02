@@ -489,40 +489,13 @@ async function handleRequest(req: Request): Promise<Response> {
   // strict OpenAI-compat servers don't 400 on the unknown key.
   // Validation: reject obviously malformed inputs with OpenAI-style errors so
   // SDKs surface a clean `param: "system_prompt"` rather than a generic 500.
-  //   - must be a string (when present)
-  //   - must be non-empty after trimming
-  //   - capped at 16 000 chars (~4k tokens) — large enough for real guardrails,
-  //     small enough to prevent prompt-stuffing abuse
-  //   - must not contain NULs or control chars (other than \t/\n/\r) which can
-  //     trip upstream tokenizers and indicate copy-paste corruption
-  const SYSTEM_PROMPT_MAX = 16_000;
   const rawSystemPrompt = (body as any)?.system_prompt;
-  if (rawSystemPrompt !== undefined && rawSystemPrompt !== null) {
-    if (typeof rawSystemPrompt !== "string") {
-      return errorResponse(reqShape, 400,
-        "`system_prompt` must be a string.",
-        { code: "invalid_request_error", param: "system_prompt" });
-    }
-    if (rawSystemPrompt.length > SYSTEM_PROMPT_MAX) {
-      return errorResponse(reqShape, 400,
-        `\`system_prompt\` is too long: ${rawSystemPrompt.length} chars (max ${SYSTEM_PROMPT_MAX}).`,
-        { code: "invalid_request_error", param: "system_prompt" });
-    }
-    // eslint-disable-next-line no-control-regex
-    if (/[\u0000\u0001-\u0008\u000B\u000C\u000E-\u001F]/.test(rawSystemPrompt)) {
-      return errorResponse(reqShape, 400,
-        "`system_prompt` contains disallowed control characters.",
-        { code: "invalid_request_error", param: "system_prompt" });
-    }
-  }
-  const customSystemPrompt = typeof rawSystemPrompt === "string"
-    ? rawSystemPrompt.trim()
-    : "";
-  if (typeof rawSystemPrompt === "string" && !customSystemPrompt) {
-    return errorResponse(reqShape, 400,
-      "`system_prompt` cannot be empty or whitespace-only. Omit the field instead.",
+  const validation = validateSystemPrompt(rawSystemPrompt);
+  if (validation.error) {
+    return errorResponse(reqShape, 400, validation.error,
       { code: "invalid_request_error", param: "system_prompt" });
   }
+  const customSystemPrompt = validation.value;
   if (customSystemPrompt) {
     // Two gates must pass:
     //   1) workspace policy must permit per-request overrides at all
