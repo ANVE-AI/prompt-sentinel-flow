@@ -86,6 +86,14 @@ export interface PolicySettings {
    *  blocking a request. Lower = more aggressive, higher = fewer false
    *  positives. */
   semantic_threshold?: number;
+  /** Min flip-phrase hits in the recent window to fire `instruction_churn`. */
+  behavioral_churn_threshold?: number;
+  /** Min jailbreak-persona mentions across user turns to fire `roleplay_escalation`. */
+  behavioral_persona_threshold?: number;
+  /** Final encoded-ratio threshold (0..1) the last turn must cross for `encoding_escalation`. */
+  behavioral_encoding_ratio_step?: number;
+  /** Multiplier of the conversation-mean length the latest turn must exceed for `length_spike`. */
+  behavioral_length_multiplier?: number;
 }
 
 export interface LegacyPolicy {
