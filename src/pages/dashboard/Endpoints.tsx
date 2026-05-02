@@ -1854,6 +1854,43 @@ const Endpoints = () => {
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
+
+          {confirmRevokeKey && (
+            <div className="space-y-3">
+              {/* Key activity context */}
+              <div className="rounded-md border bg-muted/30 px-3 py-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                <div className="text-muted-foreground">Last used</div>
+                <div className="text-foreground tabular-nums text-right">
+                  {confirmRevokeKey.last_used_at
+                    ? new Date(confirmRevokeKey.last_used_at).toLocaleString()
+                    : <span className="text-muted-foreground italic">never</span>}
+                </div>
+                <div className="text-muted-foreground">Last model</div>
+                <div className="text-foreground text-right truncate">
+                  {confirmRevokeKey.last_model
+                    ? <code>{confirmRevokeKey.last_model}</code>
+                    : <span className="text-muted-foreground italic">
+                        no activity in {USAGE_RANGES.find((r) => r.value === usageRange)?.longLabel ?? "the selected window"}
+                      </span>}
+                </div>
+              </div>
+
+              {/* In-flight requests clarification — important for users worried
+                  about cancelling a streaming response mid-flight. */}
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs flex gap-2">
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-500 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <div className="font-medium text-foreground">In-flight requests will continue.</div>
+                  <div className="text-muted-foreground">
+                    Revocation only blocks <span className="font-medium text-foreground">new</span> requests.
+                    Any call that has already passed authentication (including streaming responses
+                    in progress) will run to completion. Subsequent requests will be rejected with 401.
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <AlertDialogFooter>
             <AlertDialogCancel disabled={revokeKeyMutation.isPending}>Cancel</AlertDialogCancel>
             <AlertDialogAction
