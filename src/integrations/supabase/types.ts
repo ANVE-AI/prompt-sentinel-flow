@@ -24,6 +24,7 @@ export type Database = {
           custom_kind: string | null
           custom_model_suggestions: string[] | null
           custom_models_url: string | null
+          endpoint_id: string | null
           id: string
           is_active: boolean
           key_hash: string
@@ -44,6 +45,7 @@ export type Database = {
           custom_kind?: string | null
           custom_model_suggestions?: string[] | null
           custom_models_url?: string | null
+          endpoint_id?: string | null
           id?: string
           is_active?: boolean
           key_hash: string
@@ -64,6 +66,7 @@ export type Database = {
           custom_kind?: string | null
           custom_model_suggestions?: string[] | null
           custom_models_url?: string | null
+          endpoint_id?: string | null
           id?: string
           is_active?: boolean
           key_hash?: string
@@ -77,6 +80,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "api_keys_endpoint_id_fkey"
+            columns: ["endpoint_id"]
+            isOneToOne: false
+            referencedRelation: "endpoints"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "api_keys_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
@@ -84,6 +94,57 @@ export type Database = {
             referencedColumns: ["clerk_user_id"]
           },
         ]
+      }
+      endpoints: {
+        Row: {
+          auth_header: string | null
+          auth_scheme: string
+          base_url: string
+          created_at: string
+          default_model: string | null
+          extra_headers: Json
+          id: string
+          kind: string
+          model_suggestions: string[]
+          models_url: string | null
+          name: string
+          provider_key_encrypted: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          auth_header?: string | null
+          auth_scheme?: string
+          base_url: string
+          created_at?: string
+          default_model?: string | null
+          extra_headers?: Json
+          id?: string
+          kind?: string
+          model_suggestions?: string[]
+          models_url?: string | null
+          name: string
+          provider_key_encrypted?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          auth_header?: string | null
+          auth_scheme?: string
+          base_url?: string
+          created_at?: string
+          default_model?: string | null
+          extra_headers?: Json
+          id?: string
+          kind?: string
+          model_suggestions?: string[]
+          models_url?: string | null
+          name?: string
+          provider_key_encrypted?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       policies: {
         Row: {
