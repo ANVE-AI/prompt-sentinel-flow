@@ -1092,6 +1092,8 @@ Deno.serve(async (req) => {
           enable_injection_guard: true, injection_action: "block",
           enable_behavioral: true, behavioral_action: "flag",
           throttle_window_minutes: 5, throttle_flag_threshold: 10,
+          behavioral_churn_threshold: 3, behavioral_persona_threshold: 3,
+          behavioral_encoding_ratio_step: 0.25, behavioral_length_multiplier: 8,
           enable_fuzzy_keywords: true, enable_semantic_keywords: false,
           semantic_threshold: 0.78,
         };
