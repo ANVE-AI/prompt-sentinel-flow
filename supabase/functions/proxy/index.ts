@@ -99,22 +99,26 @@ Deno.serve(async (req) => {
     return json(responsePayload, 200);
   }
 
-  // Build forward request per provider kind
-  let forwardUrl = provider.url;
-  let forwardBody: any;
+  // Build forward request via resolveEndpoint (handles built-in + custom)
+  let forwardUrl: string;
+  let forwardKind: "openai_compatible" | "anthropic";
   let forwardHeaders: Record<string, string> = { "Content-Type": "application/json" };
+  try {
+    const resolved = resolveEndpoint(keyRow as any, upstreamKey);
+    forwardUrl = resolved.url;
+    forwardKind = resolved.kind;
+    forwardHeaders = { ...forwardHeaders, ...resolved.headers };
+  } catch (e) {
+    return json(openaiErrorShape(
+      `Endpoint resolution failed: ${e instanceof Error ? e.message : String(e)}`,
+      "server_error"), 500);
+  }
 
-  if (provider.kind === "anthropic") {
+  let forwardBody: any;
+  if (forwardKind === "anthropic") {
     forwardBody = openaiToAnthropicRequest({ ...body, model });
-    forwardHeaders["x-api-key"] = upstreamKey!;
-    forwardHeaders["anthropic-version"] = "2023-06-01";
   } else {
     forwardBody = { ...body, model, stream };
-    forwardHeaders.Authorization = `Bearer ${upstreamKey}`;
-    if (provider.id === "openrouter") {
-      forwardHeaders["HTTP-Referer"] = "https://anveguard.app";
-      forwardHeaders["X-Title"] = "AnveGuard";
-    }
   }
 
   let upstream: Response;
