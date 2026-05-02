@@ -90,6 +90,8 @@ export function TemplateWizardDialog({
     () => Object.fromEntries(SETTING_KEYS.map((s) => [s.key, true])),
   );
   const [pickedRuleIds, setPickedRuleIds] = useState<Record<string, boolean>>({});
+  const [intentScope, setIntentScope] = useState<string[]>([]);
+  const [customIntent, setCustomIntent] = useState("");
 
   // Reset wizard state every time it opens.
   useEffect(() => {
@@ -100,6 +102,8 @@ export function TemplateWizardDialog({
     setIncludeKeywords(true);
     setPickedSettings(Object.fromEntries(SETTING_KEYS.map((s) => [s.key, true])));
     setPickedRuleIds({});
+    setIntentScope([]);
+    setCustomIntent("");
   }, [open]);
 
   // Default-select all live rules once they load.
