@@ -459,12 +459,50 @@ const Endpoints = () => {
             Save self-hosted or third-party LLM endpoints once and reuse them across API keys.
           </p>
         </div>
-        <Button
-          onClick={startCreate}
-          className="bg-gradient-to-r from-primary to-accent text-primary-foreground hover:opacity-90"
-        >
-          <Plus className="h-4 w-4 mr-2" /> New endpoint
-        </Button>
+        <div className="flex items-center gap-2">
+          <input
+            ref={(el) => { fileInputRef.current = el; }}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0] ?? null;
+              onFileChosen(f);
+              e.target.value = "";
+            }}
+          />
+          <Button variant="outline" onClick={onPickFile} disabled={importing}>
+            <Upload className="h-4 w-4 mr-2" /> Import
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" disabled={exporting || endpoints.length === 0}>
+                <Download className="h-4 w-4 mr-2" /> Export
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-72">
+              <DropdownMenuItem onClick={() => handleExport("none")}>
+                <div>
+                  <div className="font-medium">Without provider keys</div>
+                  <div className="text-xs text-muted-foreground">Safe to share. Keys must be re-entered after import.</div>
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => handleExport("encrypted")}>
+                <div>
+                  <div className="font-medium">With encrypted keys</div>
+                  <div className="text-xs text-muted-foreground">Only restorable on this same project (server-side secret).</div>
+                </div>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button
+            onClick={startCreate}
+            className="bg-gradient-to-r from-primary to-accent text-primary-foreground hover:opacity-90"
+          >
+            <Plus className="h-4 w-4 mr-2" /> New endpoint
+          </Button>
+        </div>
       </div>
 
       <Card>
