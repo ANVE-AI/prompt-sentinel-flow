@@ -10,7 +10,9 @@ import { HamburgerButton } from "@/components/mobile-sidebar";
 const labelByPath: Record<string, string> = {
   "/dashboard": "Overview",
   "/dashboard/keys": "API Keys",
+  "/dashboard/providers": "Providers",
   "/dashboard/endpoints": "Endpoints",
+  "/dashboard/routes": "Routes",
   "/dashboard/policies": "Policies",
   "/dashboard/logs": "Logs",
   "/dashboard/playground": "Playground",
