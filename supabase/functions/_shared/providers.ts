@@ -341,25 +341,75 @@ function appendPath(baseRaw: string, ensureSuffix: string): string {
 function withFinalSegment(baseRaw: string, finalSegment: string): string {
   const u = new URL(baseRaw);
   let path = u.pathname.replace(/\/+$/, "");
-  // Strip a trailing chat/completions or messages so we land on /v1
-  path = path.replace(/\/(chat\/completions|messages)$/, "");
+  // Strip a trailing chat/completions, responses, or messages so we land on the API root.
+  path = path.replace(/\/(chat\/completions|responses|messages)$/, "");
   if (!path.endsWith(finalSegment)) path += finalSegment;
   u.pathname = path;
   return u.toString();
 }
 
+/** Normalize a user-entered path fragment: ensures leading "/", trims trailing "/". */
+function normalizePath(p: string | null | undefined): string {
+  if (!p) return "";
+  let s = String(p).trim();
+  if (!s) return "";
+  if (!s.startsWith("/")) s = "/" + s;
+  s = s.replace(/\/+$/, "");
+  return s;
+}
+
+/** Build a URL by joining base + prefix + suffix paths, preserving base's query string. */
+function joinPath(baseRaw: string, ...segments: string[]): string {
+  const u = new URL(baseRaw);
+  let path = u.pathname.replace(/\/+$/, "");
+  for (const seg of segments) {
+    const n = normalizePath(seg);
+    if (!n) continue;
+    if (!path.endsWith(n)) path += n;
+  }
+  u.pathname = path || "/";
+  return u.toString();
+}
+
 /**
- * Resolve a custom endpoint into a concrete URL + headers + kind.
+ * Resolve a custom endpoint into a concrete URL + headers + kind + response_format.
  * Pass the raw values from the api_keys row.
  */
 export function resolveCustomEndpoint(input: CustomEndpointInput): ResolvedEndpoint {
   const u = validateCustomUrl(input.base_url);
   const kind: ProviderKind = input.kind === "anthropic" ? "anthropic" : "openai_compatible";
-  const chatSuffix = kind === "anthropic" ? "/messages" : "/chat/completions";
-  const url = appendPath(u.toString(), chatSuffix);
-  const models_url = input.models_url
-    ? validateCustomUrl(input.models_url).toString()
-    : withFinalSegment(u.toString(), "/models");
+
+  // Default response_format is derived from kind, but caller can override.
+  const allowedFormats: ResponseFormat[] = ["chat_completions", "responses", "anthropic_messages"];
+  let response_format: ResponseFormat = kind === "anthropic" ? "anthropic_messages" : "chat_completions";
+  if (input.response_format && allowedFormats.includes(input.response_format)) {
+    response_format = input.response_format;
+  }
+
+  // Default chat suffix from response_format.
+  const defaultChatSuffix =
+    response_format === "anthropic_messages" ? "/messages" :
+    response_format === "responses" ? "/responses" :
+    "/chat/completions";
+
+  const prefix = normalizePath(input.path_prefix);
+  const explicitChat = normalizePath(input.chat_path);
+  const explicitModels = normalizePath(input.models_path);
+
+  // Build chat URL: base + path_prefix + (chat_path || default suffix)
+  const url = joinPath(u.toString(), prefix, explicitChat || defaultChatSuffix);
+
+  // Models URL: explicit absolute > explicit path > base+prefix+models_path > derive from base
+  let models_url: string;
+  if (input.models_url) {
+    models_url = validateCustomUrl(input.models_url).toString();
+  } else if (explicitModels) {
+    models_url = joinPath(u.toString(), prefix, explicitModels);
+  } else if (prefix) {
+    models_url = joinPath(u.toString(), prefix, "/models");
+  } else {
+    models_url = withFinalSegment(u.toString(), "/models");
+  }
 
   const auth_scheme: AuthScheme = (["bearer", "header", "x-api-key", "query", "none"] as AuthScheme[])
     .includes(input.auth_scheme) ? input.auth_scheme : "bearer";
@@ -374,6 +424,7 @@ export function resolveCustomEndpoint(input: CustomEndpointInput): ResolvedEndpo
     extra_headers: sanitizeExtraHeaders(input.extra_headers),
     auth_scheme,
     auth_header: (input.auth_header || defaultHeader).trim(),
+    response_format,
   };
 }
 
