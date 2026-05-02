@@ -993,6 +993,8 @@ const IntegrateDialog = ({
               </Tabs>
             </TabsContent>
           </Tabs>
+
+          <TestKeyPanel keyPrefix={keyPrefix} />
         </div>
 
         <DialogFooter>
@@ -1000,6 +1002,211 @@ const IntegrateDialog = ({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+};
+
+/**
+ * Live "Test my key" panel inside the Integrate dialog. Sends a small
+ * /v1/chat/completions request through the proxy using the user-supplied
+ * full API key (we only have the masked prefix from the list view) and
+ * renders the outcome:
+ *   - allowed:     assistant text + model used
+ *   - blocked:     policy reason + matched layers (from `anveguard` envelope)
+ *   - error:       HTTP status + standardized error message/code
+ *
+ * The key is held only in component state; it never leaves the browser
+ * except as the Authorization header on the test request itself.
+ */
+type TestOutcome =
+  | { kind: "allowed"; content: string; model: string; tokens?: { in?: number; out?: number } }
+  | { kind: "blocked"; reason: string; layers: Array<{ layer: string; rule?: string; reason?: string }> }
+  | { kind: "error"; status: number; message: string; code?: string | null };
+
+const TestKeyPanel = ({ keyPrefix }: { keyPrefix: string }) => {
+  const [apiKey, setApiKey] = useState("");
+  const [prompt, setPrompt] = useState("Say hello in one short sentence.");
+  const [model, setModel] = useState("gpt-5-mini");
+  const [busy, setBusy] = useState(false);
+  const [outcome, setOutcome] = useState<TestOutcome | null>(null);
+
+  const runTest = async () => {
+    if (!apiKey.startsWith("ag_live_")) {
+      toast.error("Paste the full ag_live_… key (only shown once when created).");
+      return;
+    }
+    setBusy(true);
+    setOutcome(null);
+    try {
+      const res = await fetch(`${PROXY_URL}/v1/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey.trim()}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 64,
+        }),
+      });
+
+      let data: any = null;
+      try { data = await res.json(); } catch { /* non-JSON */ }
+
+      // Standardized OpenAI-style error envelope from our proxy.
+      if (!res.ok) {
+        setOutcome({
+          kind: "error",
+          status: res.status,
+          message: data?.error?.message || `HTTP ${res.status}`,
+          code: data?.error?.code ?? null,
+        });
+        return;
+      }
+
+      // Policy block: 200 OK with `anveguard.blocked` flag and content_filter.
+      const finish = data?.choices?.[0]?.finish_reason;
+      if (data?.anveguard?.blocked || finish === "content_filter") {
+        setOutcome({
+          kind: "blocked",
+          reason: data?.anveguard?.reason || "Blocked by policy",
+          layers: Array.isArray(data?.anveguard?.layers) ? data.anveguard.layers : [],
+        });
+        return;
+      }
+
+      const content = data?.choices?.[0]?.message?.content ?? "";
+      setOutcome({
+        kind: "allowed",
+        content: typeof content === "string" ? content : JSON.stringify(content),
+        model: data?.model ?? model,
+        tokens: {
+          in: data?.usage?.prompt_tokens,
+          out: data?.usage?.completion_tokens,
+        },
+      });
+    } catch (e) {
+      setOutcome({
+        kind: "error",
+        status: 0,
+        message: e instanceof Error ? e.message : String(e),
+        code: "network_error",
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="rounded-md border border-border surface-2 p-3 space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Test my key</div>
+          <div className="text-meta text-muted-foreground">
+            Sends a small request through the proxy and shows the result or any policy block.
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="test-key" className="text-xs">Full API key</Label>
+        <Input
+          id="test-key"
+          type="password"
+          autoComplete="off"
+          spellCheck={false}
+          placeholder={keyPrefix ? `${keyPrefix}…` : "ag_live_…"}
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          className="font-mono text-xs"
+        />
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+        <div className="grid gap-2">
+          <Label htmlFor="test-prompt" className="text-xs">Prompt</Label>
+          <Textarea
+            id="test-prompt"
+            rows={2}
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            className="text-xs"
+          />
+        </div>
+        <div className="grid gap-2 sm:w-44">
+          <Label htmlFor="test-model" className="text-xs">Model</Label>
+          <Input
+            id="test-model"
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            className="font-mono text-xs"
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center justify-end">
+        <Button size="sm" onClick={runTest} disabled={busy}>
+          {busy ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Play className="h-3 w-3 mr-1" />}
+          {busy ? "Testing…" : "Run test"}
+        </Button>
+      </div>
+
+      {outcome && <TestOutcomeView outcome={outcome} />}
+    </div>
+  );
+};
+
+const TestOutcomeView = ({ outcome }: { outcome: TestOutcome }) => {
+  if (outcome.kind === "allowed") {
+    return (
+      <div className="rounded-md border border-border bg-background p-3 space-y-2">
+        <div className="flex items-center gap-2 text-xs">
+          <ShieldCheck className="h-4 w-4 text-emerald-500" />
+          <span className="font-medium">Allowed</span>
+          <Badge variant="outline" className="font-mono text-[10px]">{outcome.model}</Badge>
+          {outcome.tokens && (outcome.tokens.in != null || outcome.tokens.out != null) && (
+            <span className="text-meta text-muted-foreground">
+              {outcome.tokens.in ?? 0} in · {outcome.tokens.out ?? 0} out
+            </span>
+          )}
+        </div>
+        <pre className="text-xs whitespace-pre-wrap break-words font-mono">{outcome.content || "(empty response)"}</pre>
+      </div>
+    );
+  }
+
+  if (outcome.kind === "blocked") {
+    return (
+      <div className="rounded-md border border-border bg-background p-3 space-y-2">
+        <div className="flex items-center gap-2 text-xs">
+          <ShieldAlert className="h-4 w-4 text-amber-500" />
+          <span className="font-medium">Blocked by policy</span>
+        </div>
+        <div className="text-xs">{outcome.reason}</div>
+        {outcome.layers.length > 0 && (
+          <ul className="text-meta text-muted-foreground space-y-0.5">
+            {outcome.layers.map((l, i) => (
+              <li key={i} className="font-mono">
+                · {l.layer}{l.rule ? ` / ${l.rule}` : ""}{l.reason ? ` — ${l.reason}` : ""}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-md border border-border bg-background p-3 space-y-2">
+      <div className="flex items-center gap-2 text-xs">
+        <AlertTriangle className="h-4 w-4 text-destructive" />
+        <span className="font-medium">Error</span>
+        <Badge variant="outline" className="font-mono text-[10px]">
+          {outcome.status || "network"}{outcome.code ? ` · ${outcome.code}` : ""}
+        </Badge>
+      </div>
+      <div className="text-xs break-words">{outcome.message}</div>
+    </div>
   );
 };
 
