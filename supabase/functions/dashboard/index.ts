@@ -250,12 +250,16 @@ Deno.serve(async (req) => {
       }
 
       // ----- Live API key health check ---------------------------------------
-      // Sends a tiny real chat request through the upstream the key is bound to
-      // and reports status, latency, sample reply, token usage, and any error.
+      // Sends one or more real chat requests through the upstream the key is
+      // bound to. With `parallel > 1` it fires N concurrent requests via
+      // Promise.all so users can verify their key handles parallel model calls.
       // Bypasses /proxy so policy filters don't interfere with the diagnostic.
       case "test_api_key": {
-        const { api_key_id, model: modelOverride, prompt: promptOverride } = body;
+        const { api_key_id, model: modelOverride, prompt: promptOverride, parallel: parallelRaw } = body;
         if (!api_key_id) return json({ error: "api_key_id required" }, 400);
+
+        // Clamp parallel to a sane range so a single click can't spam upstream.
+        const parallel = Math.max(1, Math.min(10, Number(parallelRaw) || 1));
 
         const { data: keyRow } = await sb.from("api_keys")
           .select("id,user_id,provider,is_active,model_default,provider_key_encrypted,custom_base_url,custom_models_url,custom_kind,custom_auth_scheme,custom_auth_header,custom_extra_headers,custom_path_prefix,custom_chat_path,custom_models_path,custom_response_format")
@@ -292,74 +296,120 @@ Deno.serve(async (req) => {
         const userPrompt = (typeof promptOverride === "string" && promptOverride.trim())
           ? promptOverride.trim() : "Reply with the single word: pong";
 
-        let payload: any;
-        if (format === "anthropic_messages") {
-          payload = { model, max_tokens: 32, messages: [{ role: "user", content: userPrompt }] };
-        } else if (format === "responses") {
-          payload = { model, input: userPrompt, max_output_tokens: 32 };
-        } else {
-          payload = { model, max_tokens: 32, messages: [{ role: "user", content: userPrompt }] };
-        }
-
-        const start = Date.now();
-        let upstream: Response;
-        try {
-          upstream = await fetch(url, { method: "POST", headers, body: JSON.stringify(payload) });
-        } catch (e) {
-          return json({
-            ok: false, stage: "network", latency_ms: Date.now() - start,
-            error: `Network error reaching upstream: ${e instanceof Error ? e.message : String(e)}`,
-            target: { url, format, model },
-          });
-        }
-        const latency = Date.now() - start;
-        const text = await upstream.text();
-
-        if (!upstream.ok) {
-          let detail: any = text.slice(0, 800);
-          try { detail = JSON.parse(text); } catch { /* keep as string */ }
-          return json({
-            ok: false, stage: "upstream", status: upstream.status, latency_ms: latency,
-            error: `Upstream returned ${upstream.status}`,
-            detail, target: { url, format, model },
-          });
-        }
-
-        let reply = "";
-        let tokens_in: number | null = null;
-        let tokens_out: number | null = null;
-        try {
-          const j = JSON.parse(text);
+        // One independent attempt — used both for single-shot and parallel mode.
+        // Returns a structured result; never throws (caller relies on Promise.all).
+        const runOne = async (idx: number) => {
+          // Vary prompt slightly per attempt so providers can't dedupe-cache responses.
+          const prompt = parallel > 1 ? `${userPrompt} (#${idx + 1})` : userPrompt;
+          let payload: any;
           if (format === "anthropic_messages") {
-            reply = Array.isArray(j?.content)
-              ? j.content.filter((b: any) => b?.type === "text").map((b: any) => b.text).join("")
-              : "";
-            tokens_in = j?.usage?.input_tokens ?? null;
-            tokens_out = j?.usage?.output_tokens ?? null;
+            payload = { model, max_tokens: 32, messages: [{ role: "user", content: prompt }] };
           } else if (format === "responses") {
-            reply = j?.output_text
-              ?? (Array.isArray(j?.output)
-                ? j.output.flatMap((o: any) => o?.content ?? []).filter((c: any) => c?.type === "output_text").map((c: any) => c.text).join("")
-                : "");
-            tokens_in = j?.usage?.input_tokens ?? null;
-            tokens_out = j?.usage?.output_tokens ?? null;
+            payload = { model, input: prompt, max_output_tokens: 32 };
           } else {
-            reply = j?.choices?.[0]?.message?.content ?? "";
-            tokens_in = j?.usage?.prompt_tokens ?? null;
-            tokens_out = j?.usage?.completion_tokens ?? null;
+            payload = { model, max_tokens: 32, messages: [{ role: "user", content: prompt }] };
           }
-        } catch {
-          reply = text.slice(0, 400);
-        }
+
+          const t0 = Date.now();
+          let upstream: Response;
+          try {
+            upstream = await fetch(url, { method: "POST", headers, body: JSON.stringify(payload) });
+          } catch (e) {
+            return {
+              index: idx, ok: false as const, stage: "network",
+              latency_ms: Date.now() - t0,
+              error: `Network error: ${e instanceof Error ? e.message : String(e)}`,
+            };
+          }
+          const latency = Date.now() - t0;
+          const text = await upstream.text();
+
+          if (!upstream.ok) {
+            let detail: any = text.slice(0, 600);
+            try { detail = JSON.parse(text); } catch { /* keep as string */ }
+            return {
+              index: idx, ok: false as const, stage: "upstream",
+              status: upstream.status, latency_ms: latency,
+              error: `Upstream returned ${upstream.status}`, detail,
+            };
+          }
+
+          let reply = "";
+          let tokens_in: number | null = null;
+          let tokens_out: number | null = null;
+          try {
+            const j = JSON.parse(text);
+            if (format === "anthropic_messages") {
+              reply = Array.isArray(j?.content)
+                ? j.content.filter((b: any) => b?.type === "text").map((b: any) => b.text).join("")
+                : "";
+              tokens_in = j?.usage?.input_tokens ?? null;
+              tokens_out = j?.usage?.output_tokens ?? null;
+            } else if (format === "responses") {
+              reply = j?.output_text
+                ?? (Array.isArray(j?.output)
+                  ? j.output.flatMap((o: any) => o?.content ?? []).filter((c: any) => c?.type === "output_text").map((c: any) => c.text).join("")
+                  : "");
+              tokens_in = j?.usage?.input_tokens ?? null;
+              tokens_out = j?.usage?.output_tokens ?? null;
+            } else {
+              reply = j?.choices?.[0]?.message?.content ?? "";
+              tokens_in = j?.usage?.prompt_tokens ?? null;
+              tokens_out = j?.usage?.completion_tokens ?? null;
+            }
+          } catch {
+            reply = text.slice(0, 400);
+          }
+
+          return {
+            index: idx, ok: true as const, stage: "upstream",
+            status: upstream.status, latency_ms: latency,
+            reply: typeof reply === "string" ? reply.slice(0, 400) : "",
+            tokens_in, tokens_out,
+          };
+        };
+
+        // Fire all attempts concurrently. Promise.all preserves per-index order
+        // in the result array even though the requests resolve out of order.
+        const wallStart = Date.now();
+        const results = await Promise.all(Array.from({ length: parallel }, (_, i) => runOne(i)));
+        const wallMs = Date.now() - wallStart;
 
         await sb.from("api_keys").update({ last_used_at: new Date().toISOString() }).eq("id", keyRow.id);
 
+        // Single-call response: keep the original flat shape for back-compat.
+        if (parallel === 1) {
+          const r = results[0];
+          return json({
+            ...r,
+            model, format,
+            target: { url, format, model },
+          });
+        }
+
+        // Parallel response: aggregate stats + per-attempt detail.
+        const okCount = results.filter((r) => r.ok).length;
+        const latencies = results.map((r) => r.latency_ms).sort((a, b) => a - b);
+        const avg = Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length);
+        const p95 = latencies[Math.min(latencies.length - 1, Math.floor(latencies.length * 0.95))];
         return json({
-          ok: true, stage: "upstream", status: upstream.status, latency_ms: latency,
+          ok: okCount === results.length,
+          parallel: true,
+          attempts: results.length,
+          succeeded: okCount,
+          failed: results.length - okCount,
+          wall_ms: wallMs,                    // total elapsed time for the batch
+          sum_latency_ms: latencies.reduce((a, b) => a + b, 0), // sum of individual call latencies
+          min_latency_ms: latencies[0],
+          max_latency_ms: latencies[latencies.length - 1],
+          avg_latency_ms: avg,
+          p95_latency_ms: p95,
+          // Speedup > 1 means calls actually ran concurrently upstream
+          // (rather than being serialized somewhere along the path).
+          speedup: Math.round((latencies.reduce((a, b) => a + b, 0) / Math.max(wallMs, 1)) * 100) / 100,
           model, format,
-          reply: typeof reply === "string" ? reply.slice(0, 600) : "",
-          tokens_in, tokens_out,
           target: { url, format, model },
+          results,
         });
       }
 
