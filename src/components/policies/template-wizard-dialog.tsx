@@ -523,6 +523,44 @@ function IntentScopeStep({
           </p>
         )}
       </div>
+
+      <div className="rounded-md border border-border surface-2 p-3 space-y-2">
+        <div>
+          <Label className="text-meta uppercase tracking-wider text-muted-foreground">
+            Fallback when intent can't be detected
+          </Label>
+          <p className="text-meta text-muted-foreground mt-1">
+            Controls what happens when the classifier is disabled, returns no
+            match, or returns an intent outside this template's scope.
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          {FALLBACK_OPTIONS.map((opt) => {
+            const on = unknownFallback === opt.value;
+            return (
+              <label
+                key={opt.value}
+                className={cn(
+                  "flex items-start gap-2 cursor-pointer rounded-md border p-2.5 transition-colors",
+                  on ? "border-primary bg-primary/5" : "border-border surface-2 hover:bg-muted/40",
+                )}
+              >
+                <input
+                  type="radio"
+                  name="unknown-fallback"
+                  className="mt-1 accent-primary"
+                  checked={on}
+                  onChange={() => onUnknownFallbackChange(opt.value)}
+                />
+                <span className="space-y-0.5">
+                  <span className="text-body block">{opt.label}</span>
+                  <span className="text-meta text-muted-foreground">{opt.description}</span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
