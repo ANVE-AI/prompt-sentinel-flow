@@ -1423,6 +1423,54 @@ Deno.serve(async (req) => {
         return json({ ok: true });
       }
 
+      // Evaluate an ad-hoc input against a template SNAPSHOT (its bundled
+      // policy/settings/rules), without touching the caller's live config.
+      // Powers the "Test prompts" panel on each policy template card.
+      case "evaluate_template": {
+        const inputText = typeof body?.input === "string" ? body.input : "";
+        if (!inputText.trim()) return json({ error: "input required" }, 400);
+        const tplPolicy = (body?.policy && typeof body.policy === "object") ? body.policy : {};
+        const tplSettings = (body?.settings && typeof body.settings === "object") ? body.settings : {};
+        const rawRules = Array.isArray(body?.rules) ? body.rules : [];
+
+        const legacy = {
+          blocked_keywords: Array.isArray(tplPolicy.blocked_keywords) ? tplPolicy.blocked_keywords : [],
+          allowed_keywords: Array.isArray(tplPolicy.allowed_keywords) ? tplPolicy.allowed_keywords : [],
+          use_global_defaults: tplPolicy.use_global_defaults !== false,
+        };
+        const settings = { ...DEFAULT_SETTINGS, ...tplSettings } as PolicySettings;
+        const rules = rawRules
+          .filter((r: any) => r && (r.kind === "regex" || r.kind === "detector"))
+          .map((r: any, i: number) => ({
+            id: r.id ?? `tpl-${i}`,
+            name: String(r.name ?? `rule-${i}`),
+            kind: r.kind,
+            severity: r.severity ?? "high",
+            direction: r.direction ?? "both",
+            enabled: r.enabled !== false,
+            config: r.config ?? {},
+            applies_to_intents: Array.isArray(r.applies_to_intents) ? r.applies_to_intents : [],
+          })) as PolicyRule[];
+
+        const t0 = Date.now();
+        try {
+          const r = await evaluatePolicy({
+            text: inputText, direction: "input",
+            legacy, rules, intents: [], settings,
+          });
+          return json({
+            verdict: r.verdict,
+            detected_intent: r.detected_intent ?? null,
+            fired_layers: r.layers
+              .filter((l) => l.verdict !== "allow")
+              .map((l) => ({ layer: l.layer, verdict: l.verdict, rule: l.rule ?? null, reason: l.reason ?? null })),
+            latency_ms: Date.now() - t0,
+          });
+        } catch (e) {
+          return json({ verdict: "error", error: (e as Error).message, latency_ms: Date.now() - t0 }, 200);
+        }
+      }
+
 
       // Run the bundled red-team corpus through the live policy engine using
       // the caller's actual settings/rules/intents/legacy keywords. Returns

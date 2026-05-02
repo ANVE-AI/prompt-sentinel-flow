@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Bot, Building2, Check, Plus, ShieldCheck, Sparkles, Trash2, User } from "lucide-react";
+import { Beaker, Bot, Building2, Check, Plus, ShieldCheck, Sparkles, Trash2, User } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +18,7 @@ import {
 import { useDashboardApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { TemplateWizardDialog } from "./template-wizard-dialog";
+import { TemplateTestDialog } from "./template-test-dialog";
 
 type TemplateId = "safe_chatbot" | "enterprise_compliance" | "no_pii" | string;
 
@@ -240,6 +241,7 @@ export function PolicyTemplatesSection() {
   const [confirm, setConfirm] = useState<Template | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [testTpl, setTestTpl] = useState<Template | null>(null);
 
   const customQ = useQuery<{ templates: any[] }>({
     queryKey: ["policy_templates"],
@@ -357,14 +359,21 @@ export function PolicyTemplatesSection() {
                       +{tpl.rules.length} rule{tpl.rules.length === 1 ? "" : "s"}
                     </Badge>
                   ) : null}
-                  <div className="mt-auto pt-1">
+                  <div className="mt-auto pt-1 flex gap-2">
                     <Button
                       size="sm"
-                      className="w-full"
+                      className="flex-1"
                       disabled={isPending || apply.isPending}
                       onClick={() => setConfirm(tpl)}
                     >
                       {isPending ? "Applying…" : "Apply template"}
+                    </Button>
+                    <Button
+                      size="sm" variant="outline"
+                      onClick={() => setTestTpl(tpl)}
+                      title="Test prompts"
+                    >
+                      <Beaker className="h-3.5 w-3.5" />
                     </Button>
                   </div>
                 </div>
@@ -411,14 +420,21 @@ export function PolicyTemplatesSection() {
                           </li>
                         ))}
                       </ul>
-                      <div className="mt-auto pt-1">
+                      <div className="mt-auto pt-1 flex gap-2">
                         <Button
                           size="sm"
-                          className="w-full"
+                          className="flex-1"
                           disabled={isPending || apply.isPending}
                           onClick={() => setConfirm(tpl)}
                         >
                           {isPending ? "Applying…" : "Apply template"}
+                        </Button>
+                        <Button
+                          size="sm" variant="outline"
+                          onClick={() => setTestTpl(tpl)}
+                          title="Test prompts"
+                        >
+                          <Beaker className="h-3.5 w-3.5" />
                         </Button>
                       </div>
                     </div>
@@ -431,6 +447,18 @@ export function PolicyTemplatesSection() {
       </Card>
 
       <TemplateWizardDialog open={wizardOpen} onOpenChange={setWizardOpen} />
+
+      <TemplateTestDialog
+        open={!!testTpl}
+        onOpenChange={(o) => !o && setTestTpl(null)}
+        template={testTpl ? {
+          id: testTpl.id,
+          name: testTpl.name,
+          policy: testTpl.policy as Record<string, any>,
+          settings: testTpl.settings as Record<string, any>,
+          rules: testTpl.rules as Array<Record<string, any>> | undefined,
+        } : null}
+      />
 
       <AlertDialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
         <AlertDialogContent>
