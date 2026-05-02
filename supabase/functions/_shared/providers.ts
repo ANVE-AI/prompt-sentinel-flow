@@ -7,6 +7,8 @@ export interface ProviderDef {
   label: string;
   kind: ProviderKind;
   url: string;
+  /** GET endpoint that returns available models. Omit for managed providers w/o one. */
+  models_url?: string;
   /** If true, no user-provided key is required (server uses LOVABLE_API_KEY). */
   managed?: boolean;
   default_model: string;
@@ -26,8 +28,11 @@ export const PROVIDERS: ProviderDef[] = [
     model_suggestions: [
       "google/gemini-3-flash-preview",
       "google/gemini-2.5-pro",
+      "google/gemini-2.5-flash",
+      "google/gemini-2.5-flash-lite",
       "openai/gpt-5",
       "openai/gpt-5-mini",
+      "openai/gpt-5-nano",
     ],
     key_placeholder: "",
     get_key_url: "https://docs.lovable.dev/features/ai",
@@ -37,6 +42,7 @@ export const PROVIDERS: ProviderDef[] = [
     label: "OpenAI",
     kind: "openai_compatible",
     url: "https://api.openai.com/v1/chat/completions",
+    models_url: "https://api.openai.com/v1/models",
     default_model: "gpt-4o-mini",
     model_suggestions: ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "o4-mini"],
     key_placeholder: "sk-...",
@@ -47,6 +53,7 @@ export const PROVIDERS: ProviderDef[] = [
     label: "OpenRouter",
     kind: "openai_compatible",
     url: "https://openrouter.ai/api/v1/chat/completions",
+    models_url: "https://openrouter.ai/api/v1/models",
     default_model: "openrouter/auto",
     model_suggestions: [
       "openrouter/auto",
@@ -62,22 +69,42 @@ export const PROVIDERS: ProviderDef[] = [
     label: "Anthropic (Claude)",
     kind: "anthropic",
     url: "https://api.anthropic.com/v1/messages",
-    default_model: "claude-3-5-sonnet-latest",
+    models_url: "https://api.anthropic.com/v1/models",
+    default_model: "claude-sonnet-4-5",
     model_suggestions: [
-      "claude-3-5-sonnet-latest",
-      "claude-3-5-haiku-latest",
-      "claude-3-opus-latest",
+      "claude-opus-4-6",
+      "claude-sonnet-4-5",
+      "claude-haiku-4-5",
+      "claude-opus-4-5",
     ],
     key_placeholder: "sk-ant-...",
     get_key_url: "https://console.anthropic.com/settings/keys",
+  },
+  {
+    id: "perplexity",
+    label: "Perplexity (Sonar)",
+    kind: "openai_compatible",
+    url: "https://api.perplexity.ai/chat/completions",
+    models_url: "https://api.perplexity.ai/v1/models",
+    default_model: "sonar",
+    model_suggestions: ["sonar", "sonar-pro", "sonar-reasoning-pro", "sonar-deep-research"],
+    key_placeholder: "pplx-...",
+    get_key_url: "https://www.perplexity.ai/settings/api",
   },
   {
     id: "kimi",
     label: "Moonshot Kimi",
     kind: "openai_compatible",
     url: "https://api.moonshot.ai/v1/chat/completions",
-    default_model: "moonshot-v1-8k",
-    model_suggestions: ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
+    models_url: "https://api.moonshot.ai/v1/models",
+    default_model: "kimi-k2-turbo-preview",
+    model_suggestions: [
+      "kimi-k2-turbo-preview",
+      "moonshot-v1-8k",
+      "moonshot-v1-32k",
+      "moonshot-v1-128k",
+      "moonshot-v1-auto",
+    ],
     key_placeholder: "sk-...",
     get_key_url: "https://platform.moonshot.ai/console/api-keys",
   },
@@ -86,8 +113,9 @@ export const PROVIDERS: ProviderDef[] = [
     label: "Alibaba Qwen (DashScope)",
     kind: "openai_compatible",
     url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+    models_url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models",
     default_model: "qwen-plus",
-    model_suggestions: ["qwen-plus", "qwen-turbo", "qwen-max"],
+    model_suggestions: ["qwen-plus", "qwen-max", "qwen-flash", "qwen-turbo"],
     key_placeholder: "sk-...",
     get_key_url: "https://dashscope.console.aliyun.com/apiKey",
   },

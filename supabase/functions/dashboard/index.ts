@@ -1,8 +1,11 @@
 // AnveGuard dashboard API. Authenticates with a Clerk session JWT and exposes
 // CRUD for keys, policies, logs, and stats. Single function with action routing.
 import { corsHeaders, json, service, verifyClerkJwt, bearer, ensureProfile,
-  generateApiKey, sha256Hex, encryptString, GLOBAL_DEFAULT_BLOCKED } from "../_shared/anveguard.ts";
+  generateApiKey, sha256Hex, encryptString, decryptString, GLOBAL_DEFAULT_BLOCKED } from "../_shared/anveguard.ts";
 import { PROVIDERS, getProvider } from "../_shared/providers.ts";
+
+// In-memory cache for /models responses (per provider+key, 5 min TTL).
+const modelsCache = new Map<string, { models: string[]; exp: number }>();
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -21,6 +24,54 @@ Deno.serve(async (req) => {
     switch (action) {
       case "list_providers": {
         return json({ providers: PROVIDERS });
+      }
+
+      case "list_models": {
+        const { api_key_id } = body;
+        if (!api_key_id) return json({ error: "api_key_id required" }, 400);
+        const { data: keyRow } = await sb.from("api_keys")
+          .select("id,user_id,provider,provider_key_encrypted")
+          .eq("id", api_key_id).eq("user_id", userId).maybeSingle();
+        if (!keyRow) return json({ error: "Key not found" }, 404);
+        const def = getProvider(keyRow.provider);
+        if (!def) return json({ error: "Unknown provider" }, 400);
+
+        // Lovable / no models endpoint -> static suggestions
+        if (def.managed || !def.models_url) {
+          return json({ models: def.model_suggestions, source: "static" });
+        }
+
+        const cacheKey = `${keyRow.provider}:${keyRow.provider_key_encrypted ?? ""}`;
+        const cached = modelsCache.get(cacheKey);
+        if (cached && cached.exp > Date.now()) {
+          return json({ models: cached.models, source: "cache" });
+        }
+
+        const upstreamKey = keyRow.provider_key_encrypted
+          ? await decryptString(keyRow.provider_key_encrypted) : "";
+        const headers: Record<string, string> = { "Accept": "application/json" };
+        if (def.kind === "anthropic") {
+          headers["x-api-key"] = upstreamKey;
+          headers["anthropic-version"] = "2023-06-01";
+        } else if (upstreamKey) {
+          headers["Authorization"] = `Bearer ${upstreamKey}`;
+        }
+
+        try {
+          const r = await fetch(def.models_url, { headers });
+          if (!r.ok) {
+            const txt = await r.text();
+            return json({ models: def.model_suggestions, source: "fallback", warning: `Upstream ${r.status}: ${txt.slice(0, 200)}` });
+          }
+          const j = await r.json();
+          const arr: any[] = j?.data ?? j?.models ?? [];
+          const ids = arr.map((m) => m?.id || m?.name).filter((x) => typeof x === "string");
+          const models = ids.length > 0 ? ids : def.model_suggestions;
+          modelsCache.set(cacheKey, { models, exp: Date.now() + 5 * 60_000 });
+          return json({ models, source: "live" });
+        } catch (e) {
+          return json({ models: def.model_suggestions, source: "fallback", warning: String(e) });
+        }
       }
 
       case "list_keys": {

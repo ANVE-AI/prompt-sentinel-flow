@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,10 +21,28 @@ const Playground = () => {
 
   const [keyId, setKeyId] = useState<string>("");
   const [apiKey, setApiKey] = useState("");
+  const [model, setModel] = useState<string>("");
   const [prompt, setPrompt] = useState("Write a haiku about firewalls.");
   const [stream, setStream] = useState(true);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ blocked: boolean; text: string; reason?: string } | null>(null);
+
+  const selectedKey = activeKeys.find((k: any) => k.id === keyId);
+
+  const { data: modelsData, isLoading: modelsLoading } = useQuery({
+    queryKey: ["models", keyId],
+    queryFn: () => call<{ models: string[]; source: string; warning?: string }>("list_models", { body: { api_key_id: keyId } }),
+    enabled: !!keyId,
+  });
+  const availableModels: string[] = modelsData?.models ?? [];
+
+  // Reset model when key changes; default to the key's model_default
+  useEffect(() => {
+    if (!selectedKey || availableModels.length === 0) return;
+    const def = availableModels.includes(selectedKey.model_default)
+      ? selectedKey.model_default : availableModels[0];
+    setModel(def);
+  }, [keyId, modelsData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const send = async () => {
     if (!apiKey.startsWith("ag_live_")) {
@@ -37,7 +55,11 @@ const Playground = () => {
       const res = await fetch(PROXY_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ messages: [{ role: "user", content: prompt }], stream }),
+        body: JSON.stringify({
+          messages: [{ role: "user", content: prompt }],
+          stream,
+          ...(model ? { model } : {}),
+        }),
       });
 
       if (!stream) {
@@ -109,12 +131,12 @@ const Playground = () => {
         <CardContent className="space-y-4">
           {activeKeys.length > 0 && (
             <div>
-              <Label className="text-xs">Reference (your active keys)</Label>
-              <Select value={keyId} onValueChange={setKeyId}>
-                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Pick a key for reference…" /></SelectTrigger>
+              <Label className="text-xs">AnveGuard key (for model list)</Label>
+              <Select value={keyId} onValueChange={(v) => { setKeyId(v); setModel(""); }}>
+                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Pick a key…" /></SelectTrigger>
                 <SelectContent>
                   {activeKeys.map((k: any) => (
-                    <SelectItem key={k.id} value={k.id}>{k.name} — {k.model_default}</SelectItem>
+                    <SelectItem key={k.id} value={k.id}>{k.name} — {k.provider}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -125,6 +147,27 @@ const Playground = () => {
             <Input id="ak" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="ag_live_…" className="mt-1.5 font-mono text-sm" />
             <p className="text-xs text-muted-foreground mt-1">Paste here — keys aren't stored client-side.</p>
           </div>
+          {keyId && (
+            <div>
+              <Label htmlFor="model">Model</Label>
+              <Select value={model} onValueChange={setModel} disabled={modelsLoading || availableModels.length === 0}>
+                <SelectTrigger className="mt-1.5 font-mono text-sm">
+                  <SelectValue placeholder={modelsLoading ? "Loading models…" : "Pick a model"} />
+                </SelectTrigger>
+                <SelectContent className="max-h-80">
+                  {availableModels.map((m) => (
+                    <SelectItem key={m} value={m} className="font-mono text-xs">{m}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {modelsData?.warning && (
+                <p className="text-xs text-muted-foreground mt-1">⚠ {modelsData.warning} — showing fallback list.</p>
+              )}
+              {modelsData?.source === "live" && (
+                <p className="text-xs text-muted-foreground mt-1">{availableModels.length} models from upstream</p>
+              )}
+            </div>
+          )}
           <Textarea rows={6} value={prompt} onChange={(e) => setPrompt(e.target.value)} className="font-mono text-sm" />
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
