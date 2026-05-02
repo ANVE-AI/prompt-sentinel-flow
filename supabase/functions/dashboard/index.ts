@@ -1093,8 +1093,21 @@ Deno.serve(async (req) => {
         //   - recent request_logs whose api_key_id resolves to one of those keys
         //   - aggregate counts (total requests, blocked, avg latency, last_request_at)
         // Optional `endpoint_id` filters to a single endpoint; otherwise returns all.
+        // Optional `range` restricts both the recent list AND the aggregate
+        // stats to a rolling window: "1h" | "24h" | "7d" | "30d" | "all".
         const filterId = url.searchParams.get("endpoint_id") || body.endpoint_id || null;
         const limit = Math.min(Number(url.searchParams.get("limit") ?? body.limit ?? 25), 200);
+        const rangeRaw = (url.searchParams.get("range") || body.range || "24h").toString();
+        const RANGE_MS: Record<string, number | null> = {
+          "1h": 60 * 60 * 1000,
+          "24h": 24 * 60 * 60 * 1000,
+          "7d": 7 * 24 * 60 * 60 * 1000,
+          "30d": 30 * 24 * 60 * 60 * 1000,
+          "all": null,
+        };
+        const range = rangeRaw in RANGE_MS ? rangeRaw : "24h";
+        const rangeMs = RANGE_MS[range];
+        const sinceIso = rangeMs == null ? null : new Date(Date.now() - rangeMs).toISOString();
 
         let epQ = sb.from("endpoints")
           .select("id,name,base_url,kind,response_format,default_model,created_at")
@@ -1102,7 +1115,9 @@ Deno.serve(async (req) => {
         if (filterId) epQ = epQ.eq("id", filterId);
         const { data: endpoints, error: epErr } = await epQ;
         if (epErr) return json({ error: epErr.message }, 400);
-        if (!endpoints || endpoints.length === 0) return json({ usage: [] });
+        if (!endpoints || endpoints.length === 0) {
+          return json({ usage: [], range, since: sinceIso });
+        }
 
         const epIds = endpoints.map((e: any) => e.id);
 
@@ -1122,16 +1137,19 @@ Deno.serve(async (req) => {
           allKeyIds.push(k.id);
         }
 
-        // Recent logs for those keys. Pull a generous batch then bucket per endpoint.
-        // Cap at ~1000 rows total to stay within Supabase row defaults.
+        // Recent logs for those keys, optionally restricted to the rolling
+        // window. Pull a generous batch then bucket per endpoint. Cap at
+        // ~1000 rows total to stay within Supabase row defaults.
         const fetchCap = Math.min(1000, Math.max(limit * Math.max(epIds.length, 1) * 4, 100));
         let logs: any[] = [];
         if (allKeyIds.length > 0) {
-          const { data: rows } = await sb.from("request_logs")
+          let logsQ = sb.from("request_logs")
             .select("id,api_key_id,provider,model,status,block_reason,latency_ms,tokens_in,tokens_out,created_at")
             .eq("user_id", userId).in("api_key_id", allKeyIds)
             .order("created_at", { ascending: false })
             .limit(fetchCap);
+          if (sinceIso) logsQ = logsQ.gte("created_at", sinceIso);
+          const { data: rows } = await logsQ;
           logs = rows ?? [];
         }
 
