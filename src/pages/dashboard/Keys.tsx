@@ -667,5 +667,11 @@ client = OpenAI(
               )}
               <Button onClick={() => { setTestingKey(null); setTestKeyResult(null); }}>Close</Button>
             </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+};
 
 export default Keys;
