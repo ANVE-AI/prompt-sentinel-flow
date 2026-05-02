@@ -17,6 +17,7 @@ import Policies from "./pages/dashboard/Policies";
 import Logs from "./pages/dashboard/Logs";
 import Playground from "./pages/dashboard/Playground";
 import PolicySandbox from "./pages/dashboard/PolicySandbox";
+import PolicyHarness from "./pages/dashboard/PolicyHarness";
 import SignInPage from "./pages/SignIn";
 import SignUpPage from "./pages/SignUp";
 import DocsLayout from "./pages/docs/DocsLayout";
