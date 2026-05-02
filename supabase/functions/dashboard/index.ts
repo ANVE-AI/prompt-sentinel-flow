@@ -2,6 +2,9 @@
 // CRUD for keys, policies, logs, and stats. Single function with action routing.
 import { corsHeaders, json, service, verifyClerkJwt, bearer, ensureProfile,
   generateApiKey, sha256Hex, encryptString, decryptString, GLOBAL_DEFAULT_BLOCKED } from "../_shared/anveguard.ts";
+import { evaluate as evaluatePolicy, DEFAULT_SETTINGS,
+  type PolicyRule, type PolicyIntent, type PolicySettings } from "../_shared/policy_engine.ts";
+import { HARNESS_CASES, type ExpectedVerdict } from "../_shared/policy_test_corpus.ts";
 import { PROVIDERS, getProvider, CUSTOM_SCHEMA, resolveCustomEndpoint,
   resolveEndpoint, sanitizeExtraHeaders, validateCustomUrl } from "../_shared/providers.ts";
 import { parseModelsResponse } from "../_shared/models_parsers.ts";
@@ -1227,6 +1230,88 @@ Deno.serve(async (req) => {
         const { error } = await sb.from("policy_rules").delete().eq("id", id).eq("user_id", userId);
         if (error) return json({ error: error.message }, 400);
         return json({ ok: true });
+      }
+
+      // Run the bundled red-team corpus through the live policy engine using
+      // the caller's actual settings/rules/intents/legacy keywords. Returns
+      // pass/fail per case so the dashboard can surface evasions before release.
+      case "run_policy_harness": {
+        const [legacyRes, settingsRes, rulesRes, intentsRes] = await Promise.all([
+          sb.from("policies").select("*").eq("user_id", userId).maybeSingle(),
+          sb.from("policy_settings").select("*").eq("user_id", userId).maybeSingle(),
+          sb.from("policy_rules").select("*").eq("user_id", userId).eq("enabled", true),
+          sb.from("policy_intents").select("*").eq("user_id", userId),
+        ]);
+        const legacy = {
+          blocked_keywords: legacyRes.data?.blocked_keywords ?? [],
+          allowed_keywords: legacyRes.data?.allowed_keywords ?? [],
+          use_global_defaults: legacyRes.data?.use_global_defaults !== false,
+        };
+        const rules = (rulesRes.data ?? []) as PolicyRule[];
+        const intents = (intentsRes.data ?? []) as PolicyIntent[];
+        const settings = (settingsRes.data ?? DEFAULT_SETTINGS) as PolicySettings;
+
+        // Optional filter — run only specific case ids when the UI re-tests one.
+        const onlyIds = Array.isArray(body?.case_ids)
+          ? new Set(body.case_ids.map((s: unknown) => String(s)))
+          : null;
+        const cases = onlyIds ? HARNESS_CASES.filter((c) => onlyIds.has(c.id)) : HARNESS_CASES;
+
+        // "Block" and "sanitize" both count as mitigations. "flag" must match.
+        const matches = (expected: ExpectedVerdict, actual: string) => {
+          if (expected === "block") return actual === "block" || actual === "sanitize";
+          if (expected === "sanitize") return actual === "sanitize" || actual === "block";
+          if (expected === "flag") return actual === "flag" || actual === "block" || actual === "sanitize";
+          return actual === "allow";
+        };
+
+        const results = await Promise.all(cases.map(async (c) => {
+          const t0 = Date.now();
+          try {
+            const r = await evaluatePolicy({
+              text: c.prompt,
+              direction: "input",
+              legacy, rules, intents, settings,
+              conversation: c.conversation,
+            });
+            const passed = matches(c.expected, r.verdict);
+            return {
+              id: c.id,
+              category: c.category,
+              prompt: c.prompt,
+              notes: c.notes ?? null,
+              expected: c.expected,
+              verdict: r.verdict,
+              passed,
+              detected_intent: r.detected_intent ?? null,
+              fired_layers: r.layers
+                .filter((l) => l.verdict !== "allow")
+                .map((l) => ({ layer: l.layer, verdict: l.verdict, rule: l.rule ?? null, reason: l.reason ?? null })),
+              latency_ms: Date.now() - t0,
+            };
+          } catch (e) {
+            return {
+              id: c.id, category: c.category, prompt: c.prompt, notes: c.notes ?? null,
+              expected: c.expected, verdict: "error", passed: false,
+              detected_intent: null, fired_layers: [],
+              error: (e as Error).message, latency_ms: Date.now() - t0,
+            };
+          }
+        }));
+
+        const summary = {
+          total: results.length,
+          passed: results.filter((r) => r.passed).length,
+          failed: results.filter((r) => !r.passed).length,
+          by_category: {} as Record<string, { total: number; passed: number }>,
+        };
+        for (const r of results) {
+          const k = summary.by_category[r.category] ?? { total: 0, passed: 0 };
+          k.total++;
+          if (r.passed) k.passed++;
+          summary.by_category[r.category] = k;
+        }
+        return json({ summary, results });
       }
 
       case "list_logs": {

@@ -10,6 +10,7 @@ import {
   Server,
   GitBranch,
   FlaskConical,
+  ShieldQuestion,
   Search,
   X,
 } from "lucide-react";
@@ -59,6 +60,7 @@ const groups: { id: string; label: string; items: NavItem[] }[] = [
     items: [
       { to: "/dashboard/playground", label: "Playground", icon: Terminal },
       { to: "/dashboard/policies/sandbox", label: "Policy sandbox", icon: FlaskConical },
+      { to: "/dashboard/policies/harness", label: "Policy harness", icon: ShieldQuestion },
     ],
   },
 ];
