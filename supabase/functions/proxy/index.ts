@@ -384,11 +384,11 @@ Deno.serve(async (req) => {
     if (forwardFormat === "anthropic_messages") {
       const { stream: oaiStream, done } = anthropicStreamToOpenAI(upstream.body, model);
       done.then(async ({ assistantText, usage }) => {
-        const outCheck = checkPolicy(assistantText, blocked, allowed);
-        const status = outCheck.blocked ? "blocked_output" : "allowed";
+        const out = await evaluateOutput(assistantText, policyState, { systemPrompt, toolsRequested });
         await sb.from("request_logs").insert({
-          ...logBase, status,
-          block_reason: outCheck.blocked ? `Output matched: "${outCheck.matched}"` : null,
+          ...logBase, status: out.status, block_reason: out.blockReason,
+          verdict: out.status === "blocked_output" ? "block" : "allow",
+          verdict_layers: out.layers,
           response: { streamed: true, content: assistantText },
           latency_ms: Date.now() - start,
           tokens_in: usage?.prompt_tokens ?? null,
@@ -404,11 +404,11 @@ Deno.serve(async (req) => {
     if (forwardFormat === "responses") {
       const { stream: oaiStream, done } = responsesStreamToChat(upstream.body, model);
       done.then(async ({ assistantText, usage, finalModel }) => {
-        const outCheck = checkPolicy(assistantText, blocked, allowed);
-        const status = outCheck.blocked ? "blocked_output" : "allowed";
+        const out = await evaluateOutput(assistantText, policyState, { systemPrompt, toolsRequested });
         await sb.from("request_logs").insert({
-          ...logBase, model: finalModel, status,
-          block_reason: outCheck.blocked ? `Output matched: "${outCheck.matched}"` : null,
+          ...logBase, model: finalModel, status: out.status, block_reason: out.blockReason,
+          verdict: out.status === "blocked_output" ? "block" : "allow",
+          verdict_layers: out.layers,
           response: { streamed: true, content: assistantText },
           latency_ms: Date.now() - start,
           tokens_in: usage?.prompt_tokens ?? null,
