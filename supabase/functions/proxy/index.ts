@@ -239,11 +239,11 @@ Deno.serve(async (req) => {
     const { data: route } = await sb.from("routes")
       .select("id,fallback_on_5xx,fallback_on_429,fallback_on_timeout,timeout_ms")
       .eq("user_id", keyRow.user_id).eq("name", routeName).maybeSingle();
-    if (!route) return json(errorForShape(reqShape, `Route not found: ${routeName}`, "invalid_request_error"), 404);
+    if (!route) return errorResponse(reqShape, 404, `Route not found: ${routeName}`, { code: "route_not_found", param: "model" });
     const { data: steps } = await sb.from("route_steps")
       .select("position,endpoint_id,model")
       .eq("route_id", route.id).order("position", { ascending: true });
-    if (!steps || steps.length === 0) return json(errorForShape(reqShape, `Route ${routeName} has no steps`, "server_error"), 500);
+    if (!steps || steps.length === 0) return errorResponse(reqShape, 500, `Route ${routeName} has no steps`, { code: "route_misconfigured" });
     const epIds = [...new Set(steps.map((s: any) => s.endpoint_id))];
     const { data: eps } = await sb.from("endpoints").select("*")
       .in("id", epIds).eq("user_id", keyRow.user_id);
@@ -255,7 +255,7 @@ Deno.serve(async (req) => {
       const k = ep.provider_key_encrypted ? await decryptString(ep.provider_key_encrypted) : null;
       routeSteps.push({ endpointRow: ep, model: s.model, upstreamKey: k });
     }
-    if (routeSteps.length === 0) return json(errorForShape(reqShape, `Route ${routeName} has no usable steps`, "server_error"), 500);
+    if (routeSteps.length === 0) return errorResponse(reqShape, 500, `Route ${routeName} has no usable steps`, { code: "route_misconfigured" });
     routeConfig = {
       fallback_on_5xx: route.fallback_on_5xx,
       fallback_on_429: route.fallback_on_429,
