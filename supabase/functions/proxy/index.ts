@@ -79,6 +79,62 @@ function errorResponse(
   return json(errorForShape(shape, status, message, opts), status, opts.headers);
 }
 
+// ---- SSE helpers -----------------------------------------------------------
+// Header set used for every Server-Sent Events response. `X-Accel-Buffering:
+// no` and `Connection: keep-alive` defeat reverse-proxy buffering so deltas
+// reach the client as soon as we write them.
+const sseHeaders = {
+  ...corsHeaders,
+  "Content-Type": "text/event-stream; charset=utf-8",
+  "Cache-Control": "no-cache, no-transform",
+  "Connection": "keep-alive",
+  "X-Accel-Buffering": "no",
+};
+
+/** Encode a single OpenAI-style SSE chunk: `data: {json}\n\n`. */
+function sseEncode(obj: unknown): Uint8Array {
+  return new TextEncoder().encode(`data: ${JSON.stringify(obj)}\n\n`);
+}
+const SSE_DONE = new TextEncoder().encode("data: [DONE]\n\n");
+
+/**
+ * Build a complete OpenAI-shape SSE stream for a fully-formed assistant
+ * message. Used when policy blocks input or output: the client gets a normal
+ * streaming experience (role chunk → content chunk → finish chunk → [DONE])
+ * so SDKs that iterate the stream complete cleanly instead of hanging.
+ */
+function buildSyntheticSseStream(opts: {
+  model: string;
+  content: string;
+  finishReason: string;
+  anveguard?: Record<string, unknown>;
+}): ReadableStream<Uint8Array> {
+  const id = `chatcmpl-${crypto.randomUUID()}`;
+  const created = Math.floor(Date.now() / 1000);
+  const base = { id, object: "chat.completion.chunk", created, model: opts.model };
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(sseEncode({
+        ...base,
+        choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
+      }));
+      if (opts.content) {
+        controller.enqueue(sseEncode({
+          ...base,
+          choices: [{ index: 0, delta: { content: opts.content }, finish_reason: null }],
+        }));
+      }
+      controller.enqueue(sseEncode({
+        ...base,
+        choices: [{ index: 0, delta: {}, finish_reason: opts.finishReason }],
+        ...(opts.anveguard ? { anveguard: opts.anveguard } : {}),
+      }));
+      controller.enqueue(SSE_DONE);
+      controller.close();
+    },
+  });
+}
+
 /**
  * Load all policy state for a workspace in one round trip.
  * Falls back to safe defaults if rows are missing.
@@ -434,6 +490,14 @@ async function handleRequest(req: Request): Promise<Response> {
       tokens_in: 0, tokens_out: 0,
     });
     await sb.from("api_keys").update({ last_used_at: new Date().toISOString() }).eq("id", keyRow.id);
+    // If the caller asked for SSE, deliver the block as a synthetic stream so
+    // OpenAI SDKs that iterate the stream finish cleanly instead of hanging.
+    if (stream && reqShape === "openai") {
+      return new Response(buildSyntheticSseStream({
+        model, content: blockMessage, finishReason: "content_filter",
+        anveguard: { blocked: true, reason, layers: inputEval.layers },
+      }), { headers: sseHeaders });
+    }
     return json(translateResponseFromOpenAI(reqShape, responsePayload), 200);
   }
 
@@ -622,9 +686,7 @@ async function handleRequest(req: Request): Promise<Response> {
         });
         await sb.from("api_keys").update({ last_used_at: new Date().toISOString() }).eq("id", keyRow.id);
       });
-      return new Response(oaiStream, {
-        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
-      });
+      return new Response(oaiStream, { headers: sseHeaders });
     }
 
     if (forwardFormat === "responses") {
@@ -642,17 +704,25 @@ async function handleRequest(req: Request): Promise<Response> {
         });
         await sb.from("api_keys").update({ last_used_at: new Date().toISOString() }).eq("id", keyRow.id);
       });
-      return new Response(oaiStream, {
-        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
-      });
+      return new Response(oaiStream, { headers: sseHeaders });
     }
 
-    // OpenAI-compatible passthrough w/ tap
+    // OpenAI-compatible passthrough w/ tap.
+    //
+    // We forward upstream SSE bytes line-by-line so we can:
+    //   1. accumulate `assistantText` for the output policy evaluation,
+    //   2. drop the upstream `[DONE]` sentinel and emit our own AFTER
+    //      appending an optional `content_filter` trailer if output policy
+    //      blocked the completed text,
+    //   3. capture mid-stream upstream errors and surface them as a final
+    //      SSE chunk so SDK consumers don't see a silent close.
     let buffered = "";
     let assistantText = "";
     let finalUsage: any = null;
     let finalModel = model;
+    let streamFailure: string | null = null;
     const decoder = new TextDecoder();
+    const encoder = new TextEncoder();
 
     const transformed = new ReadableStream({
       async start(controller) {
@@ -661,32 +731,67 @@ async function handleRequest(req: Request): Promise<Response> {
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            controller.enqueue(value);
             buffered += decoder.decode(value, { stream: true });
-            let idx;
-            while ((idx = buffered.indexOf("\n")) !== -1) {
-              const line = buffered.slice(0, idx).trim();
-              buffered = buffered.slice(idx + 1);
-              if (!line.startsWith("data:")) continue;
-              const payload = line.slice(5).trim();
-              if (payload === "[DONE]") continue;
-              try {
-                const obj = JSON.parse(payload);
-                const delta = obj?.choices?.[0]?.delta?.content;
-                if (typeof delta === "string") assistantText += delta;
-                if (obj?.usage) finalUsage = obj.usage;
-                if (obj?.model) finalModel = obj.model;
-              } catch { /* partial */ }
+            // Re-emit complete lines; preserve partial trailing line in buffer.
+            let nl;
+            while ((nl = buffered.indexOf("\n")) !== -1) {
+              const rawLine = buffered.slice(0, nl + 1); // include the \n
+              buffered = buffered.slice(nl + 1);
+              const trimmed = rawLine.trim();
+              if (trimmed.startsWith("data:")) {
+                const payload = trimmed.slice(5).trim();
+                if (payload === "[DONE]") {
+                  // Swallow upstream sentinel; we'll write our own at the end.
+                  continue;
+                }
+                try {
+                  const obj = JSON.parse(payload);
+                  const delta = obj?.choices?.[0]?.delta?.content;
+                  if (typeof delta === "string") assistantText += delta;
+                  if (obj?.usage) finalUsage = obj.usage;
+                  if (obj?.model) finalModel = obj.model;
+                } catch { /* partial JSON, just forward */ }
+              }
+              controller.enqueue(encoder.encode(rawLine));
             }
           }
+          // Flush any trailing bytes (no newline).
+          if (buffered.length > 0) {
+            controller.enqueue(encoder.encode(buffered));
+            buffered = "";
+          }
+        } catch (e) {
+          streamFailure = e instanceof Error ? e.message : String(e);
+          controller.enqueue(sseEncode(openaiErrorShape(
+            `Upstream stream interrupted: ${streamFailure}`,
+            "api_error",
+            { code: "upstream_stream_error" },
+          )));
         } finally {
-          controller.close();
+          // Run output policy on the accumulated text. If it blocks, emit a
+          // synthetic content_filter chunk so the client knows the answer was
+          // suppressed (the partial deltas already on the wire are by design;
+          // we cannot un-send them).
           const out = await evaluateOutput(assistantText, policyState, { systemPrompt, toolsRequested });
+          if (out.status === "blocked_output") {
+            controller.enqueue(sseEncode({
+              id: `chatcmpl-${crypto.randomUUID()}`,
+              object: "chat.completion.chunk",
+              created: Math.floor(Date.now() / 1000),
+              model: finalModel,
+              choices: [{ index: 0, delta: { content: `\n\n${blockMessage}` }, finish_reason: "content_filter" }],
+              anveguard: { blocked: true, reason: out.blockReason, layers: out.layers },
+            }));
+          }
+          controller.enqueue(SSE_DONE);
+          controller.close();
           await sb.from("request_logs").insert({
-            ...logBase, model: finalModel, status: out.status, block_reason: out.blockReason,
+            ...logBase, model: finalModel,
+            status: streamFailure ? "error" : out.status,
+            block_reason: streamFailure ?? out.blockReason,
             verdict: out.status === "blocked_output" ? "block" : "allow",
             verdict_layers: out.layers,
-            response: { streamed: true, content: assistantText },
+            response: { streamed: true, content: assistantText, ...(streamFailure ? { error: streamFailure } : {}) },
             latency_ms: Date.now() - start,
             tokens_in: finalUsage?.prompt_tokens ?? null,
             tokens_out: finalUsage?.completion_tokens ?? null,
@@ -694,10 +799,12 @@ async function handleRequest(req: Request): Promise<Response> {
           await sb.from("api_keys").update({ last_used_at: new Date().toISOString() }).eq("id", keyRow.id);
         }
       },
+      cancel(reason) {
+        // Client disconnected; abort the upstream read so we don't leak.
+        try { upstream.body?.cancel(reason); } catch { /* noop */ }
+      },
     });
-    return new Response(transformed, {
-      headers: { ...corsHeaders, "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
-    });
+    return new Response(transformed, { headers: sseHeaders });
   }
 
   // ===== Non-streaming =====
