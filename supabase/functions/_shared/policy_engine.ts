@@ -98,6 +98,12 @@ export interface EvaluateResult {
   // The intent classifier's verdict (input direction only, when enabled).
   detected_intent?: string;
   intent_confidence?: number;
+  /** When verdict === "sanitize", the rewritten text that should be forwarded
+   *  to the upstream model. Caller is responsible for substituting it back into
+   *  the appropriate message slot. */
+  sanitized_text?: string;
+  /** All spans (in the original text) that were redacted. */
+  sanitized_spans?: { start: number; end: number; match: string }[];
 }
 
 // ---------- 1. Normalizer --------------------------------------------------
