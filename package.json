@@ -10,7 +10,13 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "e2e": "playwright test",
+    "e2e:ui": "playwright test --ui",
+    "e2e:headed": "playwright test --headed",
+    "e2e:auth": "playwright test --project=setup",
+    "e2e:codegen": "playwright codegen $E2E_BASE_URL --save-storage=playwright/.auth/user.json",
+    "e2e:report": "playwright show-report"
   },
   "dependencies": {
     "@clerk/clerk-react": "^5.61.3",
@@ -66,7 +72,9 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@clerk/testing": "^2.0.24",
     "@eslint/js": "^9.32.0",
+    "@playwright/test": "^1.59.1",
     "@tailwindcss/typography": "^0.5.16",
     "@testing-library/jest-dom": "^6.6.0",
     "@testing-library/react": "^16.0.0",
@@ -75,6 +83,7 @@
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react-swc": "^3.11.0",
     "autoprefixer": "^10.4.21",
+    "dotenv": "^17.4.2",
     "eslint": "^9.32.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
