@@ -498,32 +498,19 @@ export function PolicyTemplatesSection() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={!!confirm} onOpenChange={(o) => !o && setConfirm(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Apply "{confirm?.name}"?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This overwrites your keyword guardrails and behavior settings
-              {confirm?.rules?.length
-                ? `, and adds ${confirm.rules.length} new rule${confirm.rules.length === 1 ? "" : "s"}`
-                : ""}
-              . Existing rules are kept.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={apply.isPending}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={apply.isPending}
-              onClick={(e) => {
-                e.preventDefault();
-                if (confirm) apply.mutate(confirm);
-              }}
-            >
-              {apply.isPending ? "Applying…" : "Apply"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <TemplateApplyPreviewDialog
+        open={!!confirm}
+        onOpenChange={(o) => !o && setConfirm(null)}
+        template={confirm ? {
+          id: confirm.id,
+          name: confirm.name,
+          policy: confirm.policy as Record<string, any>,
+          settings: confirm.settings as Record<string, any>,
+          rules: confirm.rules as Array<Record<string, any>> | undefined,
+        } : null}
+        applying={apply.isPending}
+        onConfirm={() => { if (confirm) apply.mutate(confirm); }}
+      />
     </>
   );
 }
