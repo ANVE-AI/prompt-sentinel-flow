@@ -9,6 +9,36 @@ import { parseModelsResponse } from "../_shared/models_parsers.ts";
 // In-memory cache for /models responses (per provider+key, 5 min TTL).
 const modelsCache = new Map<string, { models: string[]; exp: number }>();
 
+/**
+ * Look up an endpoint row that the caller is allowed to *read*. The caller is
+ * allowed to read a row if either:
+ *   1. They own it (`endpoints.user_id = userId`), OR
+ *   2. The endpoint owner has explicitly shared it with them via `endpoint_shares`
+ *      (matched on the resolved `shared_with_user_id`).
+ *
+ * Read access does NOT grant the right to mutate the row, mint API keys against
+ * it, or see the encrypted provider key — callers of this helper must ONLY use
+ * it for read/test/list-models flows. The encrypted key in the returned row is
+ * meant to be decrypted server-side and used to call the upstream; it must never
+ * be written into a response body.
+ */
+async function loadReadableEndpoint(
+  sb: ReturnType<typeof service>, endpointId: string, userId: string,
+): Promise<{ row: any | null; isShared: boolean }> {
+  const { data: owned } = await sb.from("endpoints").select("*")
+    .eq("id", endpointId).eq("user_id", userId).maybeSingle();
+  if (owned) return { row: owned, isShared: false };
+
+  const { data: share } = await sb.from("endpoint_shares")
+    .select("endpoint_id").eq("endpoint_id", endpointId)
+    .eq("shared_with_user_id", userId).maybeSingle();
+  if (!share) return { row: null, isShared: false };
+
+  const { data: shared } = await sb.from("endpoints").select("*")
+    .eq("id", endpointId).maybeSingle();
+  return { row: shared ?? null, isShared: !!shared };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
