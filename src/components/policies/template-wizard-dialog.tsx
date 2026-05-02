@@ -620,6 +620,12 @@ function ReviewStep({
             ))}
           </div>
         )}
+        <div className="mt-2 pt-2 border-t border-border text-meta">
+          <span className="text-muted-foreground">Unknown-intent fallback: </span>
+          <span className="font-mono">
+            {FALLBACK_OPTIONS.find((o) => o.value === unknownFallback)?.label ?? unknownFallback}
+          </span>
+        </div>
       </div>
       {rules.length > 0 && (
         <div>
