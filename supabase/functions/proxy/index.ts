@@ -52,6 +52,35 @@ function extractSystemPrompt(messages: any[]): string | undefined {
   return typeof sys.content === "string" ? sys.content : JSON.stringify(sys.content ?? "");
 }
 
+/**
+ * Run the output direction of the layered evaluator and turn its verdict into
+ * the (status, block_reason, verdict_layers) tuple the request log expects.
+ */
+async function evaluateOutput(
+  text: string,
+  policyState: Awaited<ReturnType<typeof loadWorkspacePolicy>>,
+  ctx: { systemPrompt?: string; toolsRequested?: boolean },
+): Promise<{ status: "allowed" | "blocked_output"; blockReason: string | null; layers: any[] }> {
+  if (!text) return { status: "allowed", blockReason: null, layers: [] };
+  const r = await evaluatePolicy(
+    {
+      text,
+      direction: "output",
+      legacy: policyState.legacy,
+      rules: policyState.rules,
+      intents: policyState.intents,
+      settings: policyState.settings,
+    },
+    ctx,
+  );
+  if (r.verdict === "block") {
+    const reason = r.layers.find((l) => l.verdict === "block")?.reason ?? "Output blocked by policy";
+    return { status: "blocked_output", blockReason: reason, layers: r.layers };
+  }
+  return { status: "allowed", blockReason: null, layers: r.layers };
+}
+
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
