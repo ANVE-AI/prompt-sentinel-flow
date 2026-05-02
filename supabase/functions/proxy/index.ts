@@ -582,6 +582,8 @@ async function handleRequest(req: Request): Promise<Response> {
         // Throttle fires before the intent classifier runs, so we record
         // "unknown" rather than leaving the audit field null.
         detected_intent: "unknown",
+        guardrail_prompt: injectedGuardrail,
+        client_system_prompt: customSystemPrompt || null,
         status: "throttled", verdict: "block", block_reason: reason,
         verdict_layers: [{
           layer: "behavioral", verdict: "block", rule: "throttle",
