@@ -1,26 +1,37 @@
 ## Goal
-Make the active route in the desktop sidebar visually unmistakable, and ensure every item shows a tooltip with its label when the sidebar is collapsed to the icon rail.
+Add a search box at the top of the desktop sidebar that filters dashboard nav items in-place, plus a "More results" affordance that opens the existing global command palette for cross-resource search (keys, endpoints, logs, etc.).
 
-## Current state (`src/components/dashboard-sidebar.tsx`)
-- Active state today = a 2px left accent bar + primary-colored icon + slightly brighter label text. The row background does **not** change, so on a busy page the active item barely stands out — especially in the collapsed icon rail where the label is hidden.
-- `SidebarMenuButton` is already passed `tooltip={item.label}`. shadcn's sidebar shows that tooltip only when `state === "collapsed"` and not on mobile, which is what we want, but the tooltip currently inherits default placement. We'll pass a structured tooltip prop so it consistently renders to the right with proper alignment.
+## Why this shape
+- We already have a robust ⌘K palette (`src/components/command-palette.tsx`) for searching keys/endpoints/logs/policies. Duplicating that in the sidebar would be redundant.
+- The sidebar specifically needs a *page finder* — fast, always-visible, scoped to navigation.
+- When the sidebar is collapsed (icon rail), a full input would break the rail; we render a search icon button that fires the palette instead.
 
-## Changes (single file: `src/components/dashboard-sidebar.tsx`)
+## Changes — `src/components/dashboard-sidebar.tsx`
 
-1. **Stronger active highlight on the row itself**
-   - Add `bg-sidebar-accent text-sidebar-accent-foreground font-medium` to the `NavLink` when `isActive`, via the `className` render-prop. This paints the entire row (works in both expanded and collapsed states, so the active icon tile is clearly filled in the icon rail too).
-   - Keep the existing left primary accent bar and primary-tinted icon for the secondary cue.
-   - Add `transition-colors` to the icon for a smoother hover/active feel.
-   - Remove the redundant `font-medium` from the label span (now applied at the row level only when active, so inactive rows look lighter).
+1. **Lift the nav items** out of the JSX into the existing `groups` constant (already done) so the renderer can reuse them for filtered results.
 
-2. **Reliable collapsed tooltips**
-   - Replace `tooltip={item.label}` with `tooltip={{ children: item.label, side: "right", align: "center" }}` on every `SidebarMenuButton`. shadcn already auto-hides the tooltip when the sidebar is expanded or on mobile, so no extra logic is needed.
+2. **New state**: `const [query, setQuery] = useState("")` and a memoized `filteredGroups` that lowercases the query and keeps only items whose `label` or `to` includes it. Empty query → original groups untouched.
 
-3. **Header "a" tile (collapsed Logo replacement)**
-   - Add `aria-current` styling parity: when on `/dashboard`, give the tile a faint ring so it matches the new active-row treatment. (Optional polish — small `ring-1 ring-primary/30` when `useMatch("/dashboard")`.)
+3. **Expanded state UI** (rendered above `SidebarContent`, inside a new `SidebarGroup` with no label):
+   - A `relative` wrapper with a `Search` icon (lucide) absolutely positioned at left.
+   - shadcn `<Input>` with `value={query}`, placeholder `"Find a page…"`, height `h-8`, left padding for the icon, right padding for a clear button.
+   - When `query.length > 0`, show a small `X` button on the right that resets it.
+   - Tiny keyboard hint `⌘K` chip on the right when empty (clickable → dispatch `COMMAND_PALETTE_EVENT`).
 
-No other files touched. No new dependencies. Tokens used (`sidebar-accent`, `sidebar-accent-foreground`, `primary`, `muted-foreground`) already exist in the design system.
+4. **Collapsed state UI**: instead of the input, render a single `SidebarMenuButton` with a `Search` icon and tooltip `"Search (⌘K)"`. Clicking dispatches the existing `COMMAND_PALETTE_EVENT` so behavior matches ⌘K.
+
+5. **Filtered rendering**:
+   - When `query` is empty: render groups exactly as today.
+   - When `query` is non-empty: render a single `SidebarGroup` with label `"Pages"` containing the matched items (group headers hidden to keep results dense). If zero matches, render a muted empty state row: `"No pages match. Press Enter to search everything →"` and pressing Enter dispatches `COMMAND_PALETTE_EVENT` with the current query (palette already accepts a starting query via its input — for now we just open it; pre-filling can be a follow-up since it requires a tiny event payload change).
+
+6. **Accessibility**: `role="search"` on the wrapper, `aria-label="Find a dashboard page"` on the input, keyboard shortcut hint via `aria-keyshortcuts`.
+
+7. **Keyboard**: pressing `Esc` while the input is focused clears the query and blurs.
+
+## No other files
+- The palette already listens for `COMMAND_PALETTE_EVENT`. We reuse that.
+- No new dependencies; `Search` and `X` icons come from `lucide-react`, `Input` from `@/components/ui/input`.
 
 ## Out of scope
-- Mobile sheet sidebar (`MobileSidebar`) — separate component, can be a follow-up if desired.
-- Group-label active state (parents don't currently have routes).
+- Pre-filling the palette's query from the sidebar input (requires extending the event payload + palette wiring; can be added later).
+- Mobile sidebar search — `MobileSidebar` is a separate component; can mirror this pattern in a follow-up.
