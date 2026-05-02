@@ -230,8 +230,57 @@ const Endpoints = () => {
     setLiveModels(null);
     setModelsResult(null);
     setLastRefreshOk(false);
+    setPreviewTemplateId("");
   };
 
+  // -------- Template diff preview ----------------------------------------
+  // Computes a per-field comparison between the current form values and what
+  // the selected preview template would set, so the user can review every
+  // change before clicking "Apply". Returns rows for ALL fields the template
+  // would touch (including unchanged ones) so nothing is hidden.
+  type DiffRow = {
+    label: string;
+    field: keyof FormState;
+    current: string;
+    next: string;
+    status: "unchanged" | "change" | "add";
+  };
+  const previewDiff = useMemo<{ template: NonNullable<CustomSchema["templates"][number]>; rows: DiffRow[] } | null>(() => {
+    if (!previewTemplateId || !customSchema) return null;
+    const t = customSchema.templates.find((x) => x.id === previewTemplateId);
+    if (!t) return null;
+    const v = t.values;
+    const fmt = v.response_format
+      || (v.kind === "anthropic" ? "anthropic_messages" : "chat_completions");
+    const nextHeaderName = v.auth_header || (v.auth_scheme === "query" ? "key" : "Authorization");
+    const nextExtraHeaders = v.extra_headers
+      ? Object.entries(v.extra_headers).map(([k, val]) => `${k}: ${val}`).join(", ")
+      : form.extra_headers.map((h) => `${h.key}: ${h.value}`).join(", ");
+    const curExtraHeaders = form.extra_headers.map((h) => `${h.key}: ${h.value}`).join(", ");
+
+    const fields: Array<{ label: string; field: keyof FormState; current: string; next: string }> = [
+      { label: "Name",            field: "name",              current: form.name,                 next: form.name.trim() ? form.name : t.label },
+      { label: "Kind",            field: "kind",              current: form.kind,                 next: v.kind },
+      { label: "Base URL",        field: "base_url",          current: form.base_url,             next: v.base_url },
+      { label: "Models URL",      field: "models_url",        current: form.models_url,           next: v.models_url ?? "" },
+      { label: "Auth scheme",     field: "auth_scheme",       current: form.auth_scheme,          next: v.auth_scheme },
+      { label: "Auth header/param", field: "auth_header",     current: form.auth_header,          next: nextHeaderName },
+      { label: "Default model",   field: "default_model",     current: form.default_model,        next: v.default_model || form.default_model },
+      { label: "Model suggestions", field: "model_suggestions", current: form.model_suggestions, next: v.model_suggestions || form.model_suggestions },
+      { label: "Path prefix",     field: "path_prefix",       current: form.path_prefix,          next: v.path_prefix ?? "" },
+      { label: "Chat path",       field: "chat_path",         current: form.chat_path,            next: v.chat_path ?? "" },
+      { label: "Models path",     field: "models_path",       current: form.models_path,          next: v.models_path ?? "" },
+      { label: "Response format", field: "response_format",   current: form.response_format,      next: fmt },
+      { label: "Extra headers",   field: "extra_headers",     current: curExtraHeaders,           next: nextExtraHeaders },
+    ];
+    const rows: DiffRow[] = fields.map((f) => ({
+      ...f,
+      status: f.current === f.next ? "unchanged" : (f.current.trim() === "" ? "add" : "change"),
+    }));
+    return { template: t, rows };
+  }, [previewTemplateId, customSchema, form]);
+
+  const changedCount = previewDiff?.rows.filter((r) => r.status !== "unchanged").length ?? 0;
   // When auth scheme changes, give it a sensible default header/param name
   useEffect(() => {
     if (form.auth_scheme === "query" && form.auth_header === "Authorization") {
