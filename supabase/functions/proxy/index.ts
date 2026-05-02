@@ -101,24 +101,51 @@ Deno.serve(async (req) => {
   const start = Date.now();
   const sb = service();
 
-  // Auth
+  // Detect the public request shape from the URL path so the same proxy
+  // can serve OpenAI, Anthropic, and Gemini SDKs unchanged.
+  const reqUrl = new URL(req.url);
+  const route = detectRequestShape(reqUrl);
+  const reqShape: RequestShape = route.shape;
+
+  // ---- Auth: accept the AnveGuard key in whatever header the SDK sends.
+  //   - OpenAI / generic:    Authorization: Bearer ag_live_…
+  //   - Anthropic SDK:       x-api-key: ag_live_…
+  //   - Google Gemini SDK:   ?key=ag_live_…
   const authHeader = req.headers.get("Authorization") || req.headers.get("authorization") || "";
-  const m = authHeader.match(/^Bearer\s+(ag_live_\S+)/i);
-  if (!m) return json(openaiErrorShape("Missing or invalid AnveGuard API key", "invalid_request_error"), 401);
-  const apiKeyPlain = m[1];
+  const xApiKey = req.headers.get("x-api-key") || req.headers.get("X-API-Key") || "";
+  const queryKey = reqUrl.searchParams.get("key") || "";
+  const bearer = authHeader.match(/^Bearer\s+(ag_live_\S+)/i)?.[1];
+  const apiKeyPlain = bearer
+    || (xApiKey.startsWith("ag_live_") ? xApiKey : "")
+    || (queryKey.startsWith("ag_live_") ? queryKey : "");
+  if (!apiKeyPlain) {
+    return json(errorForShape(reqShape, "Missing or invalid AnveGuard API key", "invalid_request_error"), 401);
+  }
   const key_hash = await sha256Hex(apiKeyPlain);
 
   const { data: keyRow } = await sb.from("api_keys")
     .select("id,user_id,provider,provider_key_encrypted,model_default,is_active,custom_base_url,custom_models_url,custom_kind,custom_auth_scheme,custom_auth_header,custom_extra_headers,custom_path_prefix,custom_chat_path,custom_models_path,custom_response_format")
     .eq("key_hash", key_hash).maybeSingle();
   if (!keyRow || !keyRow.is_active) {
-    return json(openaiErrorShape("Invalid or revoked API key", "invalid_request_error"), 401);
+    return json(errorForShape(reqShape, "Invalid or revoked API key", "invalid_request_error"), 401);
   }
 
-  // Body
-  let body: any;
-  try { body = await req.json(); } catch { return json(openaiErrorShape("Invalid JSON body", "invalid_request_error"), 400); }
-  if (!Array.isArray(body?.messages)) return json(openaiErrorShape("messages must be an array", "invalid_request_error"), 400);
+  // Body — parse, then translate to canonical OpenAI Chat Completions shape.
+  // Every downstream component (policy, throttle, alias, route, upstream
+  // dispatch, output evaluation) operates on the canonical shape; we only
+  // translate back at the very end.
+  let publicBody: any;
+  try { publicBody = await req.json(); }
+  catch { return json(errorForShape(reqShape, "Invalid JSON body", "invalid_request_error"), 400); }
+
+  const body: any = translateRequestToOpenAI(reqShape, publicBody, route.pathModel);
+  if (!Array.isArray(body?.messages) || body.messages.length === 0) {
+    return json(errorForShape(reqShape, "messages must be a non-empty array", "invalid_request_error"), 400);
+  }
+  // Non-OpenAI shapes are served non-stream in this first pass; SDK consumers
+  // get a single JSON response in their native format. OpenAI shape keeps
+  // full streaming support unchanged.
+  if (reqShape !== "openai") body.stream = false;
   let model: string = body.model || keyRow.model_default;
   const stream = !!body.stream;
 
