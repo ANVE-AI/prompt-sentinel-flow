@@ -32,6 +32,10 @@ export function BehavioralSection() {
   const [action, setAction] = useState<Action>("flag");
   const [windowMin, setWindowMin] = useState(5);
   const [threshold, setThreshold] = useState(10);
+  const [churn, setChurn] = useState(3);
+  const [persona, setPersona] = useState(3);
+  const [encodingStep, setEncodingStep] = useState(0.25);
+  const [lengthMult, setLengthMult] = useState(8);
 
   useEffect(() => {
     const s = data?.settings;
@@ -42,6 +46,10 @@ export function BehavioralSection() {
     }
     if (typeof s.throttle_window_minutes === "number") setWindowMin(s.throttle_window_minutes);
     if (typeof s.throttle_flag_threshold === "number") setThreshold(s.throttle_flag_threshold);
+    if (typeof s.behavioral_churn_threshold === "number") setChurn(s.behavioral_churn_threshold);
+    if (typeof s.behavioral_persona_threshold === "number") setPersona(s.behavioral_persona_threshold);
+    if (typeof s.behavioral_encoding_ratio_step === "number") setEncodingStep(s.behavioral_encoding_ratio_step);
+    if (typeof s.behavioral_length_multiplier === "number") setLengthMult(s.behavioral_length_multiplier);
   }, [data]);
 
   const save = useMutation({
@@ -52,6 +60,10 @@ export function BehavioralSection() {
           behavioral_action: action,
           throttle_window_minutes: windowMin,
           throttle_flag_threshold: threshold,
+          behavioral_churn_threshold: churn,
+          behavioral_persona_threshold: persona,
+          behavioral_encoding_ratio_step: encodingStep,
+          behavioral_length_multiplier: lengthMult,
         },
       }),
     onSuccess: () => {
