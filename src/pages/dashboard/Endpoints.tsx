@@ -251,7 +251,13 @@ const Endpoints = () => {
   // is idempotent server-side. On success we invalidate the usage query so
   // the row updates in place, and the global keys list so the Keys page
   // stays in sync.
-  const [confirmRevokeKey, setConfirmRevokeKey] = useState<{ id: string; name: string; key_prefix: string } | null>(null);
+  const [confirmRevokeKey, setConfirmRevokeKey] = useState<{
+    id: string;
+    name: string;
+    key_prefix: string;
+    last_used_at: string | null;
+    last_model: string | null;
+  } | null>(null);
   const revokeKeyMutation = useMutation({
     mutationFn: (id: string) => call("revoke_key", { body: { id } }),
     onSuccess: () => {
