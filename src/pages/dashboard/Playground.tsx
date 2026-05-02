@@ -21,10 +21,28 @@ const Playground = () => {
 
   const [keyId, setKeyId] = useState<string>("");
   const [apiKey, setApiKey] = useState("");
+  const [model, setModel] = useState<string>("");
   const [prompt, setPrompt] = useState("Write a haiku about firewalls.");
   const [stream, setStream] = useState(true);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ blocked: boolean; text: string; reason?: string } | null>(null);
+
+  const selectedKey = activeKeys.find((k: any) => k.id === keyId);
+
+  const { data: modelsData, isLoading: modelsLoading } = useQuery({
+    queryKey: ["models", keyId],
+    queryFn: () => call<{ models: string[]; source: string; warning?: string }>("list_models", { body: { api_key_id: keyId } }),
+    enabled: !!keyId,
+  });
+  const availableModels: string[] = modelsData?.models ?? [];
+
+  // Reset model when key changes; default to the key's model_default
+  useEffect(() => {
+    if (!selectedKey || availableModels.length === 0) return;
+    const def = availableModels.includes(selectedKey.model_default)
+      ? selectedKey.model_default : availableModels[0];
+    setModel(def);
+  }, [keyId, modelsData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const send = async () => {
     if (!apiKey.startsWith("ag_live_")) {
