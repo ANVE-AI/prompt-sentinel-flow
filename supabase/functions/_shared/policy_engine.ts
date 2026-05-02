@@ -855,6 +855,25 @@ export async function evaluate(input: EvaluateInput, ctx: { systemPrompt?: strin
     }
   }
 
+  // Multi-turn behavioral analysis (input direction only — needs the full
+  // conversation, which only the inbound side has).
+  if (
+    settings.enable_behavioral !== false &&
+    direction === "input" &&
+    Array.isArray(input.conversation) &&
+    input.conversation.length >= 2
+  ) {
+    const behavioralLayers = evaluateBehavioral(input.conversation);
+    if (behavioralLayers.length > 0) {
+      const action: "block" | "sanitize" | "flag" = settings.behavioral_action ?? "flag";
+      // `sanitize` doesn't make sense at conversation level (we'd have to pick
+      // a turn to redact and there's no precise span). Coerce to `flag`.
+      const effective = action === "sanitize" ? "flag" : action;
+      for (const layer of behavioralLayers) layer.verdict = effective;
+      layers.push(...behavioralLayers);
+    }
+  }
+
   // 2. Intent layer verdict (built from the same classification, no extra call).
   let shadow_only = false;
   if (detected) {
@@ -893,6 +912,8 @@ export const DEFAULT_SETTINGS: PolicySettings = {
   workspace_purpose: null,
   enable_injection_guard: true,
   injection_action: "block",
+  enable_behavioral: true,
+  behavioral_action: "flag",
 };
 
 export const KNOWN_INTENTS = [
