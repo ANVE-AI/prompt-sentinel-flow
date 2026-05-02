@@ -397,7 +397,7 @@ const Endpoints = () => {
                 className="mt-1.5 font-mono text-sm"
               />
               <p className="text-xs text-muted-foreground mt-1">
-                We'll auto-append <code>/chat/completions</code> (or <code>/messages</code>) if missing.
+                We'll append the chat path automatically (e.g. <code>/chat/completions</code>, <code>/messages</code>, or <code>/responses</code>). Use <em>Path prefix</em> below for things like <code>/v1</code> or <code>/openai/v1</code>.
               </p>
             </div>
 
