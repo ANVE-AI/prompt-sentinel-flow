@@ -83,6 +83,7 @@ const Keys = () => {
   // to `create_key` so the new key is bound to the same custom endpoint as
   // the one being revoked.
   const [prefilledEndpointId, setPrefilledEndpointId] = useState<string | null>(null);
+  const [aliasesFor, setAliasesFor] = useState<{ id: string; name: string } | null>(null);
 
   // ---- Deep-link: open the New Key dialog from a URL like
   //      /dashboard/keys?new=1&name=foo&endpoint=<uuid>
@@ -592,6 +593,13 @@ const Keys = () => {
                 <div className="flex items-center gap-1 justify-end">
                   {k.is_active && (
                     <>
+                      <Button
+                        variant="ghost" size="sm"
+                        onClick={() => setAliasesFor({ id: k.id, name: k.name })}
+                        title="Manage model aliases for this key"
+                      >
+                        <Tags className="h-3.5 w-3.5" />
+                      </Button>
                       <Button
                         variant="ghost" size="sm"
                         disabled={testKey.isPending && testingKey?.id === k.id}
