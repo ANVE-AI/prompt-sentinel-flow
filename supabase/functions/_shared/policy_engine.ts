@@ -76,6 +76,16 @@ export interface PolicySettings {
   enable_behavioral?: boolean;
   /** Action when behavioral heuristics fire. */
   behavioral_action?: "block" | "sanitize" | "flag";
+  /** Match blocked keywords through unicode/leet/spacing tricks and bounded
+   *  Levenshtein, not just exact substring. */
+  enable_fuzzy_keywords?: boolean;
+  /** Use Lovable AI to detect prompts whose *meaning* matches a blocked
+   *  keyword even when the words themselves are different. */
+  enable_semantic_keywords?: boolean;
+  /** Confidence threshold (0.5..0.95) the semantic matcher must clear before
+   *  blocking a request. Lower = more aggressive, higher = fewer false
+   *  positives. */
+  semantic_threshold?: number;
 }
 
 export interface LegacyPolicy {
