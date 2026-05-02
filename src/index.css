@@ -88,7 +88,6 @@
     @apply bg-background text-foreground antialiased;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
-  html { @apply dark; }
 }
 
 @layer utilities {
