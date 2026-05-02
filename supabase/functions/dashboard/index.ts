@@ -1505,6 +1505,7 @@ Deno.serve(async (req) => {
             name: snap.name, description: snap.description,
             policy: snap.policy, settings: snap.settings, rules: snap.rules,
             applies_to_intents: snap.applies_to_intents ?? [],
+            unknown_intent_fallback: snap.unknown_intent_fallback ?? "apply_no_rules",
             current_version: nextVersion,
           })
           .eq("id", templateId).eq("user_id", userId).select().maybeSingle();
@@ -1515,6 +1516,7 @@ Deno.serve(async (req) => {
             name: data.name, description: data.description,
             policy: data.policy, settings: data.settings, rules: data.rules,
             applies_to_intents: data.applies_to_intents ?? [],
+            unknown_intent_fallback: data.unknown_intent_fallback ?? "apply_no_rules",
             change_note: `Rolled back to v${version}`,
             created_by: userId,
           });
