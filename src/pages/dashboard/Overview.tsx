@@ -19,7 +19,7 @@ import { EmptyState } from "@/components/empty-state";
 const Overview = () => {
   const { call } = useDashboardApi();
   const { data, isLoading } = useQuery({ queryKey: ["stats"], queryFn: () => call<any>("stats") });
-  const { data: logsData } = useQuery({
+  const { data: logsData, isLoading: logsLoading } = useQuery({
     queryKey: ["logs", "recent"],
     queryFn: () => call<any>("list_logs", { query: { limit: "6" } }),
   });
