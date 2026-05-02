@@ -153,6 +153,10 @@ const Endpoints = () => {
   // "Save as default" button can show a dirty state and disable when unchanged.
   const [savedDefaultModel, setSavedDefaultModel] = useState<string>("");
   const [savingDefault, setSavingDefault] = useState(false);
+  // Template preview — selecting a template in the dropdown doesn't immediately
+  // overwrite the form. It populates this state instead, which renders a diff
+  // panel so the user can review every field before confirming "Apply".
+  const [previewTemplateId, setPreviewTemplateId] = useState<string>("");
 
   const isEdit = !!form.id;
 
