@@ -1623,7 +1623,13 @@ const Endpoints = () => {
                       const blocked = typeof r.status === "string" && r.status.startsWith("blocked");
                       const errored = r.status === "error";
                       return (
-                        <div key={r.id} className="flex items-center gap-3 px-3 py-2 text-xs">
+                        <button
+                          key={r.id}
+                          type="button"
+                          onClick={() => setOpenRequestId(r.id)}
+                          className="w-full flex items-center gap-3 px-3 py-2 text-xs text-left hover:bg-muted/60 transition-colors focus:outline-none focus:bg-muted/60"
+                          title="Inspect request"
+                        >
                           {blocked
                             ? <Ban className="h-3.5 w-3.5 text-destructive shrink-0" />
                             : errored
@@ -1642,7 +1648,8 @@ const Endpoints = () => {
                           <span className="text-muted-foreground tabular-nums shrink-0 w-14 text-right">
                             {r.latency_ms ?? 0}ms
                           </span>
-                        </div>
+                          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        </button>
                       );
                     })}
                   </div>
