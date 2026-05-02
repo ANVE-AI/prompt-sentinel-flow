@@ -666,8 +666,10 @@ export type Database = {
         Row: {
           api_key_id: string | null
           block_reason: string | null
+          client_system_prompt: string | null
           created_at: string
           detected_intent: string | null
+          guardrail_prompt: string | null
           id: string
           intent_confidence: number | null
           latency_ms: number | null
@@ -685,8 +687,10 @@ export type Database = {
         Insert: {
           api_key_id?: string | null
           block_reason?: string | null
+          client_system_prompt?: string | null
           created_at?: string
           detected_intent?: string | null
+          guardrail_prompt?: string | null
           id?: string
           intent_confidence?: number | null
           latency_ms?: number | null
@@ -704,8 +708,10 @@ export type Database = {
         Update: {
           api_key_id?: string | null
           block_reason?: string | null
+          client_system_prompt?: string | null
           created_at?: string
           detected_intent?: string | null
+          guardrail_prompt?: string | null
           id?: string
           intent_confidence?: number | null
           latency_ms?: number | null
