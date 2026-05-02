@@ -49,7 +49,12 @@ const SETTING_KEYS: { key: string; label: string }[] = [
   { key: "intent_shadow_mode", label: "Intent shadow mode" },
 ];
 
-type Step = 1 | 2 | 3 | 4;
+type Step = 1 | 2 | 3 | 4 | 5;
+
+const FALLBACK_INTENTS = [
+  "jailbreak", "prompt_injection", "data_exfiltration",
+  "off_topic", "tool_abuse", "harassment", "other",
+];
 
 export function TemplateWizardDialog({
   open,
