@@ -1409,6 +1409,12 @@ Deno.serve(async (req) => {
         const policy = body?.policy && typeof body.policy === "object" ? body.policy : {};
         const settings = body?.settings && typeof body.settings === "object" ? body.settings : {};
 
+        const ALLOWED_FALLBACKS = ["apply_no_rules", "apply_default_rules", "reject"] as const;
+        const rawFallback = String(body?.unknown_intent_fallback ?? "apply_no_rules");
+        const unknownIntentFallback = (ALLOWED_FALLBACKS as readonly string[]).includes(rawFallback)
+          ? rawFallback
+          : "apply_no_rules";
+
         const changeNote = body?.change_note ? String(body.change_note).slice(0, 500) : null;
         const id = body?.id ? String(body.id) : null;
 
@@ -1422,6 +1428,7 @@ Deno.serve(async (req) => {
           settings: tpl.settings,
           rules: tpl.rules,
           applies_to_intents: tpl.applies_to_intents ?? [],
+          unknown_intent_fallback: tpl.unknown_intent_fallback ?? "apply_no_rules",
           change_note: changeNote,
           created_by: userId,
         });
@@ -1433,14 +1440,14 @@ Deno.serve(async (req) => {
           if (!existing) return json({ error: "Template not found" }, 404);
           const nextVersion = (existing.current_version ?? 1) + 1;
           const { data, error } = await sb.from("policy_templates")
-            .update({ name, description, policy, settings, rules, applies_to_intents: tplIntents, current_version: nextVersion })
+            .update({ name, description, policy, settings, rules, applies_to_intents: tplIntents, unknown_intent_fallback: unknownIntentFallback, current_version: nextVersion })
             .eq("id", id).eq("user_id", userId).select().maybeSingle();
           if (error) return json({ error: error.message }, 400);
           if (data) await sb.from("policy_template_versions").insert(snapshot(data, nextVersion));
           return json({ template: data });
         }
         const { data, error } = await sb.from("policy_templates")
-          .insert({ user_id: userId, name, description, policy, settings, rules, applies_to_intents: tplIntents, current_version: 1 })
+          .insert({ user_id: userId, name, description, policy, settings, rules, applies_to_intents: tplIntents, unknown_intent_fallback: unknownIntentFallback, current_version: 1 })
           .select().maybeSingle();
         if (error) return json({ error: error.message }, 400);
         if (data) await sb.from("policy_template_versions").insert(snapshot(data, 1));
