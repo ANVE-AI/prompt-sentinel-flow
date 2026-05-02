@@ -101,6 +101,30 @@ const Keys = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Deep-link from the global ⌘K palette: `?focus=<key_id>` scrolls the
+  // matching row into view and flashes a ring highlight for ~1.6s. We watch
+  // both the param and the loaded list so this works whether the data is
+  // already cached or arrives later.
+  const [focusKeyId, setFocusKeyId] = useState<string | null>(null);
+  useEffect(() => {
+    const focusId = searchParams.get("focus");
+    if (!focusId || !data?.keys) return;
+    const exists = data.keys.some((k: any) => k.id === focusId);
+    if (!exists) return;
+    setFocusKeyId(focusId);
+    const next = new URLSearchParams(searchParams);
+    next.delete("focus");
+    setSearchParams(next, { replace: true });
+    // Defer scroll until the row has rendered with the highlight class.
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`[data-key-row="${focusId}"]`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    const t = setTimeout(() => setFocusKeyId(null), 1600);
+    return () => clearTimeout(t);
+  }, [data, searchParams, setSearchParams]);
+
   const selected = providers.find((p) => p.id === providerId);
   const isCustom = providerId === "custom";
 
