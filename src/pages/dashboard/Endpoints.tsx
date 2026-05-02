@@ -422,6 +422,9 @@ const Endpoints = () => {
                         {e.base_url}
                       </div>
                     </div>
+                    <Button variant="ghost" size="icon" onClick={() => setUsageEndpoint(e)} title="View usage">
+                      <Activity className="h-4 w-4 text-muted-foreground" />
+                    </Button>
                     <Button variant="ghost" size="icon" onClick={() => startEdit(e)} title="Edit">
                       <Pencil className="h-4 w-4 text-muted-foreground" />
                     </Button>
