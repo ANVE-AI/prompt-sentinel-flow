@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { TemplateWizardDialog } from "./template-wizard-dialog";
 import { TemplateTestDialog } from "./template-test-dialog";
 import { TemplateHistoryDialog } from "./template-history-dialog";
+import { TemplateApplyPreviewDialog } from "./template-apply-preview-dialog";
 
 type TemplateId = "safe_chatbot" | "enterprise_compliance" | "no_pii" | string;
 
