@@ -66,17 +66,27 @@ const Logs = () => {
         </div>
         {isLoading ? <Skeleton className="h-48 m-4" /> : (
           <div className="divide-y divide-border">
-            {filtered.map((l: any) => (
-              <button key={l.id} onClick={() => setSelected(l)}
-                className="w-full grid grid-cols-[180px_1fr_140px_100px_120px_110px] gap-4 px-4 py-3 text-left text-sm hover:bg-muted/40 transition-colors items-center">
-                <div className="text-muted-foreground text-xs">{new Date(l.created_at).toLocaleString()}</div>
-                <div className="truncate">{promptOf(l)}</div>
-                <div className="text-xs text-muted-foreground">{l.api_key_name}</div>
-                <div className="text-xs">{l.latency_ms ?? 0}ms</div>
-                <div className="text-xs text-muted-foreground">{l.tokens_in ?? "—"}/{l.tokens_out ?? "—"}</div>
-                <div><Badge variant="outline" className={`text-[10px] ${statusStyle[l.status]}`}>{l.status}</Badge></div>
-              </button>
-            ))}
+            {filtered.map((l: any) => {
+              const isBlocked = l.status?.startsWith("blocked");
+              return (
+                <button key={l.id} onClick={() => setSelected(l)}
+                  className={`w-full grid grid-cols-[180px_1fr_140px_100px_120px_110px] gap-4 px-4 py-3 text-left text-sm transition-colors items-center border-l-2 ${
+                    isBlocked
+                      ? "bg-destructive/5 hover:bg-destructive/10 border-destructive"
+                      : "border-transparent hover:bg-muted/40"
+                  }`}>
+                  <div className="text-muted-foreground text-xs">{new Date(l.created_at).toLocaleString()}</div>
+                  <div className="truncate flex items-center gap-2">
+                    {isBlocked && <ShieldAlert className="h-3.5 w-3.5 text-destructive shrink-0" />}
+                    <span className="truncate">{promptOf(l)}</span>
+                  </div>
+                  <div className="text-xs text-muted-foreground">{l.api_key_name}</div>
+                  <div className="text-xs">{l.latency_ms ?? 0}ms</div>
+                  <div className="text-xs text-muted-foreground">{l.tokens_in ?? "—"}/{l.tokens_out ?? "—"}</div>
+                  <div><Badge variant="outline" className={`text-[10px] ${statusStyle[l.status]}`}>{l.status}</Badge></div>
+                </button>
+              );
+            })}
             {filtered.length === 0 && (
               <div className="px-4 py-12 text-center text-sm text-muted-foreground">No requests match your filters.</div>
             )}
