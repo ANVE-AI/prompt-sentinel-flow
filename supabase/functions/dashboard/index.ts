@@ -1188,7 +1188,7 @@ Deno.serve(async (req) => {
           };
         });
 
-        return json({ usage });
+        return json({ usage, range, since: sinceIso });
       }
 
       case "endpoint_request_detail": {
