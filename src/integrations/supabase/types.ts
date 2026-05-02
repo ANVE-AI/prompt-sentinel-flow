@@ -497,6 +497,7 @@ export type Database = {
       }
       policy_templates: {
         Row: {
+          applies_to_intents: string[]
           created_at: string
           description: string | null
           id: string
@@ -508,6 +509,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          applies_to_intents?: string[]
           created_at?: string
           description?: string | null
           id?: string
@@ -519,6 +521,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          applies_to_intents?: string[]
           created_at?: string
           description?: string | null
           id?: string
