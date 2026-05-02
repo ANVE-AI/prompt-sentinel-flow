@@ -92,6 +92,7 @@ export function IntentPolicySection() {
       strict_mode: strict,
       workspace_purpose: purpose,
       guardrail_system_prompt: guardrailPrompt,
+      allow_client_system_prompt: allowClientPrompt,
     } }),
     onSuccess: () => { toast.success("Intent settings saved"); qc.invalidateQueries({ queryKey: ["policy_settings"] }); },
     onError: (e: any) => toast.error(e?.message ?? "Failed to save"),
