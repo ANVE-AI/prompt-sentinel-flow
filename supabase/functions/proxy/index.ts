@@ -185,11 +185,11 @@ Deno.serve(async (req) => {
     const { data: route } = await sb.from("routes")
       .select("id,fallback_on_5xx,fallback_on_429,fallback_on_timeout,timeout_ms")
       .eq("user_id", keyRow.user_id).eq("name", routeName).maybeSingle();
-    if (!route) return json(openaiErrorShape(`Route not found: ${routeName}`, "invalid_request_error"), 404);
+    if (!route) return json(errorForShape(reqShape, `Route not found: ${routeName}`, "invalid_request_error"), 404);
     const { data: steps } = await sb.from("route_steps")
       .select("position,endpoint_id,model")
       .eq("route_id", route.id).order("position", { ascending: true });
-    if (!steps || steps.length === 0) return json(openaiErrorShape(`Route ${routeName} has no steps`, "server_error"), 500);
+    if (!steps || steps.length === 0) return json(errorForShape(reqShape, `Route ${routeName} has no steps`, "server_error"), 500);
     const epIds = [...new Set(steps.map((s: any) => s.endpoint_id))];
     const { data: eps } = await sb.from("endpoints").select("*")
       .in("id", epIds).eq("user_id", keyRow.user_id);
@@ -201,7 +201,7 @@ Deno.serve(async (req) => {
       const k = ep.provider_key_encrypted ? await decryptString(ep.provider_key_encrypted) : null;
       routeSteps.push({ endpointRow: ep, model: s.model, upstreamKey: k });
     }
-    if (routeSteps.length === 0) return json(openaiErrorShape(`Route ${routeName} has no usable steps`, "server_error"), 500);
+    if (routeSteps.length === 0) return json(errorForShape(reqShape, `Route ${routeName} has no usable steps`, "server_error"), 500);
     routeConfig = {
       fallback_on_5xx: route.fallback_on_5xx,
       fallback_on_429: route.fallback_on_429,
@@ -215,18 +215,18 @@ Deno.serve(async (req) => {
   const isCustom = keyRow.provider === "custom";
   const provider = isCustom ? null : getProvider(keyRow.provider);
   if (!isCustom && !provider) {
-    return json(openaiErrorShape(`Unknown provider: ${keyRow.provider}`, "server_error"), 500);
+    return json(errorForShape(reqShape, `Unknown provider: ${keyRow.provider}`, "server_error"), 500);
   }
 
   // Resolve upstream credentials for the *default* (no-route) path.
   let upstreamKey: string | null = null;
   if (provider?.managed) {
     upstreamKey = Deno.env.get("LOVABLE_API_KEY") || null;
-    if (!upstreamKey) return json(openaiErrorShape("LOVABLE_API_KEY not configured", "server_error"), 500);
+    if (!upstreamKey) return json(errorForShape(reqShape, "LOVABLE_API_KEY not configured", "server_error"), 500);
   } else if (keyRow.provider_key_encrypted) {
     upstreamKey = await decryptString(keyRow.provider_key_encrypted);
   } else if (!isCustom) {
-    return json(openaiErrorShape(`${provider!.label} key not stored`, "server_error"), 500);
+    return json(errorForShape(reqShape, `${provider!.label} key not stored`, "server_error"), 500);
   }
   // For custom + auth_scheme === 'none', upstreamKey remains null which is fine.
 
@@ -491,7 +491,7 @@ Deno.serve(async (req) => {
         ...logBase, model: chosenModel, status: "error", block_reason: lastErrorReason,
         latency_ms: Date.now() - start,
       });
-      return json(openaiErrorShape(lastErrorReason, "server_error"), lastErrorStatus);
+      return json(errorForShape(reqShape, lastErrorReason, "server_error"), lastErrorStatus);
     }
     if (tid) clearTimeout(tid);
 
@@ -528,7 +528,7 @@ Deno.serve(async (req) => {
       ...logBase, status: "error", block_reason: lastErrorReason || "All route attempts failed",
       latency_ms: Date.now() - start,
     });
-    return json(openaiErrorShape(lastErrorReason || "All route attempts failed", "server_error"), lastErrorStatus);
+    return json(errorForShape(reqShape, lastErrorReason || "All route attempts failed", "server_error"), lastErrorStatus);
   }
 
   // Reflect what actually ran in subsequent code paths and logs.
