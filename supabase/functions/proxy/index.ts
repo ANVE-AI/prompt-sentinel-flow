@@ -501,18 +501,18 @@ async function handleRequest(req: Request): Promise<Response> {
     if (typeof rawSystemPrompt !== "string") {
       return errorResponse(reqShape, 400,
         "`system_prompt` must be a string.",
-        { code: "invalid_request_error", param: "system_prompt", type: "invalid_type" });
+        { code: "invalid_request_error", param: "system_prompt" });
     }
     if (rawSystemPrompt.length > SYSTEM_PROMPT_MAX) {
       return errorResponse(reqShape, 400,
         `\`system_prompt\` is too long: ${rawSystemPrompt.length} chars (max ${SYSTEM_PROMPT_MAX}).`,
-        { code: "invalid_request_error", param: "system_prompt", type: "string_above_max_length" });
+        { code: "invalid_request_error", param: "system_prompt" });
     }
     // eslint-disable-next-line no-control-regex
     if (/[\u0000\u0001-\u0008\u000B\u000C\u000E-\u001F]/.test(rawSystemPrompt)) {
       return errorResponse(reqShape, 400,
         "`system_prompt` contains disallowed control characters.",
-        { code: "invalid_request_error", param: "system_prompt", type: "invalid_value" });
+        { code: "invalid_request_error", param: "system_prompt" });
     }
   }
   const customSystemPrompt = typeof rawSystemPrompt === "string"
@@ -521,13 +521,13 @@ async function handleRequest(req: Request): Promise<Response> {
   if (typeof rawSystemPrompt === "string" && !customSystemPrompt) {
     return errorResponse(reqShape, 400,
       "`system_prompt` cannot be empty or whitespace-only. Omit the field instead.",
-      { code: "invalid_request_error", param: "system_prompt", type: "string_empty" });
+      { code: "invalid_request_error", param: "system_prompt" });
   }
   if (customSystemPrompt) {
     if (!keyRow.is_admin) {
       return errorResponse(reqShape, 403,
         "This API key is not permitted to send a custom system_prompt. Ask a workspace admin to enable the admin permission on this key, or remove the field from the request body.",
-        { code: "system_prompt_forbidden", param: "system_prompt", type: "permission_error" });
+        { code: "system_prompt_forbidden", param: "system_prompt" });
     }
     const insertAt = (typeof guardrail === "string" && guardrail.trim()) ? 1 : 0;
     body.messages = [
