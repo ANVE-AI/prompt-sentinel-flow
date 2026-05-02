@@ -494,7 +494,7 @@ const Keys = () => {
                         <Button
                           variant="outline" size="sm"
                           disabled={testKey.isPending && testingKey?.id === k.id}
-                          onClick={() => { setTestingKey({ id: k.id, name: k.name }); testKey.mutate(k.id); }}
+                          onClick={() => { setTestingKey({ id: k.id, name: k.name }); testKey.mutate({ id: k.id, parallel: testParallel }); }}
                           title="Send a tiny test request through this key's upstream"
                         >
                           {testKey.isPending && testingKey?.id === k.id
