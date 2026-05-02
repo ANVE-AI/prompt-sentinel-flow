@@ -218,12 +218,19 @@ const Endpoints = () => {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [confirmDelete, setConfirmDelete] = useState<EndpointRow | null>(null);
   const [usageEndpoint, setUsageEndpoint] = useState<EndpointRow | null>(null);
+  // Rolling window applied to both the stats tiles and the recent requests
+  // list inside the usage dialog. Resets to "24h" each time the dialog is
+  // (re-)opened so users get a predictable starting view.
+  const [usageRange, setUsageRange] = useState<UsageRange>("24h");
+  useEffect(() => {
+    if (usageEndpoint) setUsageRange("24h");
+  }, [usageEndpoint?.id]);
 
   const usageQuery = useQuery({
     enabled: !!usageEndpoint,
-    queryKey: ["endpoint_usage", usageEndpoint?.id],
-    queryFn: () => call<{ usage: any[] }>("endpoint_usage", {
-      query: { endpoint_id: usageEndpoint!.id, limit: "25" },
+    queryKey: ["endpoint_usage", usageEndpoint?.id, usageRange],
+    queryFn: () => call<{ usage: any[]; range: UsageRange; since: string | null }>("endpoint_usage", {
+      query: { endpoint_id: usageEndpoint!.id, limit: "25", range: usageRange },
     }),
   });
   const usageRow = usageQuery.data?.usage?.[0];
