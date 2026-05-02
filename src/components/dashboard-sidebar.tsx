@@ -10,6 +10,7 @@ import {
   Server,
   GitBranch,
   FlaskConical,
+  ShieldQuestion,
   Search,
   X,
 } from "lucide-react";
