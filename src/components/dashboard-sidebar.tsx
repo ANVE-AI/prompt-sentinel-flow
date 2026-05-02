@@ -1,3 +1,4 @@
+import { useMemo, useState, type KeyboardEvent } from "react";
 import { NavLink, useMatch } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -9,6 +10,8 @@ import {
   Server,
   GitBranch,
   FlaskConical,
+  Search,
+  X,
 } from "lucide-react";
 import {
   Sidebar,
@@ -23,8 +26,10 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { Input } from "@/components/ui/input";
 import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils";
+import { COMMAND_PALETTE_EVENT } from "@/components/command-palette";
 
 type NavItem = { to: string; label: string; icon: typeof LayoutDashboard; end?: boolean };
 
