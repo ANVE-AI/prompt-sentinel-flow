@@ -549,19 +549,42 @@ client = OpenAI(
 
           {testKey.isPending ? (
             <div className="py-6 text-sm text-muted-foreground">
-              Sending a tiny request through this key's upstream…
+              {testParallel > 1
+                ? `Firing ${testParallel} parallel requests at this key's upstream…`
+                : "Sending a tiny request through this key's upstream…"}
             </div>
           ) : testKeyResult ? (
             <div className="space-y-3 text-sm">
+              {/* Headline status banner — parallel mode shows batch summary */}
               <div className={`rounded-md border px-3 py-2 ${
                 testKeyResult.ok
                   ? "border-primary/30 bg-primary/5 text-primary"
                   : "border-destructive/40 bg-destructive/5 text-destructive"
               }`}>
-                {testKeyResult.ok
-                  ? <>Upstream responded <strong>{testKeyResult.status}</strong> in <strong>{testKeyResult.latency_ms}ms</strong>.</>
-                  : <>{testKeyResult.error || "Test failed."}{typeof testKeyResult.status === "number" && <> · status {testKeyResult.status}</>}{typeof testKeyResult.latency_ms === "number" && <> · {testKeyResult.latency_ms}ms</>}</>}
+                {testKeyResult.parallel ? (
+                  testKeyResult.ok
+                    ? <><strong>{testKeyResult.succeeded}/{testKeyResult.attempts}</strong> parallel calls succeeded in <strong>{testKeyResult.wall_ms}ms</strong> wall time.</>
+                    : <><strong>{testKeyResult.failed}/{testKeyResult.attempts}</strong> parallel calls failed.</>
+                ) : testKeyResult.ok ? (
+                  <>Upstream responded <strong>{testKeyResult.status}</strong> in <strong>{testKeyResult.latency_ms}ms</strong>.</>
+                ) : (
+                  <>{testKeyResult.error || "Test failed."}{typeof testKeyResult.status === "number" && <> · status {testKeyResult.status}</>}{typeof testKeyResult.latency_ms === "number" && <> · {testKeyResult.latency_ms}ms</>}</>
+                )}
               </div>
+
+              {/* Parallel batch stats — speedup > 1 proves real concurrency */}
+              {testKeyResult.parallel && (
+                <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs grid grid-cols-2 sm:grid-cols-4 gap-y-1 gap-x-4">
+                  <span><span className="text-muted-foreground">Wall:</span> {testKeyResult.wall_ms}ms</span>
+                  <span><span className="text-muted-foreground">Avg:</span> {testKeyResult.avg_latency_ms}ms</span>
+                  <span><span className="text-muted-foreground">p95:</span> {testKeyResult.p95_latency_ms}ms</span>
+                  <span><span className="text-muted-foreground">Min/Max:</span> {testKeyResult.min_latency_ms}/{testKeyResult.max_latency_ms}ms</span>
+                  <span className="col-span-2 sm:col-span-4">
+                    <span className="text-muted-foreground">Speedup:</span> <strong>{testKeyResult.speedup}×</strong>
+                    <span className="text-muted-foreground"> (sum of latencies ÷ wall time — &gt;1 means real concurrency)</span>
+                  </span>
+                </div>
+              )}
 
               {testKeyResult.target && (
                 <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs space-y-1">
@@ -569,14 +592,37 @@ client = OpenAI(
                   <div className="flex flex-wrap gap-x-4 gap-y-1">
                     <span><span className="text-muted-foreground">Model:</span> <code>{testKeyResult.target.model}</code></span>
                     <span><span className="text-muted-foreground">Format:</span> <code>{testKeyResult.target.format}</code></span>
-                    {testKeyResult.tokens_in != null && (
+                    {!testKeyResult.parallel && testKeyResult.tokens_in != null && (
                       <span><span className="text-muted-foreground">Tokens:</span> {testKeyResult.tokens_in}/{testKeyResult.tokens_out}</span>
                     )}
                   </div>
                 </div>
               )}
 
-              {testKeyResult.ok && testKeyResult.reply && (
+              {/* Per-attempt rows for parallel runs */}
+              {testKeyResult.parallel && Array.isArray(testKeyResult.results) && (
+                <div>
+                  <div className="text-xs text-muted-foreground mb-1">Per-call results</div>
+                  <div className="rounded-md border divide-y max-h-56 overflow-y-auto">
+                    {testKeyResult.results.map((r: any) => (
+                      <div key={r.index} className="flex items-center gap-2 px-3 py-1.5 text-xs">
+                        {r.ok
+                          ? <Check className="h-3.5 w-3.5 text-primary shrink-0" />
+                          : <X className="h-3.5 w-3.5 text-destructive shrink-0" />}
+                        <span className="font-mono text-muted-foreground w-6">#{r.index + 1}</span>
+                        <span className="w-16">{r.latency_ms}ms</span>
+                        {typeof r.status === "number" && <span className="w-12">{r.status}</span>}
+                        <span className="flex-1 truncate text-muted-foreground">
+                          {r.ok ? (r.reply || "(empty reply)") : (r.error || "failed")}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Single-shot reply preview */}
+              {!testKeyResult.parallel && testKeyResult.ok && testKeyResult.reply && (
                 <div>
                   <div className="text-xs text-muted-foreground mb-1">Reply preview</div>
                   <pre className="rounded-md border bg-muted/30 p-3 text-xs whitespace-pre-wrap break-words max-h-48 overflow-y-auto">{testKeyResult.reply}</pre>
@@ -592,22 +638,34 @@ client = OpenAI(
             </div>
           ) : null}
 
-          <DialogFooter>
-            {testingKey && (
-              <Button
-                variant="outline"
+          <DialogFooter className="flex flex-col sm:flex-row sm:items-center gap-2 sm:justify-between">
+            {/* Parallel selector — choose how many concurrent requests to fire */}
+            <div className="flex items-center gap-2 text-xs">
+              <Label className="text-xs text-muted-foreground">Parallel</Label>
+              <Select
+                value={String(testParallel)}
+                onValueChange={(v) => setTestParallel(Number(v))}
                 disabled={testKey.isPending}
-                onClick={() => testKey.mutate(testingKey.id)}
               >
-                {testKey.isPending ? "Testing…" : "Run again"}
-              </Button>
-            )}
-            <Button onClick={() => { setTestingKey(null); setTestKeyResult(null); }}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-};
+                <SelectTrigger className="h-8 w-20"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {[1, 2, 3, 5, 10].map((n) => (
+                    <SelectItem key={n} value={String(n)}>{n}{n === 1 ? " (single)" : ""}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              {testingKey && (
+                <Button
+                  variant="outline"
+                  disabled={testKey.isPending}
+                  onClick={() => testKey.mutate({ id: testingKey.id, parallel: testParallel })}
+                >
+                  {testKey.isPending ? "Testing…" : "Run again"}
+                </Button>
+              )}
+              <Button onClick={() => { setTestingKey(null); setTestKeyResult(null); }}>Close</Button>
+            </div>
 
 export default Keys;
