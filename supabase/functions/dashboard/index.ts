@@ -1226,10 +1226,7 @@ Deno.serve(async (req) => {
             enable_semantic_keywords: false,
             semantic_threshold: 0.78,
           },
-          known_intents: [
-            "jailbreak", "prompt_injection", "data_exfiltration",
-            "off_topic", "tool_abuse", "harassment", "other",
-          ],
+          known_intents: await loadKnownIntentNames(sb, userId),
         });
       }
 
