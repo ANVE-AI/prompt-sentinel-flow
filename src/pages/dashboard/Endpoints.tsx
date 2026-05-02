@@ -122,7 +122,13 @@ const Endpoints = () => {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [confirmDelete, setConfirmDelete] = useState<EndpointRow | null>(null);
   const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [testResult, setTestResult] = useState<{
+    ok: boolean;
+    msg: string;
+    checks?: { name: string; ok: boolean; detail?: string }[];
+    chat_probe?: { ok: boolean; status?: number; latency_ms?: number; model?: string; error?: string | null } | null;
+  } | null>(null);
+  const [probeChat, setProbeChat] = useState(false);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [liveModels, setLiveModels] = useState<string[] | null>(null);
   const [modelsResult, setModelsResult] = useState<{ ok: boolean; msg: string } | null>(null);
@@ -257,22 +263,30 @@ const Endpoints = () => {
   const test = async () => {
     setTesting(true); setTestResult(null);
     try {
+      const base = isEdit && hasKeyOnRecord && !form.provider_key
+        ? { id: form.id }
+        : buildPayload();
       const r = await call<any>("test_endpoint", {
-        body: isEdit && hasKeyOnRecord && !form.provider_key
-          ? { id: form.id }                // use stored key
-          : buildPayload(),
+        body: { ...base, probe_chat: probeChat, probe_model: form.default_model || undefined },
       });
+      const fmt = r.response_format ? ` · format: ${r.response_format}` : "";
+      const chat = r.chat_url ? `\nChat URL: ${r.chat_url}` : "";
       if (r.ok) {
-        const fmt = r.response_format ? ` · format: ${r.response_format}` : "";
-        const chat = r.chat_url ? `\nChat URL: ${r.chat_url}` : "";
         setTestResult({
           ok: true,
+          checks: r.checks,
+          chat_probe: r.chat_probe,
           msg: (r.sample_model
             ? `Connected (${r.latency_ms}ms). ${r.model_count} models · sample: ${r.sample_model}${fmt}`
             : `Connected (${r.status}, ${r.latency_ms}ms).${fmt}`) + chat,
         });
       } else {
-        setTestResult({ ok: false, msg: r.error || `HTTP ${r.status}` });
+        setTestResult({
+          ok: false,
+          checks: r.checks,
+          chat_probe: r.chat_probe,
+          msg: r.error || `HTTP ${r.status ?? "?"}`,
+        });
       }
     } catch (e: any) {
       setTestResult({ ok: false, msg: e.message || String(e) });
@@ -748,20 +762,68 @@ const Endpoints = () => {
             </div>
 
             <div className="space-y-2">
-              <Button
-                type="button" variant="outline" size="sm"
-                onClick={test}
-                disabled={testing || !form.base_url}
-              >
-                <Beaker className="h-4 w-4 mr-2" />
-                {testing ? "Testing…" : "Test connection"}
-              </Button>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  type="button" variant="outline" size="sm"
+                  onClick={test}
+                  disabled={testing || !form.base_url}
+                >
+                  <Beaker className="h-4 w-4 mr-2" />
+                  {testing ? "Testing…" : "Test connection"}
+                </Button>
+                <label className="text-xs flex items-center gap-2 text-muted-foreground cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 accent-primary"
+                    checked={probeChat}
+                    onChange={(e) => setProbeChat(e.target.checked)}
+                  />
+                  Also send a tiny chat completion probe
+                </label>
+              </div>
               {testResult && (
-                <div className={`text-xs flex items-start gap-2 p-2 rounded-md ${
-                  testResult.ok ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive"
+                <div className={`text-xs rounded-md border ${
+                  testResult.ok
+                    ? "border-primary/30 bg-primary/5 text-foreground"
+                    : "border-destructive/40 bg-destructive/5 text-foreground"
                 }`}>
-                  {testResult.ok ? <Check className="h-3.5 w-3.5 shrink-0 mt-0.5" /> : <X className="h-3.5 w-3.5 shrink-0 mt-0.5" />}
-                  <span className="break-all">{testResult.msg}</span>
+                  <div className={`flex items-start gap-2 px-2.5 py-2 ${
+                    testResult.ok ? "text-primary" : "text-destructive"
+                  }`}>
+                    {testResult.ok
+                      ? <Check className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                      : <X className="h-3.5 w-3.5 shrink-0 mt-0.5" />}
+                    <span className="break-all whitespace-pre-wrap">{testResult.msg}</span>
+                  </div>
+                  {testResult.checks && testResult.checks.length > 0 && (
+                    <ul className="border-t border-border/50 px-2.5 py-2 space-y-1">
+                      {testResult.checks.map((c, i) => (
+                        <li key={i} className="flex items-start gap-2">
+                          {c.ok
+                            ? <Check className="h-3 w-3 shrink-0 mt-0.5 text-primary" />
+                            : <X className="h-3 w-3 shrink-0 mt-0.5 text-destructive" />}
+                          <span className="text-foreground/90">
+                            <span className="font-medium">{c.name}</span>
+                            {c.detail && (
+                              <span className="text-muted-foreground"> — <span className="break-all">{c.detail}</span></span>
+                            )}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {testResult.chat_probe && (
+                    <div className="border-t border-border/50 px-2.5 py-2 text-muted-foreground">
+                      Chat probe: {testResult.chat_probe.ok
+                        ? <span className="text-primary">OK</span>
+                        : <span className="text-destructive">failed</span>}
+                      {testResult.chat_probe.model && <> · model <code className="text-foreground">{testResult.chat_probe.model}</code></>}
+                      {typeof testResult.chat_probe.latency_ms === "number" && <> · {testResult.chat_probe.latency_ms}ms</>}
+                      {testResult.chat_probe.error && (
+                        <div className="mt-1 break-all text-destructive">{testResult.chat_probe.error}</div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
