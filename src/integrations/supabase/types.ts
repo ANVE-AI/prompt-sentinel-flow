@@ -478,6 +478,7 @@ export type Database = {
           intent_shadow_mode: boolean
           semantic_threshold: number
           strict_mode: boolean
+          system_prompt_max_length: number
           throttle_flag_threshold: number
           throttle_window_minutes: number
           updated_at: string
@@ -505,6 +506,7 @@ export type Database = {
           intent_shadow_mode?: boolean
           semantic_threshold?: number
           strict_mode?: boolean
+          system_prompt_max_length?: number
           throttle_flag_threshold?: number
           throttle_window_minutes?: number
           updated_at?: string
@@ -532,6 +534,7 @@ export type Database = {
           intent_shadow_mode?: boolean
           semantic_threshold?: number
           strict_mode?: boolean
+          system_prompt_max_length?: number
           throttle_flag_threshold?: number
           throttle_window_minutes?: number
           updated_at?: string
