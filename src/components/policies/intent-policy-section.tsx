@@ -72,6 +72,7 @@ export function IntentPolicySection() {
   const [strict, setStrict] = useState(false);
   const [purpose, setPurpose] = useState("");
   const [guardrailPrompt, setGuardrailPrompt] = useState("");
+  const [allowClientPrompt, setAllowClientPrompt] = useState(false);
 
   useEffect(() => {
     const s = settingsQ.data?.settings;
