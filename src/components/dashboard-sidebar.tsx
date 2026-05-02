@@ -1,5 +1,6 @@
 import { useMemo, useState, type KeyboardEvent } from "react";
 import { NavLink, useMatch } from "react-router-dom";
+import { toast } from "sonner";
 import {
   LayoutDashboard,
   KeyRound,
@@ -214,7 +215,7 @@ export function DashboardSidebar() {
       </SidebarContent>
 
       {!collapsed && (
-        <SidebarFooter className="p-3 border-t border-sidebar-border">
+        <SidebarFooter className="p-3 border-t border-sidebar-border space-y-2">
           <div className="rounded-md border border-border surface-2 px-3 py-2.5">
             <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Status</div>
             <div className="text-meta text-foreground mt-0.5 flex items-center gap-1.5">
@@ -222,6 +223,16 @@ export function DashboardSidebar() {
               All systems operational
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => {
+              window.dispatchEvent(new Event("dashboard:sidebar:reset"));
+              toast.success("Sidebar layout reset");
+            }}
+            className="w-full text-[11px] text-muted-foreground hover:text-foreground transition-colors text-left px-1"
+          >
+            Reset sidebar layout
+          </button>
         </SidebarFooter>
       )}
     </Sidebar>
