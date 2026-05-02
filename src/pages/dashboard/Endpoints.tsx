@@ -1681,7 +1681,21 @@ const Endpoints = () => {
                               disabled={disabled}
                               aria-busy={isTarget && revokeKeyMutation.isPending}
                               className="h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
-                              onClick={() => setConfirmRevokeKey({ id: k.id, name: k.name, key_prefix: k.key_prefix })}
+                              onClick={() => {
+                                // Derive the most recent model from the windowed
+                                // recent_requests list so the confirm dialog can
+                                // show context. Falls back to null when this key
+                                // hasn't been used inside the active range.
+                                const lastReq = (usageRow.recent_requests ?? [])
+                                  .find((r: any) => r.api_key_id === k.id);
+                                setConfirmRevokeKey({
+                                  id: k.id,
+                                  name: k.name,
+                                  key_prefix: k.key_prefix,
+                                  last_used_at: k.last_used_at ?? null,
+                                  last_model: lastReq?.model ?? null,
+                                });
+                              }}
                               title={
                                 isTarget && revokeKeyMutation.isPending ? "Revoking…"
                                   : disabled ? "Finish the current action first"
