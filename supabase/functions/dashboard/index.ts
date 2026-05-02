@@ -1553,18 +1553,49 @@ Deno.serve(async (req) => {
             applies_to_intents: Array.isArray(r.applies_to_intents) ? r.applies_to_intents : [],
           })) as PolicyRule[];
 
+        const tplIntentScope = Array.isArray(body?.applies_to_intents)
+          ? body.applies_to_intents.map((s: unknown) => String(s)).filter(Boolean)
+          : [];
+        const fallback = ["apply_no_rules", "apply_default_rules", "reject"].includes(
+          String(body?.unknown_intent_fallback ?? ""),
+        ) ? String(body.unknown_intent_fallback) : "apply_no_rules";
+
         const t0 = Date.now();
         try {
           const r = await evaluatePolicy({
             text: inputText, direction: "input",
             legacy, rules, intents: [], settings,
           });
+          // Apply unknown-intent fallback: an intent is "unknown" when the
+          // classifier didn't run, returned nothing, or returned an intent
+          // outside the template's scope.
+          const detected = r.detected_intent ?? null;
+          const isUnknown =
+            !detected ||
+            (tplIntentScope.length > 0 && !tplIntentScope.includes(detected));
+          let verdict = r.verdict;
+          let firedLayers = r.layers
+            .filter((l) => l.verdict !== "allow")
+            .map((l) => ({ layer: l.layer, verdict: l.verdict, rule: l.rule ?? null, reason: l.reason ?? null }));
+          let fallbackApplied: string | null = null;
+          if (isUnknown) {
+            if (fallback === "apply_no_rules") {
+              verdict = "allow";
+              firedLayers = [];
+              fallbackApplied = "apply_no_rules";
+            } else if (fallback === "reject") {
+              verdict = "block";
+              firedLayers = [{ layer: "intent_fallback", verdict: "block", rule: null, reason: "Intent could not be detected — template configured to reject." }];
+              fallbackApplied = "reject";
+            } else {
+              fallbackApplied = "apply_default_rules";
+            }
+          }
           return json({
-            verdict: r.verdict,
-            detected_intent: r.detected_intent ?? null,
-            fired_layers: r.layers
-              .filter((l) => l.verdict !== "allow")
-              .map((l) => ({ layer: l.layer, verdict: l.verdict, rule: l.rule ?? null, reason: l.reason ?? null })),
+            verdict,
+            detected_intent: detected,
+            unknown_intent_fallback_applied: fallbackApplied,
+            fired_layers: firedLayers,
             latency_ms: Date.now() - t0,
           });
         } catch (e) {
