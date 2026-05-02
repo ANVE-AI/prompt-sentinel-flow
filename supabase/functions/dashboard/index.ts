@@ -434,8 +434,114 @@ Deno.serve(async (req) => {
         }
       }
 
+      case "list_endpoint_models": {
+        // Live "list models" for a custom endpoint — works for a saved endpoint by id
+        // OR for ad-hoc form values (so users can preview models before saving).
+        // Falls back to provided model_suggestions if the upstream call fails.
+        const { id } = body;
+        let cfg: any = body;
+        let upstreamKey: string | null = body.provider_key || null;
+        let fallback: string[] = Array.isArray(body.model_suggestions)
+          ? body.model_suggestions.filter((s: unknown) => typeof s === "string" && s.trim())
+          : [];
 
-      case "get_policies": {
+        if (id) {
+          const { data: row } = await sb.from("endpoints").select("*")
+            .eq("id", id).eq("user_id", userId).maybeSingle();
+          if (!row) return json({ ok: false, error: "Endpoint not found" }, 404);
+          cfg = {
+            base_url: row.base_url, models_url: row.models_url,
+            kind: row.kind, auth_scheme: row.auth_scheme,
+            auth_header: row.auth_header, extra_headers: row.extra_headers,
+            path_prefix: row.path_prefix, chat_path: row.chat_path,
+            models_path: row.models_path, response_format: row.response_format,
+          };
+          if (row.provider_key_encrypted && !upstreamKey) {
+            upstreamKey = await decryptString(row.provider_key_encrypted);
+          }
+          fallback = row.model_suggestions ?? [];
+        }
+
+        if (!cfg.base_url) return json({ ok: false, error: "Base URL required" }, 400);
+        let resolved;
+        try {
+          resolved = resolveCustomEndpoint({
+            base_url: cfg.base_url, models_url: cfg.models_url || null,
+            kind: cfg.kind, auth_scheme: cfg.auth_scheme,
+            auth_header: cfg.auth_header || null,
+            extra_headers: cfg.extra_headers || null,
+            path_prefix: cfg.path_prefix || null,
+            chat_path: cfg.chat_path || null,
+            models_path: cfg.models_path || null,
+            response_format: cfg.response_format || null,
+          });
+        } catch (e) {
+          return json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+
+        const headers: Record<string, string> = { Accept: "application/json", ...resolved.extra_headers };
+        let listUrl = resolved.models_url;
+        if (upstreamKey && resolved.auth_scheme !== "none") {
+          if (resolved.auth_scheme === "bearer") headers["Authorization"] = `Bearer ${upstreamKey}`;
+          else if (resolved.auth_scheme === "x-api-key") headers["x-api-key"] = upstreamKey;
+          else if (resolved.auth_scheme === "header") headers[resolved.auth_header] = upstreamKey;
+          else if (resolved.auth_scheme === "query") {
+            const u = new URL(listUrl);
+            u.searchParams.set(resolved.auth_header, upstreamKey);
+            listUrl = u.toString();
+          }
+        }
+        if (resolved.kind === "anthropic" && !headers["anthropic-version"]) {
+          headers["anthropic-version"] = "2023-06-01";
+        }
+
+        const t0 = Date.now();
+        try {
+          const r = await fetch(listUrl, { headers });
+          const text = await r.text();
+          if (!r.ok) {
+            return json({
+              ok: false, source: "fallback", models: fallback, url: listUrl,
+              status: r.status, latency_ms: Date.now() - t0,
+              error: text.slice(0, 300) || `HTTP ${r.status}`,
+            });
+          }
+          let arr: any[] = [];
+          try {
+            const j = JSON.parse(text);
+            arr = j?.data ?? j?.models ?? (Array.isArray(j) ? j : []);
+          } catch {
+            return json({
+              ok: false, source: "fallback", models: fallback, url: listUrl,
+              latency_ms: Date.now() - t0,
+              error: "Upstream did not return JSON",
+            });
+          }
+          const ids = arr
+            .map((m: any) => (typeof m === "string" ? m : (m?.id || m?.name || m?.model)))
+            .filter((x: unknown) => typeof x === "string" && x.length > 0);
+          // Deduplicate while preserving order
+          const seen = new Set<string>();
+          const models = ids.filter((m: string) => seen.has(m) ? false : (seen.add(m), true));
+          if (models.length === 0) {
+            return json({
+              ok: true, source: "fallback", models: fallback, url: listUrl,
+              latency_ms: Date.now() - t0,
+              warning: "Upstream returned 0 models — using fallback suggestions.",
+            });
+          }
+          return json({
+            ok: true, source: "live", models, url: listUrl,
+            latency_ms: Date.now() - t0,
+          });
+        } catch (e) {
+          return json({
+            ok: false, source: "fallback", models: fallback, url: listUrl,
+            latency_ms: Date.now() - t0,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+      }
         const { data } = await sb.from("policies").select("*").eq("user_id", userId).maybeSingle();
         return json({ policies: data, global_defaults: GLOBAL_DEFAULT_BLOCKED });
       }
