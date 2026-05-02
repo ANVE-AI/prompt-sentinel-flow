@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Search, ShieldAlert, Ban, ShieldCheck, Inbox, Layers, Sparkles, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Search, ShieldAlert, Ban, ShieldCheck, Inbox, Layers, Sparkles, AlertTriangle, CheckCircle2, Flame } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDashboardApi } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,6 +15,31 @@ import { SkeletonRows } from "@/components/skeletons";
 import { PageHeader } from "@/components/page-header";
 import { KeyValue } from "@/components/key-value";
 import { EmptyState } from "@/components/empty-state";
+
+// Map a log row to a coarse severity used by Security Events sorting.
+// "critical" = blocked_input/blocked_output/throttled, "high" = error,
+// "warn" = verdict==="flag", "low" = anything else.
+const severityOf = (l: any): "critical" | "high" | "warn" | "low" => {
+  if (typeof l.status === "string" && l.status.startsWith("blocked")) return "critical";
+  if (l.status === "throttled") return "critical";
+  if (l.status === "error") return "high";
+  if (l.verdict === "flag") return "warn";
+  return "low";
+};
+const SEVERITY_RANK: Record<string, number> = { critical: 0, high: 1, warn: 2, low: 3 };
+const SEVERITY_TONE: Record<string, "block" | "warn" | "ok"> = {
+  critical: "block", high: "block", warn: "warn", low: "ok",
+};
+
+// Pull a concise rule label out of the persisted verdict_layers array.
+const primaryRule = (l: any): string | null => {
+  const layers = Array.isArray(l.verdict_layers) ? l.verdict_layers : [];
+  const fired = layers.find((x: any) => x?.verdict === "block")
+    ?? layers.find((x: any) => x?.verdict === "sanitize")
+    ?? layers.find((x: any) => x?.verdict === "flag");
+  if (!fired) return null;
+  return fired.rule || fired.intent || fired.layer || null;
+};
 
 const statusOf = (s: string): "ok" | "warn" | "block" =>
   s === "allowed" ? "ok" : s === "error" ? "warn" : "block";
