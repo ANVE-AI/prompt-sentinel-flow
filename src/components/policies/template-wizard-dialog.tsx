@@ -573,6 +573,7 @@ function ReviewStep({
   settings,
   rules,
   intentScope,
+  unknownFallback,
 }: {
   name: string;
   description: string;
@@ -581,6 +582,7 @@ function ReviewStep({
   settings: Record<string, unknown>;
   rules: Rule[];
   intentScope: string[];
+  unknownFallback: UnknownFallback;
 }) {
   const stats = [
     { label: "Rules", value: rules.length },
