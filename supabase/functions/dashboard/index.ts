@@ -1195,6 +1195,10 @@ Deno.serve(async (req) => {
             intent_shadow_mode: true,
             strict_mode: false,
             workspace_purpose: null,
+            // Optional, workspace-wide system prompt that the proxy prepends
+            // to every forwarded request so guardrails are enforced via the
+            // API regardless of what the calling client sends.
+            guardrail_system_prompt: null,
             enable_injection_guard: true,
             injection_action: "block",
             enable_behavioral: true,
