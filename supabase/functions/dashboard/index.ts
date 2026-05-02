@@ -1314,6 +1314,7 @@ Deno.serve(async (req) => {
         return json({ summary, results });
       }
 
+      case "list_logs": {
         const limit = Math.min(Number(url.searchParams.get("limit") ?? 100), 500);
         const status = url.searchParams.get("status");
         let q = sb.from("request_logs")
