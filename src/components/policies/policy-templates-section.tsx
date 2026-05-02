@@ -368,8 +368,86 @@ export function PolicyTemplatesSection() {
               );
             })}
           </div>
+
+          {customTemplates.length > 0 && (
+            <div className="space-y-2 pt-2">
+              <div className="flex items-center gap-2 pt-1 border-t border-border">
+                <span className="text-meta uppercase tracking-wide text-muted-foreground pt-3">
+                  Your templates
+                </span>
+              </div>
+              <div className="grid md:grid-cols-3 gap-3">
+                {customTemplates.map((tpl) => {
+                  const isPending = pending === tpl.id;
+                  return (
+                    <div
+                      key={tpl.id}
+                      className="rounded-lg border border-border surface-2 p-4 flex flex-col gap-3"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className={cn("inline-flex items-center justify-center h-7 w-7 rounded-md border border-border surface-1", tpl.accent)}>
+                            {tpl.icon}
+                          </span>
+                          <div className="font-medium text-body truncate">{tpl.name}</div>
+                        </div>
+                        <Button
+                          size="icon" variant="ghost" className="h-7 w-7"
+                          onClick={() => setDeleteId(tpl.id)}
+                          title="Delete template"
+                        >
+                          <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                        </Button>
+                      </div>
+                      <p className="text-meta text-muted-foreground line-clamp-2">{tpl.tagline}</p>
+                      <ul className="space-y-1.5 text-meta">
+                        {tpl.highlights.map((h) => (
+                          <li key={h} className="flex items-start gap-1.5">
+                            <Check className="h-3 w-3 mt-0.5 text-primary shrink-0" />
+                            <span>{h}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      <div className="mt-auto pt-1">
+                        <Button
+                          size="sm"
+                          className="w-full"
+                          disabled={isPending || apply.isPending}
+                          onClick={() => setConfirm(tpl)}
+                        >
+                          {isPending ? "Applying…" : "Apply template"}
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
+
+      <TemplateWizardDialog open={wizardOpen} onOpenChange={setWizardOpen} />
+
+      <AlertDialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this template?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The saved snapshot will be removed. Your live policy is not affected.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={remove.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={remove.isPending}
+              onClick={(e) => { e.preventDefault(); if (deleteId) remove.mutate(deleteId); }}
+            >
+              {remove.isPending ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!confirm} onOpenChange={(o) => !o && setConfirm(null)}>
         <AlertDialogContent>
