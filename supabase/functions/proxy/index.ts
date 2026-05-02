@@ -141,7 +141,7 @@ Deno.serve(async (req) => {
 
   // ===== Streaming =====
   if (stream && upstream.body) {
-    if (provider.kind === "anthropic") {
+    if (forwardKind === "anthropic") {
       const { stream: oaiStream, done } = anthropicStreamToOpenAI(upstream.body, model);
       done.then(async ({ assistantText, usage }) => {
         const outCheck = checkPolicy(assistantText, blocked, allowed);
@@ -216,7 +216,7 @@ Deno.serve(async (req) => {
 
   // ===== Non-streaming =====
   const rawData = await upstream.json();
-  const data = provider.kind === "anthropic" ? anthropicToOpenAIResponse(rawData) : rawData;
+  const data = forwardKind === "anthropic" ? anthropicToOpenAIResponse(rawData) : rawData;
   const assistantText = data?.choices?.[0]?.message?.content ?? "";
   const outCheck = typeof assistantText === "string"
     ? checkPolicy(assistantText, blocked, allowed) : { blocked: false };
