@@ -276,8 +276,36 @@ export const CommandPalette = () => {
                   </span>
                 )}
                 {k.is_active === false && (
-                  <span className="ml-auto text-xs text-muted-foreground">revoked</span>
+                  <span className="ml-2 text-xs text-muted-foreground">revoked</span>
                 )}
+                <div className="ml-auto flex items-center gap-1">
+                  {k.key_prefix && (
+                    <RowAction
+                      icon={<Copy className="h-3.5 w-3.5" />}
+                      label="Copy key prefix"
+                      onRun={() => copy(k.key_prefix!, "Prefix")}
+                    />
+                  )}
+                  {k.is_active !== false && (
+                    <>
+                      <RowAction
+                        icon={<PlayCircle className="h-3.5 w-3.5" />}
+                        label="Test key"
+                        onRun={() => testKeyMutation.mutate(k.id)}
+                      />
+                      <RowAction
+                        tone="danger"
+                        icon={<Ban className="h-3.5 w-3.5" />}
+                        label="Revoke key"
+                        onRun={() => {
+                          if (window.confirm(`Revoke "${k.name}"? This cannot be undone.`)) {
+                            revokeKeyMutation.mutate(k.id);
+                          }
+                        }}
+                      />
+                    </>
+                  )}
+                </div>
               </CommandItem>
             ))}
           </CommandGroup>
@@ -298,6 +326,23 @@ export const CommandPalette = () => {
                     {e.base_url}
                   </span>
                 )}
+                <div className="ml-auto flex items-center gap-1">
+                  {e.base_url && (
+                    <RowAction
+                      icon={<Copy className="h-3.5 w-3.5" />}
+                      label="Copy base URL"
+                      onRun={() => copy(e.base_url!, "Base URL")}
+                    />
+                  )}
+                  <RowAction
+                    icon={<Plus className="h-3.5 w-3.5" />}
+                    label="New key for this endpoint"
+                    onRun={() => {
+                      close();
+                      navigate(`/dashboard/keys?new=1&endpoint=${e.id}`);
+                    }}
+                  />
+                </div>
               </CommandItem>
             ))}
           </CommandGroup>
@@ -316,9 +361,24 @@ export const CommandPalette = () => {
                   {l.model ?? l.provider ?? "request"}
                 </span>
                 <span className="ml-2 text-xs text-muted-foreground">{l.status}</span>
-                <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+                <span className="ml-2 font-mono text-[10px] text-muted-foreground">
                   {l.id.slice(0, 8)}
                 </span>
+                <div className="ml-auto flex items-center gap-1">
+                  <RowAction
+                    icon={<Copy className="h-3.5 w-3.5" />}
+                    label="Copy request id"
+                    onRun={() => copy(l.id, "Request id")}
+                  />
+                  <RowAction
+                    icon={<Eye className="h-3.5 w-3.5" />}
+                    label="Open detail"
+                    onRun={() => {
+                      close();
+                      navigate(`/dashboard/logs?focus=${l.id}`);
+                    }}
+                  />
+                </div>
               </CommandItem>
             ))}
           </CommandGroup>
