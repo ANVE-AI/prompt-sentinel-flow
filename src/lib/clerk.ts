@@ -1,6 +1,2 @@
-// Clerk publishable key — provide via VITE_CLERK_PUBLISHABLE_KEY at build time,
-// or paste it directly here. Until set, the app runs in "demo mode" with mock auth.
-export const CLERK_PUBLISHABLE_KEY =
-  (import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined) ?? "";
-
-export const isClerkConfigured = Boolean(CLERK_PUBLISHABLE_KEY);
+// Hardcoded Clerk publishable key (safe — publishable keys are public).
+export const CLERK_PUBLISHABLE_KEY = "pk_test_cG9saXRlLXBhbmdvbGluLTY3LmNsZXJrLmFjY291bnRzLmRldiQ";
