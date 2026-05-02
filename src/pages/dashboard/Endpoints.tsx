@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Plus, Plug, Pencil, Trash2, X, Check, Beaker, KeyRound, RefreshCw, AlertTriangle, Activity, Ban, AlertCircle, Download, Upload, Save, ChevronRight, Copy } from "lucide-react";
 import { useDashboardApi } from "@/lib/api";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -248,6 +248,24 @@ const Endpoints = () => {
     }),
   });
   const usageRow = usageQuery.data?.usage?.[0];
+
+  // Deep-link from the global ⌘K palette: `?focus=<endpoint_id>` opens that
+  // endpoint's usage dialog as soon as the list resolves, then strips the
+  // param so refresh/back doesn't repeat the action.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const focusId = searchParams.get("focus");
+    if (!focusId || !data?.endpoints) return;
+    const hit =
+      data.endpoints.find((e) => e.id === focusId) ??
+      data.shared_endpoints?.find((e) => e.id === focusId);
+    if (hit) {
+      setUsageEndpoint(hit);
+      const next = new URLSearchParams(searchParams);
+      next.delete("focus");
+      setSearchParams(next, { replace: true });
+    }
+  }, [data, searchParams, setSearchParams]);
 
   // Inline revoke (with confirm step) for keys shown in the usage dialog.
   // Reuses the existing `revoke_key` action, which enforces ownership and

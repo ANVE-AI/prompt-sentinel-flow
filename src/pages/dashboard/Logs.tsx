@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -44,6 +45,22 @@ const RequestLogs = () => {
     queryFn: () => call<any>("list_logs", { query: { status, limit: "200" } }),
     refetchInterval: live ? 5_000 : false,
   });
+
+  // Deep-link: when the global ⌘K palette navigates here with `?focus=<id>`,
+  // auto-open that log's detail sheet once the data has loaded, then strip
+  // the param so a refresh doesn't re-trigger it.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const focusId = searchParams.get("focus");
+    if (!focusId || !data?.logs) return;
+    const hit = data.logs.find((l: any) => l.id === focusId);
+    if (hit) {
+      setSelected(hit);
+      const next = new URLSearchParams(searchParams);
+      next.delete("focus");
+      setSearchParams(next, { replace: true });
+    }
+  }, [data, searchParams, setSearchParams]);
 
   const filtered = (data?.logs ?? []).filter((l: any) => {
     if (!q) return true;
