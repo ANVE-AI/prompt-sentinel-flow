@@ -715,30 +715,48 @@ const AuditLog = () => {
   );
 };
 
-const Logs = () => (
-  <div className="px-4 md:px-6 py-5 space-y-5 max-w-[1320px] mx-auto">
-    <PageHeader
-      title="Logs"
-      description="Request traffic and account-level audit events."
-    />
+const Logs = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialTab = searchParams.get("tab") === "security"
+    || searchParams.get("tab") === "audit" ? searchParams.get("tab")! : "requests";
+  const [tab, setTab] = useState<string>(initialTab);
 
-    <Tabs defaultValue="requests" className="space-y-4">
-      <TabsList className="bg-surface-2 border border-border h-9 p-0.5">
-        <TabsTrigger value="requests" className="h-8 px-3 text-body data-[state=active]:bg-surface-1 data-[state=active]:shadow-pop">
-          Requests
-        </TabsTrigger>
-        <TabsTrigger value="audit" className="h-8 px-3 text-body data-[state=active]:bg-surface-1 data-[state=active]:shadow-pop">
-          Audit log
-        </TabsTrigger>
-      </TabsList>
-      <TabsContent value="requests" className="space-y-4 animate-fade-in">
-        <RequestLogs />
-      </TabsContent>
-      <TabsContent value="audit" className="space-y-4 animate-fade-in">
-        <AuditLog />
-      </TabsContent>
-    </Tabs>
-  </div>
-);
+  return (
+    <div className="px-4 md:px-6 py-5 space-y-5 max-w-[1320px] mx-auto">
+      <PageHeader
+        title="Logs"
+        description="Request traffic, security events, and account-level audit."
+      />
+
+      <Tabs value={tab} onValueChange={(v) => {
+        setTab(v);
+        const next = new URLSearchParams(searchParams);
+        if (v === "requests") next.delete("tab"); else next.set("tab", v);
+        setSearchParams(next, { replace: true });
+      }} className="space-y-4">
+        <TabsList className="bg-surface-2 border border-border h-9 p-0.5">
+          <TabsTrigger value="requests" className="h-8 px-3 text-body data-[state=active]:bg-surface-1 data-[state=active]:shadow-pop">
+            Requests
+          </TabsTrigger>
+          <TabsTrigger value="security" className="h-8 px-3 text-body data-[state=active]:bg-surface-1 data-[state=active]:shadow-pop">
+            <ShieldAlert className="h-3.5 w-3.5 mr-1.5" /> Security events
+          </TabsTrigger>
+          <TabsTrigger value="audit" className="h-8 px-3 text-body data-[state=active]:bg-surface-1 data-[state=active]:shadow-pop">
+            Audit log
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="requests" className="space-y-4 animate-fade-in">
+          <RequestLogs />
+        </TabsContent>
+        <TabsContent value="security" className="space-y-4 animate-fade-in">
+          <SecurityEvents />
+        </TabsContent>
+        <TabsContent value="audit" className="space-y-4 animate-fade-in">
+          <AuditLog />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+};
 
 export default Logs;
