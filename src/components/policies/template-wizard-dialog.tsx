@@ -263,6 +263,14 @@ export function TemplateWizardDialog({
               onChange={setPickedSettings}
               liveSettings={liveSettings}
             />
+          ) : step === 4 ? (
+            <IntentScopeStep
+              knownIntents={knownIntents}
+              scope={intentScope}
+              onChange={setIntentScope}
+              customIntent={customIntent}
+              onCustomChange={setCustomIntent}
+            />
           ) : (
             <ReviewStep
               name={name}
@@ -271,6 +279,7 @@ export function TemplateWizardDialog({
               policy={policySnapshot}
               settings={selectedSettings}
               rules={selectedRules}
+              intentScope={intentScope}
             />
           )}
         </div>
