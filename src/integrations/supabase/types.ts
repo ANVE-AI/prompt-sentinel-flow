@@ -495,6 +495,42 @@ export type Database = {
         }
         Relationships: []
       }
+      policy_templates: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          policy: Json
+          rules: Json
+          settings: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          policy?: Json
+          rules?: Json
+          settings?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          policy?: Json
+          rules?: Json
+          settings?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           clerk_user_id: string
