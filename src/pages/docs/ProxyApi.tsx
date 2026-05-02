@@ -73,10 +73,48 @@ Content-Type: application/json`}</Pre>
         <code> 403 system_prompt_forbidden</code>.
       </li>
     </UL>
+    <H2 id="system-prompt-validation">Validation rules</H2>
     <P>
-      Validation: the field must be a non-empty string of at most <strong>16,000</strong>{" "}
-      characters with no control characters. Violations return <code>400 invalid_request_error</code>.
+      Every accepted <code>system_prompt</code> must satisfy <strong>all</strong> of the
+      rules below. Any failure returns <code>400 invalid_request_error</code> with{" "}
+      <code>param: "system_prompt"</code> and the stable <code>code</code> shown in
+      parentheses — safe to branch on from client code.
     </P>
+    <UL>
+      <li>
+        <strong>Type</strong> — must be a JSON string.
+        Anything else (number, array, object, boolean) is rejected
+        (<code>code: "invalid_request_error"</code>).
+      </li>
+      <li>
+        <strong>Non-empty</strong> — empty strings and whitespace-only strings are
+        rejected. Omit the field instead of sending <code>""</code>.
+      </li>
+      <li>
+        <strong>Length</strong> — at most <strong>16,000</strong> characters by default.
+        Workspace admins can tune this from <strong>100</strong> up to{" "}
+        <strong>64,000</strong> under <strong>Policies → Guardrail prompt</strong>; the
+        error message echoes the active limit.
+      </li>
+      <li>
+        <strong>No control characters</strong> — NUL and C0 controls are rejected.
+        Tab (<code>\t</code>), newline (<code>\n</code>), and carriage return
+        (<code>\r</code>) are allowed.
+      </li>
+    </UL>
+
+    <H2 id="system-prompt-400">400 response payload</H2>
+    <Pre language="json">{`HTTP/1.1 400 Bad Request
+Content-Type: application/json
+
+{
+  "error": {
+    "message": "\`system_prompt\` is too long: 24000 chars (max 16000).",
+    "type": "invalid_request_error",
+    "param": "system_prompt",
+    "code": "invalid_request_error"
+  }
+}`}</Pre>
 
     <H2 id="system-prompt-example">Example request</H2>
     <Pre language="bash">{`curl https://anveguard.app/v1/chat/completions \\
