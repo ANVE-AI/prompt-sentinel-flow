@@ -1793,6 +1793,48 @@ const Endpoints = () => {
         query={requestDetailQuery}
       />
 
+      {/* Confirm revocation of a bound API key from the usage dialog */}
+      <AlertDialog
+        open={!!confirmRevokeKey}
+        onOpenChange={(o) => { if (!o && !revokeKeyMutation.isPending) setConfirmRevokeKey(null); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Ban className="h-4 w-4 text-destructive" />
+              Revoke API key?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmRevokeKey && (
+                <>
+                  <span className="font-medium text-foreground">"{confirmRevokeKey.name}"</span>{" "}
+                  (<code>{confirmRevokeKey.key_prefix}…</code>) will stop working immediately. Any
+                  application or service using this key will start receiving 401 errors. This action
+                  cannot be undone.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={revokeKeyMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={revokeKeyMutation.isPending}
+              onClick={(e) => {
+                e.preventDefault();
+                if (confirmRevokeKey) revokeKeyMutation.mutate(confirmRevokeKey.id);
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {revokeKeyMutation.isPending ? (
+                <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Revoking…</>
+              ) : (
+                <><Ban className="h-4 w-4 mr-2" />Revoke key</>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Import preview dialog */}
       <Dialog open={importOpen} onOpenChange={(o) => { if (!o) { setImportOpen(false); setImportPayload(null); } }}>
         <DialogContent className="max-w-lg">
