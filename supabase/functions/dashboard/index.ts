@@ -1648,10 +1648,11 @@ Deno.serve(async (req) => {
         }
         const chart = Object.entries(buckets).map(([day, v]) => ({ day, ...v }));
         return json({
-          total, blocked, avg_latency_ms: avgLatency,
+          total, blocked, errors, avg_latency_ms: avgLatency,
+          blocked_pct: total ? Number(((blocked / total) * 100).toFixed(2)) : 0,
           active_keys: (keys ?? []).filter((k) => k.is_active).length,
           total_keys: keys?.length ?? 0,
-          chart,
+          chart, top_rules,
         });
       }
 
