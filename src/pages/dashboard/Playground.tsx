@@ -261,12 +261,49 @@ const Playground = () => {
             ) : (
               <div className="space-y-3">
                 {result.blocked && (
-                  <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-body text-status-block flex items-start gap-2">
-                    <ShieldAlert className="h-4 w-4 mt-0.5 shrink-0" />
-                    <div>
-                      <div className="font-medium">This request was blocked by your organization's AI policy.</div>
-                      {result.reason && <div className="text-meta mt-1 opacity-80">{result.reason}</div>}
+                  <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 space-y-2.5">
+                    <div className="flex items-start gap-2 text-body text-status-block">
+                      <ShieldAlert className="h-4 w-4 mt-0.5 shrink-0" />
+                      <div className="flex-1">
+                        <div className="font-medium">This request was blocked by your organization's AI policy.</div>
+                        {result.reason && <div className="text-meta mt-1 opacity-80">{result.reason}</div>}
+                      </div>
                     </div>
+                    <div className="flex flex-wrap gap-1.5 pl-6">
+                      <Badge status="block" className="font-mono">verdict: {result.verdict ?? "block"}</Badge>
+                      {result.detectedIntent && (
+                        <Badge status="info" className="font-mono">
+                          intent: {result.detectedIntent}
+                          {typeof result.intentConfidence === "number" &&
+                            ` · ${(result.intentConfidence * 100).toFixed(0)}%`}
+                        </Badge>
+                      )}
+                    </div>
+                    {Array.isArray(result.layers) && result.layers.filter((l: any) => l.verdict !== "allow").length > 0 && (
+                      <div className="pl-6 space-y-1.5">
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Fired layers</div>
+                        <div className="space-y-1">
+                          {result.layers.filter((l: any) => l.verdict !== "allow").map((l: any, i: number) => (
+                            <div key={i} className="rounded border border-border bg-surface-2 px-2.5 py-1.5 text-meta">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-mono text-[11px] text-foreground">
+                                  {l.layer}{l.rule ? ` · ${l.rule}` : ""}
+                                </span>
+                                <Badge
+                                  status={l.verdict === "block" ? "block" : "warn"}
+                                  className="font-mono text-[10px]"
+                                >
+                                  {l.verdict}
+                                </Badge>
+                              </div>
+                              {l.reason && (
+                                <div className="text-[11px] text-muted-foreground mt-0.5">{l.reason}</div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
                 <pre className="rounded-md border border-border bg-surface-2 p-4 text-xs whitespace-pre-wrap font-mono leading-relaxed min-h-[280px]">
