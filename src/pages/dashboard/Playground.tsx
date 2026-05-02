@@ -77,89 +77,43 @@ const Playground = () => {
         }),
       });
 
-      const contentType = res.headers.get("content-type") ?? "";
-      const isSSE = contentType.includes("text/event-stream");
+      // Single shared detector decides JSON vs SSE based on the actual
+      // response shape — the proxy may downgrade `stream: true` to JSON
+      // (e.g. when input is blocked), so we never trust the request flag.
+      const parsed = await readProxyResponse(res, {
+        onDelta: (_chunk, acc) => {
+          setResult((prev) => ({
+            blocked: prev?.blocked ?? false,
+            text: acc,
+            reason: prev?.reason,
+            verdict: prev?.verdict,
+            layers: prev?.layers,
+            detectedIntent: prev?.detectedIntent,
+            intentConfidence: prev?.intentConfidence,
+          }));
+        },
+        onVerdict: (v) => {
+          setResult((prev) => ({
+            blocked: v.blocked,
+            text: prev?.text ?? "",
+            reason: v.reason ?? prev?.reason,
+            verdict: v.verdict ?? prev?.verdict,
+            layers: v.layers ?? prev?.layers,
+            detectedIntent: v.detectedIntent ?? prev?.detectedIntent,
+            intentConfidence: v.intentConfidence ?? prev?.intentConfidence,
+          }));
+        },
+      });
 
-      // The proxy returns a regular JSON 200 (not SSE) when input is blocked,
-      // even if the client requested streaming. Handle both shapes here so
-      // blocked responses surface in the UI instead of looking "allowed".
-      if (!stream || !isSSE) {
-        let parsed: any = null;
-        if (!res.ok) {
-          const txt = await res.text();
-          try { parsed = JSON.parse(txt); } catch { /* not JSON */ }
-          const blocked = !!parsed?.anveguard?.blocked;
-          const text = parsed?.choices?.[0]?.message?.content
-            ?? parsed?.error?.message ?? txt;
-          setResult({
-            blocked, text,
-            reason: parsed?.anveguard?.reason,
-            verdict: parsed?.anveguard?.blocked ? "block" : undefined,
-            layers: parsed?.anveguard?.layers,
-            detectedIntent: parsed?.anveguard?.detected_intent,
-            intentConfidence: parsed?.anveguard?.intent_confidence,
-          });
-          return;
-        }
-        const data = await res.json();
-        const blocked = !!data?.anveguard?.blocked;
-        const text = data?.choices?.[0]?.message?.content
-          ?? data?.error?.message ?? JSON.stringify(data);
-        setResult({
-          blocked, text,
-          reason: data?.anveguard?.reason,
-          verdict: blocked ? "block" : "allow",
-          layers: data?.anveguard?.layers,
-          detectedIntent: data?.anveguard?.detected_intent,
-          intentConfidence: data?.anveguard?.intent_confidence,
-        });
-        return;
-      }
-
-      if (!res.body) {
-        setResult({ blocked: false, text: "" });
-        return;
-      }
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "", acc = "", blocked = false;
-      let reason: string | undefined;
-      let layers: any[] | undefined;
-      let detectedIntent: string | undefined;
-      let intentConfidence: number | undefined;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        let idx;
-        while ((idx = buf.indexOf("\n")) !== -1) {
-          let line = buf.slice(0, idx);
-          buf = buf.slice(idx + 1);
-          if (line.endsWith("\r")) line = line.slice(0, -1);
-          if (!line.startsWith("data:")) continue;
-          const payload = line.slice(5).trim();
-          if (!payload || payload === "[DONE]") continue;
-          try {
-            const obj = JSON.parse(payload);
-            const delta = obj?.choices?.[0]?.delta?.content;
-            if (typeof delta === "string") {
-              acc += delta;
-              setResult({ blocked, text: acc, reason, layers, detectedIntent, intentConfidence,
-                verdict: blocked ? "block" : "allow" });
-            }
-            if (obj?.anveguard?.blocked) {
-              blocked = true;
-              reason = obj.anveguard.reason;
-              layers = obj.anveguard.layers ?? layers;
-              detectedIntent = obj.anveguard.detected_intent ?? detectedIntent;
-              intentConfidence = obj.anveguard.intent_confidence ?? intentConfidence;
-            }
-            if (obj?.choices?.[0]?.finish_reason === "content_filter") blocked = true;
-          } catch { /* partial */ }
-        }
-      }
-      setResult({ blocked, text: acc, reason, layers, detectedIntent, intentConfidence,
-        verdict: blocked ? "block" : "allow" });
+      setResult({
+        blocked: parsed.blocked,
+        text: parsed.text,
+        reason: parsed.reason,
+        verdict: parsed.verdict,
+        layers: parsed.layers,
+        detectedIntent: parsed.detectedIntent,
+        intentConfidence: parsed.intentConfidence,
+      });
     } catch (e: any) {
       toast.error(e.message);
     } finally {
