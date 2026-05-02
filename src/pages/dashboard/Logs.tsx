@@ -334,20 +334,23 @@ function PolicyVerdictPanel({ log }: { log: any }) {
         </span>
       </div>
 
-      {log.detected_intent && (
-        <div className="rounded border border-border bg-surface-1 p-2 text-meta flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5">
-            <Sparkles className="h-3 w-3 text-muted-foreground" />
-            <span className="text-muted-foreground">Detected intent:</span>
-            <code className="rounded bg-muted px-1 py-0.5 text-[11px]">{log.detected_intent}</code>
-          </div>
-          {typeof log.intent_confidence === "number" && (
-            <span className="text-[11px] text-muted-foreground">
-              conf {Math.round(log.intent_confidence * 100)}%
-            </span>
-          )}
+      <div className="rounded border border-border bg-surface-1 p-2 text-meta flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5">
+          <Sparkles className="h-3 w-3 text-muted-foreground" />
+          <span className="text-muted-foreground">Detected intent:</span>
+          <code className={cn(
+            "rounded bg-muted px-1 py-0.5 text-[11px]",
+            intentLabel === "unknown" && "text-muted-foreground italic",
+          )}>
+            {intentLabel}
+          </code>
         </div>
-      )}
+        {typeof log.intent_confidence === "number" && (
+          <span className="text-[11px] text-muted-foreground">
+            conf {Math.round(log.intent_confidence * 100)}%
+          </span>
+        )}
+      </div>
 
       {behavioral.length > 0 && (
         <div className="space-y-1.5">
