@@ -144,6 +144,7 @@ const Endpoints = () => {
   const [probeChat, setProbeChat] = useState(false);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [liveModels, setLiveModels] = useState<string[] | null>(null);
+  const [modelFilter, setModelFilter] = useState("");
   const [modelsResult, setModelsResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
   const isEdit = !!form.id;
