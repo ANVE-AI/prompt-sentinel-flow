@@ -14,10 +14,10 @@ import { toast } from "sonner";
 type Action = "block" | "flag";
 
 const SIGNALS = [
-  { name: "Instruction churn", desc: "≥3 of the last 4 user turns countermand the previous turn." },
+  { name: "Instruction churn", desc: "Recent user turns countermand the previous turn." },
   { name: "Role-play escalation", desc: "Repeated jailbreak personas (DAN, AIM, \"grandma\", …) across turns." },
   { name: "Encoding escalation", desc: "Encoded-payload ratio strictly increasing across the last 3 turns." },
-  { name: "Length spike", desc: "Latest turn is >1500 chars and 8× the conversation average." },
+  { name: "Length spike", desc: "Latest turn is >1500 chars and a configurable multiple of the conversation average." },
 ];
 
 export function BehavioralSection() {
