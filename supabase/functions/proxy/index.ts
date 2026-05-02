@@ -16,15 +16,67 @@ import {
   type RequestShape,
 } from "../_shared/shape_translators.ts";
 
-function openaiErrorShape(message: string, type = "policy_violation") {
-  return { error: { message, type, code: type } };
+// ---- Error envelope helpers ------------------------------------------------
+// Every error response goes through `errorResponse` so the public shape is
+// consistent regardless of which SDK called us. The OpenAI shape follows the
+// official spec:
+//   { "error": { "message": str, "type": str, "param": str|null, "code": str|null } }
+// `type` describes the error class (invalid_request_error, authentication_error,
+// permission_error, rate_limit_exceeded, api_error). `code` is a stable machine
+// identifier (invalid_api_key, missing_messages, content_filter, …) that
+// clients can switch on without parsing prose.
+
+type ErrorOpts = {
+  /** Stable machine code (e.g. "invalid_api_key", "content_filter"). */
+  code?: string | null;
+  /** Request param the error refers to (e.g. "messages", "model"). */
+  param?: string | null;
+  /** Extra response headers (e.g. Retry-After on 429). */
+  headers?: Record<string, string>;
+  /** Vendor-specific debug info echoed back under the `anveguard` key. */
+  anveguard?: Record<string, unknown>;
+};
+
+/** Pick the OpenAI `type` that best matches an HTTP status. */
+function typeForStatus(status: number): string {
+  if (status === 401 || status === 403) return status === 403 ? "permission_error" : "authentication_error";
+  if (status === 404) return "invalid_request_error";
+  if (status === 408 || status === 504) return "api_error";
+  if (status === 429) return "rate_limit_exceeded";
+  if (status >= 400 && status < 500) return "invalid_request_error";
+  return "api_error";
 }
 
-/** Translate an OpenAI-shape error envelope into the public shape. */
-function errorForShape(shape: RequestShape, message: string, type = "policy_violation"): unknown {
-  if (shape === "anthropic") return { type: "error", error: { type, message } };
-  if (shape === "gemini")    return { error: { code: 400, status: type, message } };
-  return openaiErrorShape(message, type);
+function openaiErrorShape(message: string, type: string, opts: ErrorOpts = {}) {
+  return {
+    error: {
+      message,
+      type,
+      param: opts.param ?? null,
+      code: opts.code ?? null,
+    },
+  };
+}
+
+/** Translate the OpenAI-shape error envelope into the public shape. */
+function errorForShape(shape: RequestShape, status: number, message: string, opts: ErrorOpts = {}): unknown {
+  const type = typeForStatus(status);
+  if (shape === "anthropic") {
+    return { type: "error", error: { type: opts.code ?? type, message } };
+  }
+  if (shape === "gemini") {
+    return { error: { code: status, status: opts.code ?? type, message } };
+  }
+  const env = openaiErrorShape(message, type, opts);
+  if (opts.anveguard) (env as any).anveguard = opts.anveguard;
+  return env;
+}
+
+/** Build a Response with the right body, status, headers, and CORS. */
+function errorResponse(
+  shape: RequestShape, status: number, message: string, opts: ErrorOpts = {},
+): Response {
+  return json(errorForShape(shape, status, message, opts), status, opts.headers);
 }
 
 /**
@@ -96,7 +148,23 @@ async function evaluateOutput(
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
+  if (req.method !== "POST") {
+    return json(openaiErrorShape("Method not allowed. Use POST.", typeForStatus(405), { code: "method_not_allowed" }), 405, { Allow: "POST, OPTIONS" });
+  }
+  try {
+    return await handleRequest(req);
+  } catch (e) {
+    // Last-resort catch — anything that escapes the request handler. Keep the
+    // envelope identical to upstream-style 500s so SDKs handle it uniformly.
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[proxy] unhandled error:", msg);
+    let shape: RequestShape = "openai";
+    try { shape = detectRequestShape(new URL(req.url)).shape; } catch { /* ignore */ }
+    return errorResponse(shape, 500, "Internal proxy error", { code: "internal_error", anveguard: { detail: msg } });
+  }
+});
+
+async function handleRequest(req: Request): Promise<Response> {
 
   const start = Date.now();
   const sb = service();
@@ -119,7 +187,7 @@ Deno.serve(async (req) => {
     || (xApiKey.startsWith("ag_live_") ? xApiKey : "")
     || (queryKey.startsWith("ag_live_") ? queryKey : "");
   if (!apiKeyPlain) {
-    return json(errorForShape(reqShape, "Missing or invalid AnveGuard API key", "invalid_request_error"), 401);
+    return errorResponse(reqShape, 401, "Missing API key. Provide it in the Authorization header (Bearer ag_live_…), the x-api-key header, or the ?key= query param.", { code: "missing_api_key" });
   }
   const key_hash = await sha256Hex(apiKeyPlain);
 
@@ -127,7 +195,7 @@ Deno.serve(async (req) => {
     .select("id,user_id,provider,provider_key_encrypted,model_default,is_active,custom_base_url,custom_models_url,custom_kind,custom_auth_scheme,custom_auth_header,custom_extra_headers,custom_path_prefix,custom_chat_path,custom_models_path,custom_response_format")
     .eq("key_hash", key_hash).maybeSingle();
   if (!keyRow || !keyRow.is_active) {
-    return json(errorForShape(reqShape, "Invalid or revoked API key", "invalid_request_error"), 401);
+    return errorResponse(reqShape, 401, "Invalid or revoked API key.", { code: "invalid_api_key" });
   }
 
   // Body — parse, then translate to canonical OpenAI Chat Completions shape.
@@ -136,11 +204,11 @@ Deno.serve(async (req) => {
   // translate back at the very end.
   let publicBody: any;
   try { publicBody = await req.json(); }
-  catch { return json(errorForShape(reqShape, "Invalid JSON body", "invalid_request_error"), 400); }
+  catch { return errorResponse(reqShape, 400, "Invalid JSON body.", { code: "invalid_json" }); }
 
   const body: any = translateRequestToOpenAI(reqShape, publicBody, route.pathModel);
   if (!Array.isArray(body?.messages) || body.messages.length === 0) {
-    return json(errorForShape(reqShape, "messages must be a non-empty array", "invalid_request_error"), 400);
+    return errorResponse(reqShape, 400, "messages must be a non-empty array.", { code: "missing_messages", param: "messages" });
   }
   // Non-OpenAI shapes are served non-stream in this first pass; SDK consumers
   // get a single JSON response in their native format. OpenAI shape keeps
@@ -185,11 +253,11 @@ Deno.serve(async (req) => {
     const { data: route } = await sb.from("routes")
       .select("id,fallback_on_5xx,fallback_on_429,fallback_on_timeout,timeout_ms")
       .eq("user_id", keyRow.user_id).eq("name", routeName).maybeSingle();
-    if (!route) return json(errorForShape(reqShape, `Route not found: ${routeName}`, "invalid_request_error"), 404);
+    if (!route) return errorResponse(reqShape, 404, `Route not found: ${routeName}`, { code: "route_not_found", param: "model" });
     const { data: steps } = await sb.from("route_steps")
       .select("position,endpoint_id,model")
       .eq("route_id", route.id).order("position", { ascending: true });
-    if (!steps || steps.length === 0) return json(errorForShape(reqShape, `Route ${routeName} has no steps`, "server_error"), 500);
+    if (!steps || steps.length === 0) return errorResponse(reqShape, 500, `Route ${routeName} has no steps`, { code: "route_misconfigured" });
     const epIds = [...new Set(steps.map((s: any) => s.endpoint_id))];
     const { data: eps } = await sb.from("endpoints").select("*")
       .in("id", epIds).eq("user_id", keyRow.user_id);
@@ -201,7 +269,7 @@ Deno.serve(async (req) => {
       const k = ep.provider_key_encrypted ? await decryptString(ep.provider_key_encrypted) : null;
       routeSteps.push({ endpointRow: ep, model: s.model, upstreamKey: k });
     }
-    if (routeSteps.length === 0) return json(errorForShape(reqShape, `Route ${routeName} has no usable steps`, "server_error"), 500);
+    if (routeSteps.length === 0) return errorResponse(reqShape, 500, `Route ${routeName} has no usable steps`, { code: "route_misconfigured" });
     routeConfig = {
       fallback_on_5xx: route.fallback_on_5xx,
       fallback_on_429: route.fallback_on_429,
@@ -215,18 +283,18 @@ Deno.serve(async (req) => {
   const isCustom = keyRow.provider === "custom";
   const provider = isCustom ? null : getProvider(keyRow.provider);
   if (!isCustom && !provider) {
-    return json(errorForShape(reqShape, `Unknown provider: ${keyRow.provider}`, "server_error"), 500);
+    return errorResponse(reqShape, 500, `Unknown provider: ${keyRow.provider}`, { code: "unknown_provider" });
   }
 
   // Resolve upstream credentials for the *default* (no-route) path.
   let upstreamKey: string | null = null;
   if (provider?.managed) {
     upstreamKey = Deno.env.get("LOVABLE_API_KEY") || null;
-    if (!upstreamKey) return json(errorForShape(reqShape, "LOVABLE_API_KEY not configured", "server_error"), 500);
+    if (!upstreamKey) return errorResponse(reqShape, 500, "LOVABLE_API_KEY not configured", { code: "upstream_not_configured" });
   } else if (keyRow.provider_key_encrypted) {
     upstreamKey = await decryptString(keyRow.provider_key_encrypted);
   } else if (!isCustom) {
-    return json(errorForShape(reqShape, `${provider!.label} key not stored`, "server_error"), 500);
+    return errorResponse(reqShape, 500, `${provider!.label} key not stored`, { code: "upstream_key_missing" });
   }
   // For custom + auth_scheme === 'none', upstreamKey remains null which is fine.
 
@@ -318,19 +386,16 @@ Deno.serve(async (req) => {
         }],
         latency_ms: Date.now() - start, tokens_in: 0, tokens_out: 0,
       });
-      return json(
-        {
-          ...openaiErrorShape(reason, "rate_limit_exceeded"),
-          anveguard: {
-            throttled: true, reason,
-            retry_after_sec: retryAfterSec,
-            backoff_ms: backoffMs,
-            prior_throttles: throttledCount,
-          },
+      return errorResponse(reqShape, 429, reason, {
+        code: "rate_limit_exceeded",
+        headers: { "Retry-After": String(retryAfterSec) },
+        anveguard: {
+          throttled: true, reason,
+          retry_after_sec: retryAfterSec,
+          backoff_ms: backoffMs,
+          prior_throttles: throttledCount,
         },
-        429,
-        { "Retry-After": String(retryAfterSec) },
-      );
+      });
     }
   }
 
@@ -491,7 +556,7 @@ Deno.serve(async (req) => {
         ...logBase, model: chosenModel, status: "error", block_reason: lastErrorReason,
         latency_ms: Date.now() - start,
       });
-      return json(errorForShape(reqShape, lastErrorReason, "server_error"), lastErrorStatus);
+      return errorResponse(reqShape, lastErrorStatus, lastErrorReason, { code: lastErrorStatus === 504 ? "upstream_timeout" : "upstream_unreachable" });
     }
     if (tid) clearTimeout(tid);
 
@@ -510,8 +575,11 @@ Deno.serve(async (req) => {
         ...logBase, model: chosenModel, status: "error", block_reason: lastErrorReason,
         latency_ms: Date.now() - start,
       });
+      // Pass-through OpenAI-shape upstream errors verbatim (the upstream
+      // already used the OpenAI envelope) so SDK error handlers see exactly
+      // what they expect. For other shapes, translate.
       if (reqShape !== "openai") {
-        return json(errorForShape(reqShape, lastErrorReason, "upstream_error"), resp.status);
+        return errorResponse(reqShape, resp.status, lastErrorReason, { code: "upstream_error" });
       }
       return new Response(text, {
         status: resp.status,
@@ -528,7 +596,7 @@ Deno.serve(async (req) => {
       ...logBase, status: "error", block_reason: lastErrorReason || "All route attempts failed",
       latency_ms: Date.now() - start,
     });
-    return json(errorForShape(reqShape, lastErrorReason || "All route attempts failed", "server_error"), lastErrorStatus);
+    return errorResponse(reqShape, lastErrorStatus, lastErrorReason || "All route attempts failed", { code: "all_attempts_failed" });
   }
 
   // Reflect what actually ran in subsequent code paths and logs.
@@ -670,4 +738,4 @@ Deno.serve(async (req) => {
   await sb.from("api_keys").update({ last_used_at: new Date().toISOString() }).eq("id", keyRow.id);
 
   return json(translateResponseFromOpenAI(reqShape, finalResponse), 200);
-});
+}
