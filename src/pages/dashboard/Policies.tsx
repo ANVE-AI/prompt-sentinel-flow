@@ -162,6 +162,7 @@ const Policies = () => {
         </CardContent>
       </Card>
 
+      <InjectionGuardSection />
       <IntentPolicySection />
     </div>
   );
