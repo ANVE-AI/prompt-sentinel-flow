@@ -1,6 +1,7 @@
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { PoliciesV2Crud } from "@/components/policies/policies-v2-crud";
+import { PolicyTemplatesSection } from "@/components/policies/policy-templates-section";
 
 const Policies = () => {
   return (
@@ -14,6 +15,7 @@ const Policies = () => {
           </Button>
         }
       />
+      <PolicyTemplatesSection />
       <PoliciesV2Crud />
     </div>
   );

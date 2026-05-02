@@ -1,0 +1,357 @@
+import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { Bot, Building2, Check, ShieldCheck, Sparkles } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useDashboardApi } from "@/lib/api";
+import { cn } from "@/lib/utils";
+
+type TemplateId = "safe_chatbot" | "enterprise_compliance" | "no_pii";
+
+type Template = {
+  id: TemplateId;
+  name: string;
+  tagline: string;
+  icon: React.ReactNode;
+  accent: string;
+  highlights: string[];
+  policy: {
+    blocked_keywords: string[];
+    allowed_keywords: string[];
+    use_global_defaults: boolean;
+    block_message: string;
+  };
+  settings: Record<string, unknown>;
+  rules?: Array<{
+    name: string;
+    kind: "regex" | "detector";
+    severity: "low" | "med" | "high";
+    direction: "input" | "output" | "both";
+    enabled: boolean;
+    config: Record<string, unknown>;
+    applies_to_intents?: string[];
+  }>;
+};
+
+const TEMPLATES: Template[] = [
+  {
+    id: "safe_chatbot",
+    name: "Safe chatbot mode",
+    tagline: "Friendly defaults for public-facing assistants.",
+    icon: <Bot className="h-4 w-4" />,
+    accent: "text-primary",
+    highlights: [
+      "Global keyword defaults on",
+      "Injection guard: block",
+      "Behavioral throttling: flag",
+      "Fuzzy matching enabled",
+    ],
+    policy: {
+      blocked_keywords: [],
+      allowed_keywords: [],
+      use_global_defaults: true,
+      block_message:
+        "Sorry, I can't help with that. Please rephrase your request.",
+    },
+    settings: {
+      enable_normalizer: true,
+      enable_patterns: true,
+      enable_heuristics: true,
+      enable_injection_guard: true,
+      injection_action: "block",
+      enable_behavioral: true,
+      behavioral_action: "flag",
+      throttle_window_minutes: 5,
+      throttle_flag_threshold: 12,
+      enable_fuzzy_keywords: true,
+      enable_semantic_keywords: false,
+      strict_mode: false,
+      enable_intent: false,
+      intent_shadow_mode: true,
+    },
+  },
+  {
+    id: "enterprise_compliance",
+    name: "Enterprise compliance mode",
+    tagline: "Strict controls for regulated workloads.",
+    icon: <Building2 className="h-4 w-4" />,
+    accent: "text-amber-500",
+    highlights: [
+      "Strict mode on",
+      "Injection guard + intent classifier",
+      "Behavioral action: block",
+      "Semantic matching enabled",
+    ],
+    policy: {
+      blocked_keywords: [
+        "confidential",
+        "internal only",
+        "do not share",
+        "trade secret",
+        "nda",
+      ],
+      allowed_keywords: [],
+      use_global_defaults: true,
+      block_message:
+        "This request was blocked by your organization's compliance policy.",
+    },
+    settings: {
+      enable_normalizer: true,
+      enable_patterns: true,
+      enable_heuristics: true,
+      enable_injection_guard: true,
+      injection_action: "block",
+      enable_behavioral: true,
+      behavioral_action: "block",
+      throttle_window_minutes: 5,
+      throttle_flag_threshold: 6,
+      enable_fuzzy_keywords: true,
+      enable_semantic_keywords: true,
+      semantic_threshold: 0.78,
+      strict_mode: true,
+      enable_intent: true,
+      intent_shadow_mode: false,
+    },
+    rules: [
+      {
+        name: "Credential shape detector",
+        kind: "detector",
+        severity: "high",
+        direction: "both",
+        enabled: true,
+        config: { detector: "credential_shape" },
+      },
+      {
+        name: "URL exfiltration",
+        kind: "detector",
+        severity: "high",
+        direction: "output",
+        enabled: true,
+        config: { detector: "url_exfil" },
+      },
+    ],
+  },
+  {
+    id: "no_pii",
+    name: "No PII leakage mode",
+    tagline: "Block emails, phone numbers, SSNs and card data.",
+    icon: <ShieldCheck className="h-4 w-4" />,
+    accent: "text-emerald-500",
+    highlights: [
+      "PII regex rules (email, phone, SSN, card)",
+      "Output direction enforcement",
+      "Injection guard: block",
+      "Strict mode on",
+    ],
+    policy: {
+      blocked_keywords: [],
+      allowed_keywords: [],
+      use_global_defaults: true,
+      block_message:
+        "This response was blocked because it may contain personal information.",
+    },
+    settings: {
+      enable_normalizer: true,
+      enable_patterns: true,
+      enable_heuristics: true,
+      enable_injection_guard: true,
+      injection_action: "block",
+      enable_behavioral: true,
+      behavioral_action: "flag",
+      enable_fuzzy_keywords: true,
+      enable_semantic_keywords: false,
+      strict_mode: true,
+      enable_intent: false,
+      intent_shadow_mode: true,
+    },
+    rules: [
+      {
+        name: "PII — Email address",
+        kind: "regex",
+        severity: "high",
+        direction: "both",
+        enabled: true,
+        config: {
+          pattern: "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}",
+          flags: "i",
+        },
+      },
+      {
+        name: "PII — Phone number",
+        kind: "regex",
+        severity: "high",
+        direction: "both",
+        enabled: true,
+        config: {
+          pattern:
+            "(?:\\+?\\d{1,3}[\\s.-]?)?(?:\\(?\\d{3}\\)?[\\s.-]?)\\d{3}[\\s.-]?\\d{4}",
+          flags: "",
+        },
+      },
+      {
+        name: "PII — US SSN",
+        kind: "regex",
+        severity: "high",
+        direction: "both",
+        enabled: true,
+        config: { pattern: "\\b\\d{3}-\\d{2}-\\d{4}\\b", flags: "" },
+      },
+      {
+        name: "PII — Credit card",
+        kind: "regex",
+        severity: "high",
+        direction: "both",
+        enabled: true,
+        config: {
+          pattern: "\\b(?:\\d[ -]*?){13,16}\\b",
+          flags: "",
+        },
+      },
+      {
+        name: "Credential shape",
+        kind: "detector",
+        severity: "high",
+        direction: "both",
+        enabled: true,
+        config: { detector: "credential_shape" },
+      },
+    ],
+  },
+];
+
+export function PolicyTemplatesSection() {
+  const { call } = useDashboardApi();
+  const qc = useQueryClient();
+  const [pending, setPending] = useState<TemplateId | null>(null);
+  const [confirm, setConfirm] = useState<Template | null>(null);
+
+  const apply = useMutation({
+    mutationFn: async (tpl: Template) => {
+      setPending(tpl.id);
+      await call("save_policies", { body: tpl.policy });
+      await call("save_policy_settings", { body: tpl.settings });
+      if (tpl.rules?.length) {
+        for (const rule of tpl.rules) {
+          await call("save_policy_rule", {
+            body: { ...rule, applies_to_intents: rule.applies_to_intents ?? [] },
+          });
+        }
+      }
+    },
+    onSuccess: (_d, tpl) => {
+      toast.success(`Applied "${tpl.name}"`);
+      qc.invalidateQueries({ queryKey: ["policies"] });
+      qc.invalidateQueries({ queryKey: ["policy_settings"] });
+      qc.invalidateQueries({ queryKey: ["policy_rules"] });
+      setConfirm(null);
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Failed to apply template"),
+    onSettled: () => setPending(null),
+  });
+
+  return (
+    <>
+      <Card className="surface-1 border-border">
+        <CardContent className="p-5 space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-primary" />
+                <span className="text-meta uppercase tracking-wide text-muted-foreground">
+                  Quick start
+                </span>
+              </div>
+              <h3 className="text-display">Policy templates</h3>
+              <p className="text-body text-muted-foreground">
+                Pre-built configurations you can apply in one click. Templates
+                overwrite keyword guardrails and behavior settings.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-3">
+            {TEMPLATES.map((tpl) => {
+              const isPending = pending === tpl.id;
+              return (
+                <div
+                  key={tpl.id}
+                  className="rounded-lg border border-border surface-2 p-4 flex flex-col gap-3"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className={cn("inline-flex items-center justify-center h-7 w-7 rounded-md border border-border surface-1", tpl.accent)}>
+                      {tpl.icon}
+                    </span>
+                    <div className="font-medium text-body">{tpl.name}</div>
+                  </div>
+                  <p className="text-meta text-muted-foreground">{tpl.tagline}</p>
+                  <ul className="space-y-1.5 text-meta">
+                    {tpl.highlights.map((h) => (
+                      <li key={h} className="flex items-start gap-1.5">
+                        <Check className="h-3 w-3 mt-0.5 text-primary shrink-0" />
+                        <span>{h}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {tpl.rules?.length ? (
+                    <Badge variant="outline" className="w-fit text-meta">
+                      +{tpl.rules.length} rule{tpl.rules.length === 1 ? "" : "s"}
+                    </Badge>
+                  ) : null}
+                  <div className="mt-auto pt-1">
+                    <Button
+                      size="sm"
+                      className="w-full"
+                      disabled={isPending || apply.isPending}
+                      onClick={() => setConfirm(tpl)}
+                    >
+                      {isPending ? "Applying…" : "Apply template"}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      <AlertDialog open={!!confirm} onOpenChange={(o) => !o && setConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Apply "{confirm?.name}"?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This overwrites your keyword guardrails and behavior settings
+              {confirm?.rules?.length
+                ? `, and adds ${confirm.rules.length} new rule${confirm.rules.length === 1 ? "" : "s"}`
+                : ""}
+              . Existing rules are kept.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={apply.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={apply.isPending}
+              onClick={(e) => {
+                e.preventDefault();
+                if (confirm) apply.mutate(confirm);
+              }}
+            >
+              {apply.isPending ? "Applying…" : "Apply"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
