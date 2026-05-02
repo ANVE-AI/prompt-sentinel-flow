@@ -79,6 +79,62 @@ function errorResponse(
   return json(errorForShape(shape, status, message, opts), status, opts.headers);
 }
 
+// ---- SSE helpers -----------------------------------------------------------
+// Header set used for every Server-Sent Events response. `X-Accel-Buffering:
+// no` and `Connection: keep-alive` defeat reverse-proxy buffering so deltas
+// reach the client as soon as we write them.
+const sseHeaders = {
+  ...corsHeaders,
+  "Content-Type": "text/event-stream; charset=utf-8",
+  "Cache-Control": "no-cache, no-transform",
+  "Connection": "keep-alive",
+  "X-Accel-Buffering": "no",
+};
+
+/** Encode a single OpenAI-style SSE chunk: `data: {json}\n\n`. */
+function sseEncode(obj: unknown): Uint8Array {
+  return new TextEncoder().encode(`data: ${JSON.stringify(obj)}\n\n`);
+}
+const SSE_DONE = new TextEncoder().encode("data: [DONE]\n\n");
+
+/**
+ * Build a complete OpenAI-shape SSE stream for a fully-formed assistant
+ * message. Used when policy blocks input or output: the client gets a normal
+ * streaming experience (role chunk → content chunk → finish chunk → [DONE])
+ * so SDKs that iterate the stream complete cleanly instead of hanging.
+ */
+function buildSyntheticSseStream(opts: {
+  model: string;
+  content: string;
+  finishReason: string;
+  anveguard?: Record<string, unknown>;
+}): ReadableStream<Uint8Array> {
+  const id = `chatcmpl-${crypto.randomUUID()}`;
+  const created = Math.floor(Date.now() / 1000);
+  const base = { id, object: "chat.completion.chunk", created, model: opts.model };
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(sseEncode({
+        ...base,
+        choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
+      }));
+      if (opts.content) {
+        controller.enqueue(sseEncode({
+          ...base,
+          choices: [{ index: 0, delta: { content: opts.content }, finish_reason: null }],
+        }));
+      }
+      controller.enqueue(sseEncode({
+        ...base,
+        choices: [{ index: 0, delta: {}, finish_reason: opts.finishReason }],
+        ...(opts.anveguard ? { anveguard: opts.anveguard } : {}),
+      }));
+      controller.enqueue(SSE_DONE);
+      controller.close();
+    },
+  });
+}
+
 /**
  * Load all policy state for a workspace in one round trip.
  * Falls back to safe defaults if rows are missing.
