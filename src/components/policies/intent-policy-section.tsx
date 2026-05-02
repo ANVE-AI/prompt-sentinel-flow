@@ -199,6 +199,20 @@ export function IntentPolicySection() {
               className="surface-2 border-border font-mono text-xs"
             />
           </div>
+
+          <div className="border-t border-border pt-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <Label className="text-body">Allow per-request <code className="font-mono text-xs">system_prompt</code></Label>
+                <p className="text-meta text-muted-foreground mt-0.5">
+                  When enabled, API keys flagged as <strong>admin</strong> on the Keys page may include
+                  a top-level <code className="font-mono">system_prompt</code> string that is injected
+                  after the workspace guardrail. Non-admin keys and disabled workspaces get a 403.
+                </p>
+              </div>
+              <Switch checked={allowClientPrompt} onCheckedChange={setAllowClientPrompt} />
+            </div>
+          </div>
         </CardContent>
       </Card>
 
