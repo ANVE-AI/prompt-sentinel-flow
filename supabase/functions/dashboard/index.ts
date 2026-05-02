@@ -1257,6 +1257,7 @@ Deno.serve(async (req) => {
           "enable_intent", "intent_shadow_mode", "strict_mode",
           "enable_injection_guard", "enable_behavioral",
           "enable_fuzzy_keywords", "enable_semantic_keywords",
+          "allow_client_system_prompt",
         ] as const;
         const patch: Record<string, unknown> = { user_id: userId };
         for (const k of allowedKeys) {
