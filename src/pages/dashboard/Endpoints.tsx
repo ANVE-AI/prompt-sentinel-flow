@@ -320,15 +320,16 @@ const Endpoints = () => {
       });
       const models: string[] = Array.isArray(r.models) ? r.models : [];
       setLiveModels(models);
+      const shapeNote = r.shape && r.shape !== "unknown" ? ` · shape: ${r.shape}` : "";
       if (r.source === "live" && models.length) {
         setModelsResult({
           ok: true,
-          msg: `Loaded ${models.length} model${models.length === 1 ? "" : "s"} from upstream (${r.latency_ms ?? "?"}ms).`,
+          msg: `Loaded ${models.length} model${models.length === 1 ? "" : "s"} from upstream (${r.latency_ms ?? "?"}ms)${shapeNote}.`,
         });
       } else if (models.length) {
         setModelsResult({
           ok: false,
-          msg: `${r.error || r.warning || "Upstream unavailable"} — showing ${models.length} fallback suggestion(s).`,
+          msg: `${r.error || r.warning || "Upstream unavailable"} — showing ${models.length} fallback suggestion(s)${shapeNote}.`,
         });
       } else {
         setModelsResult({
