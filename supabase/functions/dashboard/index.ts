@@ -42,16 +42,22 @@ Deno.serve(async (req) => {
           return json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 400);
         }
         const headers: Record<string, string> = { Accept: "application/json", ...resolved.extra_headers };
+        let pingUrl = resolved.models_url;
         if (provider_key && resolved.auth_scheme !== "none") {
           if (resolved.auth_scheme === "bearer") headers["Authorization"] = `Bearer ${provider_key}`;
           else if (resolved.auth_scheme === "x-api-key") headers["x-api-key"] = provider_key;
           else if (resolved.auth_scheme === "header") headers[resolved.auth_header] = provider_key;
+          else if (resolved.auth_scheme === "query") {
+            const u = new URL(pingUrl);
+            u.searchParams.set(resolved.auth_header, provider_key);
+            pingUrl = u.toString();
+          }
         }
         if (resolved.kind === "anthropic" && !headers["anthropic-version"]) {
           headers["anthropic-version"] = "2023-06-01";
         }
         try {
-          const r = await fetch(resolved.models_url, { headers });
+          const r = await fetch(pingUrl, { headers });
           const text = await r.text();
           let sample: string | null = null;
           try {
