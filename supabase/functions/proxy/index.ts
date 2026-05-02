@@ -372,19 +372,16 @@ Deno.serve(async (req) => {
         }],
         latency_ms: Date.now() - start, tokens_in: 0, tokens_out: 0,
       });
-      return json(
-        {
-          ...openaiErrorShape(reason, "rate_limit_exceeded"),
-          anveguard: {
-            throttled: true, reason,
-            retry_after_sec: retryAfterSec,
-            backoff_ms: backoffMs,
-            prior_throttles: throttledCount,
-          },
+      return errorResponse(reqShape, 429, reason, {
+        code: "rate_limit_exceeded",
+        headers: { "Retry-After": String(retryAfterSec) },
+        anveguard: {
+          throttled: true, reason,
+          retry_after_sec: retryAfterSec,
+          backoff_ms: backoffMs,
+          prior_throttles: throttledCount,
         },
-        429,
-        { "Retry-After": String(retryAfterSec) },
-      );
+      });
     }
   }
 
