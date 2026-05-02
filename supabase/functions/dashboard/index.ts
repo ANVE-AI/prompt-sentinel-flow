@@ -1070,6 +1070,119 @@ Deno.serve(async (req) => {
         return json({ ok: true });
       }
 
+      // ---- Layered policy admin ------------------------------------------
+      // Workspace-wide settings for the layered evaluator.
+      case "get_policy_settings": {
+        const { data } = await sb.from("policy_settings").select("*").eq("user_id", userId).maybeSingle();
+        return json({
+          settings: data ?? {
+            user_id: userId,
+            enable_normalizer: true,
+            enable_patterns: true,
+            enable_heuristics: true,
+            enable_intent: false,
+            intent_shadow_mode: true,
+            strict_mode: false,
+            workspace_purpose: null,
+          },
+          known_intents: [
+            "jailbreak", "prompt_injection", "data_exfiltration",
+            "off_topic", "tool_abuse", "harassment", "other",
+          ],
+        });
+      }
+
+      case "save_policy_settings": {
+        const allowedKeys = [
+          "enable_normalizer", "enable_patterns", "enable_heuristics",
+          "enable_intent", "intent_shadow_mode", "strict_mode",
+        ] as const;
+        const patch: Record<string, unknown> = { user_id: userId };
+        for (const k of allowedKeys) {
+          if (typeof body?.[k] === "boolean") patch[k] = body[k];
+        }
+        if ("workspace_purpose" in (body ?? {})) {
+          const wp = body.workspace_purpose;
+          patch.workspace_purpose = typeof wp === "string" && wp.trim() ? wp.trim().slice(0, 2000) : null;
+        }
+        await sb.from("policy_settings").upsert(patch, { onConflict: "user_id" });
+        return json({ ok: true });
+      }
+
+      // Per-intent action mapping (block / flag / allow + min_confidence).
+      case "list_policy_intents": {
+        const { data } = await sb.from("policy_intents").select("*").eq("user_id", userId).order("intent");
+        return json({ intents: data ?? [] });
+      }
+
+      case "save_policy_intent": {
+        const intent = String(body?.intent ?? "").trim();
+        const action = String(body?.action ?? "flag");
+        const minConf = Number(body?.min_confidence ?? 0.7);
+        if (!intent) return json({ error: "intent is required" }, 400);
+        if (!["block", "flag", "allow"].includes(action)) {
+          return json({ error: "action must be block, flag, or allow" }, 400);
+        }
+        if (!Number.isFinite(minConf) || minConf < 0 || minConf > 1) {
+          return json({ error: "min_confidence must be between 0 and 1" }, 400);
+        }
+        await sb.from("policy_intents").upsert({
+          user_id: userId, intent, action, min_confidence: minConf,
+        }, { onConflict: "user_id,intent" });
+        return json({ ok: true });
+      }
+
+      // Pattern rules (regex + structural detectors), optionally scoped to
+      // one or more detected intents.
+      case "list_policy_rules": {
+        const { data } = await sb.from("policy_rules").select("*").eq("user_id", userId).order("created_at", { ascending: false });
+        return json({ rules: data ?? [] });
+      }
+
+      case "save_policy_rule": {
+        const id = body?.id ? String(body.id) : null;
+        const kind = String(body?.kind ?? "");
+        const name = String(body?.name ?? "").trim();
+        const severity = String(body?.severity ?? "high");
+        const direction = String(body?.direction ?? "both");
+        const enabled = body?.enabled !== false;
+        const config = body?.config && typeof body.config === "object" ? body.config : {};
+        const appliesToIntents = Array.isArray(body?.applies_to_intents)
+          ? body.applies_to_intents.map((s: unknown) => String(s)).filter(Boolean)
+          : [];
+        if (!name) return json({ error: "name is required" }, 400);
+        if (!["regex", "detector"].includes(kind)) return json({ error: "kind must be regex or detector" }, 400);
+        if (!["low", "med", "high"].includes(severity)) return json({ error: "invalid severity" }, 400);
+        if (!["input", "output", "both"].includes(direction)) return json({ error: "invalid direction" }, 400);
+        // Validate regex compiles before persisting.
+        if (kind === "regex") {
+          const pattern = String(config.pattern ?? "");
+          if (!pattern) return json({ error: "regex rule requires config.pattern" }, 400);
+          try { new RegExp(pattern, String(config.flags ?? "i")); }
+          catch (e) { return json({ error: `invalid regex: ${(e as Error).message}` }, 400); }
+        }
+        const row = {
+          user_id: userId, name, kind, severity, direction, enabled, config,
+          applies_to_intents: appliesToIntents,
+        };
+        if (id) {
+          const { error } = await sb.from("policy_rules").update(row).eq("id", id).eq("user_id", userId);
+          if (error) return json({ error: error.message }, 400);
+          return json({ ok: true, id });
+        }
+        const { data, error } = await sb.from("policy_rules").insert(row).select("id").single();
+        if (error) return json({ error: error.message }, 400);
+        return json({ ok: true, id: data?.id });
+      }
+
+      case "delete_policy_rule": {
+        const id = String(body?.id ?? "");
+        if (!id) return json({ error: "id required" }, 400);
+        const { error } = await sb.from("policy_rules").delete().eq("id", id).eq("user_id", userId);
+        if (error) return json({ error: error.message }, 400);
+        return json({ ok: true });
+      }
+
       case "list_logs": {
         const limit = Math.min(Number(url.searchParams.get("limit") ?? 100), 500);
         const status = url.searchParams.get("status");
