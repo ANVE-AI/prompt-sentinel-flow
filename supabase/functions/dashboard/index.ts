@@ -2,6 +2,7 @@
 // CRUD for keys, policies, logs, and stats. Single function with action routing.
 import { corsHeaders, json, service, verifyClerkJwt, bearer, ensureProfile,
   generateApiKey, sha256Hex, encryptString, GLOBAL_DEFAULT_BLOCKED } from "../_shared/anveguard.ts";
+import { PROVIDERS, getProvider } from "../_shared/providers.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
