@@ -377,6 +377,7 @@ export type Database = {
       }
       policy_rules: {
         Row: {
+          applies_to_intents: string[]
           config: Json
           created_at: string
           direction: string
@@ -389,6 +390,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          applies_to_intents?: string[]
           config?: Json
           created_at?: string
           direction?: string
@@ -401,6 +403,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          applies_to_intents?: string[]
           config?: Json
           created_at?: string
           direction?: string
@@ -479,7 +482,9 @@ export type Database = {
           api_key_id: string | null
           block_reason: string | null
           created_at: string
+          detected_intent: string | null
           id: string
+          intent_confidence: number | null
           latency_ms: number | null
           messages: Json | null
           model: string | null
@@ -496,7 +501,9 @@ export type Database = {
           api_key_id?: string | null
           block_reason?: string | null
           created_at?: string
+          detected_intent?: string | null
           id?: string
+          intent_confidence?: number | null
           latency_ms?: number | null
           messages?: Json | null
           model?: string | null
@@ -513,7 +520,9 @@ export type Database = {
           api_key_id?: string | null
           block_reason?: string | null
           created_at?: string
+          detected_intent?: string | null
           id?: string
+          intent_confidence?: number | null
           latency_ms?: number | null
           messages?: Json | null
           model?: string | null
