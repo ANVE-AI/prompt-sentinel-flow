@@ -177,14 +177,16 @@ export function TemplateWizardDialog({
     (step === 2) ||
     (step === 3) ||
     (step === 4) ||
-    (step === 5);
+    (step === 5) ||
+    (step === 6);
 
   const stepTitles: Record<Step, string> = {
     1: "Name your template",
     2: "Choose rules",
     3: "Choose settings",
     4: "Intent routing",
-    5: "Review & save",
+    5: "Test prompt",
+    6: "Review & save",
   };
 
   return (
