@@ -283,13 +283,13 @@ const Keys = () => {
                             </SelectContent>
                           </Select>
                         </div>
-                        {custom.auth_scheme === "header" && (
+                        {(custom.auth_scheme === "header" || custom.auth_scheme === "query") && (
                           <div>
-                            <Label>Header name</Label>
+                            <Label>{custom.auth_scheme === "query" ? "Query param name" : "Header name"}</Label>
                             <Input
                               value={custom.auth_header}
                               onChange={(e) => setCustom({ ...custom, auth_header: e.target.value })}
-                              placeholder="api-key"
+                              placeholder={custom.auth_scheme === "query" ? "key" : "api-key"}
                               className="mt-1.5 font-mono text-sm"
                             />
                           </div>
