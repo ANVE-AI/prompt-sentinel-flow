@@ -582,7 +582,7 @@ Deno.serve(async (req) => {
       ...logBase, status: "error", block_reason: lastErrorReason || "All route attempts failed",
       latency_ms: Date.now() - start,
     });
-    return json(errorForShape(reqShape, lastErrorReason || "All route attempts failed", "server_error"), lastErrorStatus);
+    return errorResponse(reqShape, lastErrorStatus, lastErrorReason || "All route attempts failed", { code: "all_attempts_failed" });
   }
 
   // Reflect what actually ran in subsequent code paths and logs.
