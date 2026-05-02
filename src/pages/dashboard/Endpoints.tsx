@@ -366,6 +366,87 @@ const Endpoints = () => {
 
   const endpoints = data?.endpoints ?? [];
 
+  // -------- Export --------
+  const [exporting, setExporting] = useState(false);
+  const handleExport = async (includeKeys: "none" | "encrypted") => {
+    setExporting(true);
+    try {
+      const r = await call<any>("export_endpoints", { body: { include_keys: includeKeys } });
+      const blob = new Blob([JSON.stringify(r, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      a.download = `anveguard-endpoints-${stamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success(`Exported ${r.count} endpoint${r.count === 1 ? "" : "s"}${includeKeys === "encrypted" ? " (with encrypted keys)" : ""}.`);
+    } catch (e: any) {
+      toast.error(e.message || "Export failed");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // -------- Import --------
+  const [importOpen, setImportOpen] = useState(false);
+  const [importPayload, setImportPayload] = useState<any | null>(null);
+  const [importStrategy, setImportStrategy] = useState<"skip" | "rename" | "overwrite">("rename");
+  const [acceptKeys, setAcceptKeys] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useMemo(() => ({ current: null as HTMLInputElement | null }), []);
+
+  const onPickFile = () => fileInputRef.current?.click();
+  const onFileChosen = async (file: File | null) => {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      if (parsed?.format && parsed.format !== "anveguard.endpoints") {
+        toast.error(`Unexpected file format: ${parsed.format}`);
+        return;
+      }
+      if (!Array.isArray(parsed?.endpoints)) {
+        toast.error("File doesn't contain an 'endpoints' array.");
+        return;
+      }
+      setImportPayload(parsed);
+      setImportOpen(true);
+    } catch (e: any) {
+      toast.error(`Couldn't read file: ${e.message || e}`);
+    }
+  };
+
+  const runImport = async () => {
+    if (!importPayload) return;
+    setImporting(true);
+    try {
+      const r = await call<{ imported: number; updated: number; skipped: number; errors: any[] }>(
+        "import_endpoints",
+        { body: { payload: importPayload, strategy: importStrategy, accept_encrypted_keys: acceptKeys } },
+      );
+      const parts: string[] = [];
+      if (r.imported) parts.push(`${r.imported} imported`);
+      if (r.updated) parts.push(`${r.updated} updated`);
+      if (r.skipped) parts.push(`${r.skipped} skipped`);
+      const summary = parts.join(", ") || "No changes";
+      if (r.errors?.length) {
+        toast.error(`${summary} · ${r.errors.length} error(s): ${r.errors[0]?.error ?? ""}`);
+      } else {
+        toast.success(summary);
+      }
+      qc.invalidateQueries({ queryKey: ["endpoints"] });
+      setImportOpen(false);
+      setImportPayload(null);
+    } catch (e: any) {
+      toast.error(e.message || "Import failed");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <div className="p-8 space-y-6">
       <div className="flex items-start justify-between">
