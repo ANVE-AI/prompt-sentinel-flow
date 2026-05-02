@@ -32,6 +32,8 @@ type Settings = {
   intent_shadow_mode: boolean;
   strict_mode: boolean;
   workspace_purpose: string | null;
+  /** Workspace-wide system prompt the proxy prepends to every API call. */
+  guardrail_system_prompt: string | null;
 };
 
 type IntentRow = { intent: string; action: "block" | "flag" | "allow"; min_confidence: number };
