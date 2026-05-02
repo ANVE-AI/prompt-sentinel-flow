@@ -58,6 +58,15 @@ export async function ensureProfile(userId: string, email?: string) {
   await sb.from("profiles").upsert({ clerk_user_id: userId, email: email ?? null }, { onConflict: "clerk_user_id" });
   // Ensure default policies row
   await sb.from("policies").upsert({ user_id: userId }, { onConflict: "user_id", ignoreDuplicates: true });
+  // Back-fill any pending endpoint shares created before this user signed in
+  // (matches by lower-cased email and stamps in the resolved Clerk id).
+  if (email) {
+    try {
+      await sb.rpc("claim_endpoint_shares", { _user_id: userId, _email: email });
+    } catch {
+      // Non-fatal — sharing UI will retry next login.
+    }
+  }
 }
 
 // === API key generation / hashing ===

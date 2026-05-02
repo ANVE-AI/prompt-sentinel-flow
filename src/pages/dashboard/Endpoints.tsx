@@ -139,8 +139,21 @@ interface EndpointRow {
   models_path: string | null;
   response_format: string | null;
   has_key: boolean;
-  key_count: number;
+  key_count?: number;
   updated_at: string;
+  is_shared?: boolean;
+  permission?: "owner" | "read";
+  owner_email?: string | null;
+  share_id?: string | null;
+  shared_at?: string | null;
+}
+
+interface ShareRow {
+  id: string;
+  shared_with_email: string;
+  shared_with_user_id: string | null;
+  permission: "read";
+  created_at: string;
 }
 
 interface FormState {
@@ -188,7 +201,7 @@ const Endpoints = () => {
 
   const { data, isLoading } = useQuery({
     queryKey: ["endpoints"],
-    queryFn: () => call<{ endpoints: EndpointRow[] }>("list_endpoints"),
+    queryFn: () => call<{ endpoints: EndpointRow[]; shared_endpoints?: EndpointRow[] }>("list_endpoints"),
   });
   const { data: provData } = useQuery({
     queryKey: ["providers"],

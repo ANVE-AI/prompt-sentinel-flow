@@ -9,6 +9,36 @@ import { parseModelsResponse } from "../_shared/models_parsers.ts";
 // In-memory cache for /models responses (per provider+key, 5 min TTL).
 const modelsCache = new Map<string, { models: string[]; exp: number }>();
 
+/**
+ * Look up an endpoint row that the caller is allowed to *read*. The caller is
+ * allowed to read a row if either:
+ *   1. They own it (`endpoints.user_id = userId`), OR
+ *   2. The endpoint owner has explicitly shared it with them via `endpoint_shares`
+ *      (matched on the resolved `shared_with_user_id`).
+ *
+ * Read access does NOT grant the right to mutate the row, mint API keys against
+ * it, or see the encrypted provider key — callers of this helper must ONLY use
+ * it for read/test/list-models flows. The encrypted key in the returned row is
+ * meant to be decrypted server-side and used to call the upstream; it must never
+ * be written into a response body.
+ */
+async function loadReadableEndpoint(
+  sb: ReturnType<typeof service>, endpointId: string, userId: string,
+): Promise<{ row: any | null; isShared: boolean }> {
+  const { data: owned } = await sb.from("endpoints").select("*")
+    .eq("id", endpointId).eq("user_id", userId).maybeSingle();
+  if (owned) return { row: owned, isShared: false };
+
+  const { data: share } = await sb.from("endpoint_shares")
+    .select("endpoint_id").eq("endpoint_id", endpointId)
+    .eq("shared_with_user_id", userId).maybeSingle();
+  if (!share) return { row: null, isShared: false };
+
+  const { data: shared } = await sb.from("endpoints").select("*")
+    .eq("id", endpointId).maybeSingle();
+  return { row: shared ?? null, isShared: !!shared };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -416,25 +446,156 @@ Deno.serve(async (req) => {
       // Custom endpoint management (separate from API keys)
       // =====================================================================
       case "list_endpoints": {
-        const { data } = await sb.from("endpoints")
-          .select("id,name,base_url,models_url,kind,auth_scheme,auth_header,extra_headers,model_suggestions,default_model,path_prefix,chat_path,models_path,response_format,created_at,updated_at,provider_key_encrypted")
+        // Returns two collections in one payload:
+        //   - `endpoints`: rows the caller owns (full editable shape, no key material).
+        //   - `shared_endpoints`: rows shared *with* the caller as read-only (also stripped
+        //     of `provider_key_encrypted`, plus the owner's email for display).
+        // Both shapes carry `is_shared` so the UI can render them in the same table.
+        const ENDPOINT_COLS =
+          "id,name,base_url,models_url,kind,auth_scheme,auth_header,extra_headers,model_suggestions,default_model,path_prefix,chat_path,models_path,response_format,created_at,updated_at,user_id,provider_key_encrypted";
+
+        const { data: owned } = await sb.from("endpoints")
+          .select(ENDPOINT_COLS)
           .eq("user_id", userId).order("created_at", { ascending: false });
-        // Mask the encrypted key — return only a "has key" bool to the UI.
-        const endpoints = (data ?? []).map((e: any) => {
-          const { provider_key_encrypted, ...rest } = e;
-          return { ...rest, has_key: !!provider_key_encrypted };
+
+        const ownedRows = (owned ?? []).map((e: any) => {
+          const { provider_key_encrypted, user_id: _u, ...rest } = e;
+          return { ...rest, has_key: !!provider_key_encrypted, is_shared: false, permission: "owner" as const };
         });
+
+        // Shared-with-me: join via endpoint_shares.shared_with_user_id (back-filled on first login).
+        const { data: shareRows } = await sb.from("endpoint_shares")
+          .select("id,endpoint_id,owner_user_id,permission,created_at")
+          .eq("shared_with_user_id", userId);
+
+        let sharedRows: any[] = [];
+        if (shareRows && shareRows.length > 0) {
+          const epIds = shareRows.map((s: any) => s.endpoint_id);
+          const { data: epData } = await sb.from("endpoints")
+            .select(ENDPOINT_COLS).in("id", epIds);
+          // Resolve owner emails in one round-trip.
+          const ownerIds = Array.from(new Set((epData ?? []).map((r: any) => r.user_id)));
+          const ownerEmailById: Record<string, string | null> = {};
+          if (ownerIds.length) {
+            const { data: profs } = await sb.from("profiles")
+              .select("clerk_user_id,email").in("clerk_user_id", ownerIds);
+            for (const p of profs ?? []) ownerEmailById[p.clerk_user_id] = p.email ?? null;
+          }
+          const shareById: Record<string, any> = {};
+          for (const s of shareRows) shareById[s.endpoint_id] = s;
+          sharedRows = (epData ?? []).map((e: any) => {
+            const { provider_key_encrypted, user_id, ...rest } = e;
+            const share = shareById[e.id];
+            return {
+              ...rest,
+              has_key: !!provider_key_encrypted,
+              is_shared: true,
+              permission: (share?.permission ?? "read") as "read",
+              share_id: share?.id ?? null,
+              owner_email: ownerEmailById[user_id] ?? null,
+              shared_at: share?.created_at ?? null,
+            };
+          });
+        }
+
         // Count keys per endpoint so the UI can show usage / warn before deleting.
+        // Only counts the caller's own keys against their own endpoints (recipients
+        // cannot create keys against shared endpoints, so this is owner-scoped).
         const { data: keyCounts } = await sb.from("api_keys")
           .select("endpoint_id").eq("user_id", userId).not("endpoint_id", "is", null);
         const counts: Record<string, number> = {};
         for (const r of keyCounts ?? []) {
           if (r.endpoint_id) counts[r.endpoint_id] = (counts[r.endpoint_id] ?? 0) + 1;
         }
+
         return json({
-          endpoints: endpoints.map((e: any) => ({ ...e, key_count: counts[e.id] ?? 0 })),
+          endpoints: ownedRows.map((e: any) => ({ ...e, key_count: counts[e.id] ?? 0 })),
+          shared_endpoints: sharedRows,
         });
       }
+
+      // ---------------------------------------------------------------
+      // Endpoint sharing — owner grants read-only access to a teammate.
+      // The caller must OWN the endpoint to add or remove a share.
+      // Recipients consume shares implicitly via list_endpoints above.
+      // ---------------------------------------------------------------
+      case "list_endpoint_shares": {
+        const { endpoint_id } = body;
+        if (!endpoint_id || typeof endpoint_id !== "string") {
+          return json({ error: "endpoint_id required" }, 400);
+        }
+        // Verify ownership before disclosing the share list (it contains emails).
+        const { data: ep } = await sb.from("endpoints")
+          .select("id").eq("id", endpoint_id).eq("user_id", userId).maybeSingle();
+        if (!ep) return json({ error: "Endpoint not found" }, 404);
+
+        const { data: shares } = await sb.from("endpoint_shares")
+          .select("id,shared_with_email,shared_with_user_id,permission,created_at")
+          .eq("endpoint_id", endpoint_id).order("created_at", { ascending: false });
+        return json({ shares: shares ?? [] });
+      }
+
+      case "add_endpoint_share": {
+        const { endpoint_id, email } = body;
+        if (!endpoint_id || typeof endpoint_id !== "string") {
+          return json({ error: "endpoint_id required" }, 400);
+        }
+        const raw = typeof email === "string" ? email.trim().toLowerCase() : "";
+        // Minimal email validation — the upstream profile lookup tolerates anything,
+        // but we want a clear error before we hit the unique constraint.
+        if (!raw || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw)) {
+          return json({ error: "A valid email is required" }, 400);
+        }
+        // Verify ownership.
+        const { data: ep } = await sb.from("endpoints")
+          .select("id").eq("id", endpoint_id).eq("user_id", userId).maybeSingle();
+        if (!ep) return json({ error: "Endpoint not found" }, 404);
+
+        // Block self-share — look up caller's profile email and compare.
+        const { data: ownerProfile } = await sb.from("profiles")
+          .select("email").eq("clerk_user_id", userId).maybeSingle();
+        if (ownerProfile?.email && ownerProfile.email.trim().toLowerCase() === raw) {
+          return json({ error: "You can't share an endpoint with yourself" }, 400);
+        }
+
+        // Pre-resolve the recipient's Clerk id if they already have a profile.
+        const { data: recipient } = await sb.from("profiles")
+          .select("clerk_user_id").eq("email", raw).maybeSingle();
+
+        const { data: inserted, error } = await sb.from("endpoint_shares")
+          .upsert({
+            endpoint_id,
+            owner_user_id: userId,
+            shared_with_email: raw,
+            shared_with_user_id: recipient?.clerk_user_id ?? null,
+            permission: "read",
+          }, { onConflict: "endpoint_id,shared_with_email" })
+          .select("id,shared_with_email,shared_with_user_id,permission,created_at")
+          .single();
+        if (error) return json({ error: error.message }, 400);
+        return json({
+          share: inserted,
+          // Tell the UI whether the recipient already has access today vs. will pick it
+          // up the next time they sign in.
+          recipient_known: !!recipient?.clerk_user_id,
+        });
+      }
+
+      case "remove_endpoint_share": {
+        const { share_id } = body;
+        if (!share_id || typeof share_id !== "string") {
+          return json({ error: "share_id required" }, 400);
+        }
+        // Only the endpoint owner may revoke. Filtering on owner_user_id is enough
+        // because we always set it when inserting.
+        const { error, count } = await sb.from("endpoint_shares")
+          .delete({ count: "exact" })
+          .eq("id", share_id).eq("owner_user_id", userId);
+        if (error) return json({ error: error.message }, 400);
+        if ((count ?? 0) === 0) return json({ error: "Share not found" }, 404);
+        return json({ ok: true });
+      }
+
 
       case "save_endpoint": {
         // Create or update. Pass `id` to update.
@@ -529,8 +690,8 @@ Deno.serve(async (req) => {
         let hasStoredKey = false;
 
         if (id) {
-          const { data: row } = await sb.from("endpoints").select("*")
-            .eq("id", id).eq("user_id", userId).maybeSingle();
+          // Allow shared recipients to test too — read-only, key never leaves the server.
+          const { row } = await loadReadableEndpoint(sb, id, userId);
           if (!row) return json({ ok: false, error: "Endpoint not found" }, 404);
           cfg = {
             base_url: row.base_url, models_url: row.models_url,
@@ -770,8 +931,7 @@ Deno.serve(async (req) => {
           : [];
 
         if (id) {
-          const { data: row } = await sb.from("endpoints").select("*")
-            .eq("id", id).eq("user_id", userId).maybeSingle();
+          const { row } = await loadReadableEndpoint(sb, id, userId);
           if (!row) return json({ ok: false, error: "Endpoint not found" }, 404);
           cfg = {
             base_url: row.base_url, models_url: row.models_url,
