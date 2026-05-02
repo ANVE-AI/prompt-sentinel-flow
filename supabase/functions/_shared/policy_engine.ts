@@ -814,46 +814,39 @@ export function evaluateInjection(
   if (direction !== "input") return [];
 
   const out: LayerVerdict[] = [];
-  const allSpans: { start: number; end: number; match: string }[] = [];
-  const reasons: string[] = [];
-  const ruleNames: string[] = [];
 
+  // We emit ONE LayerVerdict per matched pattern so the dashboard's
+  // "Top triggered rules" and the per-request detail panel can attribute
+  // hits to a specific named injection rule (e.g. `reveal_system_prompt`)
+  // rather than a single bundled "injection" entry. The aggregator later
+  // overrides each layer's verdict to the configured injection_action.
   for (const { name, re, reason } of INJECTION_PATTERNS) {
     re.lastIndex = 0;
+    const spans: { start: number; end: number; match: string }[] = [];
+    let firstMatch: string | null = null;
     let m: RegExpExecArray | null;
-    let hit = false;
     while ((m = re.exec(rawText)) !== null) {
-      hit = true;
-      allSpans.push({ start: m.index, end: m.index + m[0].length, match: m[0] });
-      if (m[0].length === 0) re.lastIndex++; // safety
+      if (firstMatch === null) firstMatch = m[0];
+      spans.push({ start: m.index, end: m.index + m[0].length, match: m[0] });
+      if (m[0].length === 0) re.lastIndex++;
     }
-    // Normalized-only match (obfuscated input). Surface as evidence but no span.
-    if (!hit) {
+    let normalizedHit = false;
+    if (spans.length === 0) {
       re.lastIndex = 0;
-      if (re.test(normalizedText)) {
-        hit = true;
-        reasons.push(`${reason} (matched after normalization).`);
-        ruleNames.push(name + ":normalized");
-      }
+      if (re.test(normalizedText)) normalizedHit = true;
     }
-    if (hit) {
-      reasons.push(reason);
-      ruleNames.push(name);
-    }
+    if (spans.length === 0 && !normalizedHit) continue;
+
+    out.push({
+      layer: "injection",
+      verdict: "flag", // overridden by aggregator using settings.injection_action
+      rule: normalizedHit ? `${name}:normalized` : name,
+      reason: normalizedHit ? `${reason} (matched after normalization).` : reason,
+      matched: firstMatch ?? undefined,
+      spans: spans.length > 0 ? mergeSpans(spans) : undefined,
+    });
   }
 
-  if (reasons.length === 0) return out;
-
-  out.push({
-    layer: "injection",
-    // The actual block/sanitize/flag verdict is decided by the aggregator
-    // based on settings.injection_action, but we mark it as `flag` here as a
-    // conservative default. The evaluator overrides this below.
-    verdict: "flag",
-    rule: ruleNames.join(","),
-    reason: Array.from(new Set(reasons)).join(" "),
-    spans: mergeSpans(allSpans),
-  });
   return out;
 }
 
