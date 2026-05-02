@@ -241,6 +241,42 @@ export type Database = {
         }
         Relationships: []
       }
+      key_behavior_profiles: {
+        Row: {
+          api_key_id: string
+          encoded_ratio_mean: number
+          prompt_len_m2: number
+          prompt_len_mean: number
+          sample_count: number
+          top_models: Json
+          updated_at: string
+          user_id: string
+          window_start: string
+        }
+        Insert: {
+          api_key_id: string
+          encoded_ratio_mean?: number
+          prompt_len_m2?: number
+          prompt_len_mean?: number
+          sample_count?: number
+          top_models?: Json
+          updated_at?: string
+          user_id: string
+          window_start?: string
+        }
+        Update: {
+          api_key_id?: string
+          encoded_ratio_mean?: number
+          prompt_len_m2?: number
+          prompt_len_mean?: number
+          sample_count?: number
+          top_models?: Json
+          updated_at?: string
+          user_id?: string
+          window_start?: string
+        }
+        Relationships: []
+      }
       model_aliases: {
         Row: {
           alias: string
@@ -309,6 +345,114 @@ export type Database = {
           },
         ]
       }
+      policy_intents: {
+        Row: {
+          action: string
+          created_at: string
+          id: string
+          intent: string
+          min_confidence: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          action?: string
+          created_at?: string
+          id?: string
+          intent: string
+          min_confidence?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          id?: string
+          intent?: string
+          min_confidence?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      policy_rules: {
+        Row: {
+          config: Json
+          created_at: string
+          direction: string
+          enabled: boolean
+          id: string
+          kind: string
+          name: string
+          severity: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          config?: Json
+          created_at?: string
+          direction?: string
+          enabled?: boolean
+          id?: string
+          kind: string
+          name: string
+          severity?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          config?: Json
+          created_at?: string
+          direction?: string
+          enabled?: boolean
+          id?: string
+          kind?: string
+          name?: string
+          severity?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      policy_settings: {
+        Row: {
+          created_at: string
+          enable_heuristics: boolean
+          enable_intent: boolean
+          enable_normalizer: boolean
+          enable_patterns: boolean
+          intent_shadow_mode: boolean
+          strict_mode: boolean
+          updated_at: string
+          user_id: string
+          workspace_purpose: string | null
+        }
+        Insert: {
+          created_at?: string
+          enable_heuristics?: boolean
+          enable_intent?: boolean
+          enable_normalizer?: boolean
+          enable_patterns?: boolean
+          intent_shadow_mode?: boolean
+          strict_mode?: boolean
+          updated_at?: string
+          user_id: string
+          workspace_purpose?: string | null
+        }
+        Update: {
+          created_at?: string
+          enable_heuristics?: boolean
+          enable_intent?: boolean
+          enable_normalizer?: boolean
+          enable_patterns?: boolean
+          intent_shadow_mode?: boolean
+          strict_mode?: boolean
+          updated_at?: string
+          user_id?: string
+          workspace_purpose?: string | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           clerk_user_id: string
@@ -345,6 +489,8 @@ export type Database = {
           tokens_in: number | null
           tokens_out: number | null
           user_id: string
+          verdict: string | null
+          verdict_layers: Json | null
         }
         Insert: {
           api_key_id?: string | null
@@ -360,6 +506,8 @@ export type Database = {
           tokens_in?: number | null
           tokens_out?: number | null
           user_id: string
+          verdict?: string | null
+          verdict_layers?: Json | null
         }
         Update: {
           api_key_id?: string | null
@@ -375,6 +523,8 @@ export type Database = {
           tokens_in?: number | null
           tokens_out?: number | null
           user_id?: string
+          verdict?: string | null
+          verdict_layers?: Json | null
         }
         Relationships: [
           {
