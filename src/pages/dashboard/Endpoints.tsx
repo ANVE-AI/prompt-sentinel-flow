@@ -44,6 +44,10 @@ interface EndpointRow {
   extra_headers: Record<string, string>;
   model_suggestions: string[];
   default_model: string | null;
+  path_prefix: string | null;
+  chat_path: string | null;
+  models_path: string | null;
+  response_format: string | null;
   has_key: boolean;
   key_count: number;
   updated_at: string;
@@ -63,6 +67,10 @@ interface FormState {
   provider_key: string;
   clear_provider_key: boolean;
   extra_headers: { key: string; value: string }[];
+  path_prefix: string;
+  chat_path: string;
+  models_path: string;
+  response_format: string;
 }
 
 const emptyForm: FormState = {
@@ -78,6 +86,10 @@ const emptyForm: FormState = {
   provider_key: "",
   clear_provider_key: false,
   extra_headers: [],
+  path_prefix: "",
+  chat_path: "",
+  models_path: "",
+  response_format: "chat_completions",
 };
 
 const Endpoints = () => {
@@ -123,6 +135,10 @@ const Endpoints = () => {
       provider_key: "",
       clear_provider_key: false,
       extra_headers: Object.entries(e.extra_headers || {}).map(([key, value]) => ({ key, value })),
+      path_prefix: e.path_prefix ?? "",
+      chat_path: e.chat_path ?? "",
+      models_path: e.models_path ?? "",
+      response_format: e.response_format ?? (e.kind === "anthropic" ? "anthropic_messages" : "chat_completions"),
     });
     setTestResult(null);
     setOpen(true);
@@ -159,6 +175,20 @@ const Endpoints = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.auth_scheme]);
 
+  // Keep response_format consistent with the selected kind by default
+  useEffect(() => {
+    setForm((f) => {
+      if (f.kind === "anthropic" && f.response_format !== "anthropic_messages") {
+        return { ...f, response_format: "anthropic_messages" };
+      }
+      if (f.kind !== "anthropic" && f.response_format === "anthropic_messages") {
+        return { ...f, response_format: "chat_completions" };
+      }
+      return f;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.kind]);
+
   const buildPayload = () => {
     const extra: Record<string, string> = {};
     for (const h of form.extra_headers) {
@@ -177,6 +207,10 @@ const Endpoints = () => {
       default_model: form.default_model.trim() || undefined,
       provider_key: form.provider_key || undefined,
       clear_provider_key: form.clear_provider_key,
+      path_prefix: form.path_prefix.trim() || undefined,
+      chat_path: form.chat_path.trim() || undefined,
+      models_path: form.models_path.trim() || undefined,
+      response_format: form.response_format || undefined,
     };
   };
 
@@ -195,11 +229,13 @@ const Endpoints = () => {
           : buildPayload(),
       });
       if (r.ok) {
+        const fmt = r.response_format ? ` · format: ${r.response_format}` : "";
+        const chat = r.chat_url ? `\nChat URL: ${r.chat_url}` : "";
         setTestResult({
           ok: true,
-          msg: r.sample_model
-            ? `Connected (${r.latency_ms}ms). ${r.model_count} models · sample: ${r.sample_model}`
-            : `Connected (${r.status}, ${r.latency_ms}ms).`,
+          msg: (r.sample_model
+            ? `Connected (${r.latency_ms}ms). ${r.model_count} models · sample: ${r.sample_model}${fmt}`
+            : `Connected (${r.status}, ${r.latency_ms}ms).${fmt}`) + chat,
         });
       } else {
         setTestResult({ ok: false, msg: r.error || `HTTP ${r.status}` });
@@ -361,7 +397,7 @@ const Endpoints = () => {
                 className="mt-1.5 font-mono text-sm"
               />
               <p className="text-xs text-muted-foreground mt-1">
-                We'll auto-append <code>/chat/completions</code> (or <code>/messages</code>) if missing.
+                We'll append the chat path automatically (e.g. <code>/chat/completions</code>, <code>/messages</code>, or <code>/responses</code>). Use <em>Path prefix</em> below for things like <code>/v1</code> or <code>/openai/v1</code>.
               </p>
             </div>
 
@@ -373,6 +409,69 @@ const Endpoints = () => {
                 placeholder="Leave blank to derive from base URL"
                 className="mt-1.5 font-mono text-sm"
               />
+            </div>
+
+            {/* Request options — path prefix, explicit paths, response format */}
+            <div className="rounded-md border border-border/60 p-3 space-y-3 bg-muted/30">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium">Request options</Label>
+                <span className="text-xs text-muted-foreground">
+                  Advanced — leave blank for sane defaults
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Path prefix</Label>
+                  <Input
+                    value={form.path_prefix}
+                    onChange={(e) => setForm({ ...form, path_prefix: e.target.value })}
+                    placeholder="/v1, /openai/v1"
+                    className="mt-1 font-mono text-xs"
+                  />
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    Inserted between base URL and the chat/models path.
+                  </p>
+                </div>
+                <div>
+                  <Label className="text-xs">Response format</Label>
+                  <Select
+                    value={form.response_format}
+                    onValueChange={(v) => setForm({ ...form, response_format: v })}
+                  >
+                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="chat_completions">OpenAI Chat Completions</SelectItem>
+                      <SelectItem value="responses">OpenAI Responses API</SelectItem>
+                      <SelectItem value="anthropic_messages">Anthropic Messages</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    We translate to/from chat-completions automatically.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Chat path override</Label>
+                  <Input
+                    value={form.chat_path}
+                    onChange={(e) => setForm({ ...form, chat_path: e.target.value })}
+                    placeholder="/chat/completions"
+                    className="mt-1 font-mono text-xs"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Models path override</Label>
+                  <Input
+                    value={form.models_path}
+                    onChange={(e) => setForm({ ...form, models_path: e.target.value })}
+                    placeholder="/models"
+                    className="mt-1 font-mono text-xs"
+                  />
+                </div>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">

@@ -5,6 +5,8 @@ import { corsHeaders, json, service, sha256Hex, decryptString,
 import { getProvider, resolveEndpoint } from "../_shared/providers.ts";
 import { openaiToAnthropicRequest, anthropicToOpenAIResponse,
   anthropicStreamToOpenAI } from "../_shared/anthropic.ts";
+import { chatToResponsesRequest, responsesToChatResponse,
+  responsesStreamToChat } from "../_shared/responses_api.ts";
 
 function openaiErrorShape(message: string, type = "policy_violation") {
   return { error: { message, type, code: type } };
@@ -25,7 +27,7 @@ Deno.serve(async (req) => {
   const key_hash = await sha256Hex(apiKeyPlain);
 
   const { data: keyRow } = await sb.from("api_keys")
-    .select("id,user_id,provider,provider_key_encrypted,model_default,is_active,custom_base_url,custom_models_url,custom_kind,custom_auth_scheme,custom_auth_header,custom_extra_headers")
+    .select("id,user_id,provider,provider_key_encrypted,model_default,is_active,custom_base_url,custom_models_url,custom_kind,custom_auth_scheme,custom_auth_header,custom_extra_headers,custom_path_prefix,custom_chat_path,custom_models_path,custom_response_format")
     .eq("key_hash", key_hash).maybeSingle();
   if (!keyRow || !keyRow.is_active) {
     return json(openaiErrorShape("Invalid or revoked API key", "invalid_request_error"), 401);
@@ -101,12 +103,12 @@ Deno.serve(async (req) => {
 
   // Build forward request via resolveEndpoint (handles built-in + custom)
   let forwardUrl: string;
-  let forwardKind: "openai_compatible" | "anthropic";
+  let forwardFormat: "chat_completions" | "responses" | "anthropic_messages" = "chat_completions";
   let forwardHeaders: Record<string, string> = { "Content-Type": "application/json" };
   try {
     const resolved = resolveEndpoint(keyRow as any, upstreamKey);
     forwardUrl = resolved.url;
-    forwardKind = resolved.kind;
+    forwardFormat = resolved.response_format;
     forwardHeaders = { ...forwardHeaders, ...resolved.headers };
   } catch (e) {
     return json(openaiErrorShape(
@@ -115,8 +117,10 @@ Deno.serve(async (req) => {
   }
 
   let forwardBody: any;
-  if (forwardKind === "anthropic") {
+  if (forwardFormat === "anthropic_messages") {
     forwardBody = openaiToAnthropicRequest({ ...body, model });
+  } else if (forwardFormat === "responses") {
+    forwardBody = chatToResponsesRequest({ ...body, model, stream });
   } else {
     forwardBody = { ...body, model, stream };
   }
@@ -141,13 +145,33 @@ Deno.serve(async (req) => {
 
   // ===== Streaming =====
   if (stream && upstream.body) {
-    if (forwardKind === "anthropic") {
+    if (forwardFormat === "anthropic_messages") {
       const { stream: oaiStream, done } = anthropicStreamToOpenAI(upstream.body, model);
       done.then(async ({ assistantText, usage }) => {
         const outCheck = checkPolicy(assistantText, blocked, allowed);
         const status = outCheck.blocked ? "blocked_output" : "allowed";
         await sb.from("request_logs").insert({
           ...logBase, status,
+          block_reason: outCheck.blocked ? `Output matched: "${outCheck.matched}"` : null,
+          response: { streamed: true, content: assistantText },
+          latency_ms: Date.now() - start,
+          tokens_in: usage?.prompt_tokens ?? null,
+          tokens_out: usage?.completion_tokens ?? null,
+        });
+        await sb.from("api_keys").update({ last_used_at: new Date().toISOString() }).eq("id", keyRow.id);
+      });
+      return new Response(oaiStream, {
+        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+      });
+    }
+
+    if (forwardFormat === "responses") {
+      const { stream: oaiStream, done } = responsesStreamToChat(upstream.body, model);
+      done.then(async ({ assistantText, usage, finalModel }) => {
+        const outCheck = checkPolicy(assistantText, blocked, allowed);
+        const status = outCheck.blocked ? "blocked_output" : "allowed";
+        await sb.from("request_logs").insert({
+          ...logBase, model: finalModel, status,
           block_reason: outCheck.blocked ? `Output matched: "${outCheck.matched}"` : null,
           response: { streamed: true, content: assistantText },
           latency_ms: Date.now() - start,
@@ -216,7 +240,10 @@ Deno.serve(async (req) => {
 
   // ===== Non-streaming =====
   const rawData = await upstream.json();
-  const data = forwardKind === "anthropic" ? anthropicToOpenAIResponse(rawData) : rawData;
+  const data =
+    forwardFormat === "anthropic_messages" ? anthropicToOpenAIResponse(rawData) :
+    forwardFormat === "responses" ? responsesToChatResponse(rawData, model) :
+    rawData;
   const assistantText = data?.choices?.[0]?.message?.content ?? "";
   const outCheck = typeof assistantText === "string"
     ? checkPolicy(assistantText, blocked, allowed) : { blocked: false };

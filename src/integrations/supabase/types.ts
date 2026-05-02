@@ -20,10 +20,14 @@ export type Database = {
           custom_auth_header: string | null
           custom_auth_scheme: string | null
           custom_base_url: string | null
+          custom_chat_path: string | null
           custom_extra_headers: Json | null
           custom_kind: string | null
           custom_model_suggestions: string[] | null
+          custom_models_path: string | null
           custom_models_url: string | null
+          custom_path_prefix: string | null
+          custom_response_format: string | null
           endpoint_id: string | null
           id: string
           is_active: boolean
@@ -41,10 +45,14 @@ export type Database = {
           custom_auth_header?: string | null
           custom_auth_scheme?: string | null
           custom_base_url?: string | null
+          custom_chat_path?: string | null
           custom_extra_headers?: Json | null
           custom_kind?: string | null
           custom_model_suggestions?: string[] | null
+          custom_models_path?: string | null
           custom_models_url?: string | null
+          custom_path_prefix?: string | null
+          custom_response_format?: string | null
           endpoint_id?: string | null
           id?: string
           is_active?: boolean
@@ -62,10 +70,14 @@ export type Database = {
           custom_auth_header?: string | null
           custom_auth_scheme?: string | null
           custom_base_url?: string | null
+          custom_chat_path?: string | null
           custom_extra_headers?: Json | null
           custom_kind?: string | null
           custom_model_suggestions?: string[] | null
+          custom_models_path?: string | null
           custom_models_url?: string | null
+          custom_path_prefix?: string | null
+          custom_response_format?: string | null
           endpoint_id?: string | null
           id?: string
           is_active?: boolean
@@ -100,15 +112,19 @@ export type Database = {
           auth_header: string | null
           auth_scheme: string
           base_url: string
+          chat_path: string | null
           created_at: string
           default_model: string | null
           extra_headers: Json
           id: string
           kind: string
           model_suggestions: string[]
+          models_path: string | null
           models_url: string | null
           name: string
+          path_prefix: string | null
           provider_key_encrypted: string | null
+          response_format: string
           updated_at: string
           user_id: string
         }
@@ -116,15 +132,19 @@ export type Database = {
           auth_header?: string | null
           auth_scheme?: string
           base_url: string
+          chat_path?: string | null
           created_at?: string
           default_model?: string | null
           extra_headers?: Json
           id?: string
           kind?: string
           model_suggestions?: string[]
+          models_path?: string | null
           models_url?: string | null
           name: string
+          path_prefix?: string | null
           provider_key_encrypted?: string | null
+          response_format?: string
           updated_at?: string
           user_id: string
         }
@@ -132,15 +152,19 @@ export type Database = {
           auth_header?: string | null
           auth_scheme?: string
           base_url?: string
+          chat_path?: string | null
           created_at?: string
           default_model?: string | null
           extra_headers?: Json
           id?: string
           kind?: string
           model_suggestions?: string[]
+          models_path?: string | null
           models_url?: string | null
           name?: string
+          path_prefix?: string | null
           provider_key_encrypted?: string | null
+          response_format?: string
           updated_at?: string
           user_id?: string
         }

@@ -141,6 +141,9 @@ export function getProvider(id: string): ProviderDef | undefined {
 
 export type AuthScheme = "bearer" | "header" | "x-api-key" | "query" | "none";
 
+/** Wire format the upstream server speaks. We translate request/response shapes per format. */
+export type ResponseFormat = "chat_completions" | "responses" | "anthropic_messages";
+
 export interface CustomEndpointInput {
   base_url: string;
   models_url?: string | null;
@@ -148,6 +151,14 @@ export interface CustomEndpointInput {
   auth_scheme: AuthScheme;
   auth_header?: string | null;
   extra_headers?: Record<string, string> | null;
+  /** e.g. "/v1", "/openai/v1" — appended to base_url before the chat/models suffix. */
+  path_prefix?: string | null;
+  /** Explicit chat path (overrides default suffix). e.g. "/chat/completions", "/responses". */
+  chat_path?: string | null;
+  /** Explicit models path (overrides default "/models"). */
+  models_path?: string | null;
+  /** Wire format. Defaults to chat_completions for openai_compatible, anthropic_messages for anthropic. */
+  response_format?: ResponseFormat | null;
 }
 
 export interface ResolvedEndpoint {
@@ -158,6 +169,7 @@ export interface ResolvedEndpoint {
   extra_headers: Record<string, string>;
   auth_scheme: AuthScheme;
   auth_header: string;
+  response_format: ResponseFormat;
 }
 
 /** Provider-form choices we expose to the UI so it stays data-driven. */
@@ -329,25 +341,75 @@ function appendPath(baseRaw: string, ensureSuffix: string): string {
 function withFinalSegment(baseRaw: string, finalSegment: string): string {
   const u = new URL(baseRaw);
   let path = u.pathname.replace(/\/+$/, "");
-  // Strip a trailing chat/completions or messages so we land on /v1
-  path = path.replace(/\/(chat\/completions|messages)$/, "");
+  // Strip a trailing chat/completions, responses, or messages so we land on the API root.
+  path = path.replace(/\/(chat\/completions|responses|messages)$/, "");
   if (!path.endsWith(finalSegment)) path += finalSegment;
   u.pathname = path;
   return u.toString();
 }
 
+/** Normalize a user-entered path fragment: ensures leading "/", trims trailing "/". */
+function normalizePath(p: string | null | undefined): string {
+  if (!p) return "";
+  let s = String(p).trim();
+  if (!s) return "";
+  if (!s.startsWith("/")) s = "/" + s;
+  s = s.replace(/\/+$/, "");
+  return s;
+}
+
+/** Build a URL by joining base + prefix + suffix paths, preserving base's query string. */
+function joinPath(baseRaw: string, ...segments: string[]): string {
+  const u = new URL(baseRaw);
+  let path = u.pathname.replace(/\/+$/, "");
+  for (const seg of segments) {
+    const n = normalizePath(seg);
+    if (!n) continue;
+    if (!path.endsWith(n)) path += n;
+  }
+  u.pathname = path || "/";
+  return u.toString();
+}
+
 /**
- * Resolve a custom endpoint into a concrete URL + headers + kind.
+ * Resolve a custom endpoint into a concrete URL + headers + kind + response_format.
  * Pass the raw values from the api_keys row.
  */
 export function resolveCustomEndpoint(input: CustomEndpointInput): ResolvedEndpoint {
   const u = validateCustomUrl(input.base_url);
   const kind: ProviderKind = input.kind === "anthropic" ? "anthropic" : "openai_compatible";
-  const chatSuffix = kind === "anthropic" ? "/messages" : "/chat/completions";
-  const url = appendPath(u.toString(), chatSuffix);
-  const models_url = input.models_url
-    ? validateCustomUrl(input.models_url).toString()
-    : withFinalSegment(u.toString(), "/models");
+
+  // Default response_format is derived from kind, but caller can override.
+  const allowedFormats: ResponseFormat[] = ["chat_completions", "responses", "anthropic_messages"];
+  let response_format: ResponseFormat = kind === "anthropic" ? "anthropic_messages" : "chat_completions";
+  if (input.response_format && allowedFormats.includes(input.response_format)) {
+    response_format = input.response_format;
+  }
+
+  // Default chat suffix from response_format.
+  const defaultChatSuffix =
+    response_format === "anthropic_messages" ? "/messages" :
+    response_format === "responses" ? "/responses" :
+    "/chat/completions";
+
+  const prefix = normalizePath(input.path_prefix);
+  const explicitChat = normalizePath(input.chat_path);
+  const explicitModels = normalizePath(input.models_path);
+
+  // Build chat URL: base + path_prefix + (chat_path || default suffix)
+  const url = joinPath(u.toString(), prefix, explicitChat || defaultChatSuffix);
+
+  // Models URL: explicit absolute > explicit path > base+prefix+models_path > derive from base
+  let models_url: string;
+  if (input.models_url) {
+    models_url = validateCustomUrl(input.models_url).toString();
+  } else if (explicitModels) {
+    models_url = joinPath(u.toString(), prefix, explicitModels);
+  } else if (prefix) {
+    models_url = joinPath(u.toString(), prefix, "/models");
+  } else {
+    models_url = withFinalSegment(u.toString(), "/models");
+  }
 
   const auth_scheme: AuthScheme = (["bearer", "header", "x-api-key", "query", "none"] as AuthScheme[])
     .includes(input.auth_scheme) ? input.auth_scheme : "bearer";
@@ -362,6 +424,7 @@ export function resolveCustomEndpoint(input: CustomEndpointInput): ResolvedEndpo
     extra_headers: sanitizeExtraHeaders(input.extra_headers),
     auth_scheme,
     auth_header: (input.auth_header || defaultHeader).trim(),
+    response_format,
   };
 }
 
@@ -384,10 +447,15 @@ export function resolveEndpoint(keyRow: {
   custom_auth_scheme?: string | null;
   custom_auth_header?: string | null;
   custom_extra_headers?: Record<string, string> | null;
+  custom_path_prefix?: string | null;
+  custom_chat_path?: string | null;
+  custom_models_path?: string | null;
+  custom_response_format?: string | null;
 }, upstreamKey: string | null): {
   url: string;
   models_url?: string;
   kind: ProviderKind;
+  response_format: ResponseFormat;
   /** Headers ready to send (auth already applied where applicable). */
   headers: Record<string, string>;
 } {
@@ -399,6 +467,10 @@ export function resolveEndpoint(keyRow: {
       auth_scheme: (keyRow.custom_auth_scheme as AuthScheme) ?? "bearer",
       auth_header: keyRow.custom_auth_header ?? null,
       extra_headers: keyRow.custom_extra_headers ?? null,
+      path_prefix: keyRow.custom_path_prefix ?? null,
+      chat_path: keyRow.custom_chat_path ?? null,
+      models_path: keyRow.custom_models_path ?? null,
+      response_format: (keyRow.custom_response_format as ResponseFormat) ?? null,
     });
     const headers: Record<string, string> = { ...r.extra_headers };
     let url = r.url;
@@ -415,7 +487,7 @@ export function resolveEndpoint(keyRow: {
     if (r.kind === "anthropic" && !headers["anthropic-version"]) {
       headers["anthropic-version"] = "2023-06-01";
     }
-    return { url, models_url, kind: r.kind, headers };
+    return { url, models_url, kind: r.kind, response_format: r.response_format, headers };
   }
 
   const def = getProvider(keyRow.provider);
@@ -431,5 +503,6 @@ export function resolveEndpoint(keyRow: {
     headers["HTTP-Referer"] = "https://anveguard.app";
     headers["X-Title"] = "AnveGuard";
   }
-  return { url: def.url, models_url: def.models_url, kind: def.kind, headers };
+  const response_format: ResponseFormat = def.kind === "anthropic" ? "anthropic_messages" : "chat_completions";
+  return { url: def.url, models_url: def.models_url, kind: def.kind, response_format, headers };
 }

@@ -176,6 +176,10 @@ Deno.serve(async (req) => {
             insert.custom_auth_header = ep.auth_header;
             insert.custom_extra_headers = ep.extra_headers ?? {};
             insert.custom_model_suggestions = ep.model_suggestions ?? [];
+            insert.custom_path_prefix = ep.path_prefix ?? null;
+            insert.custom_chat_path = ep.chat_path ?? null;
+            insert.custom_models_path = ep.models_path ?? null;
+            insert.custom_response_format = ep.response_format ?? null;
             insert.provider_key_encrypted = ep.provider_key_encrypted ?? null;
             if (!model && ep.default_model) insert.model_default = ep.default_model;
           } else {
@@ -191,6 +195,10 @@ Deno.serve(async (req) => {
                 auth_scheme: custom.auth_scheme,
                 auth_header: custom.auth_header || null,
                 extra_headers: custom.extra_headers || null,
+                path_prefix: custom.path_prefix || null,
+                chat_path: custom.chat_path || null,
+                models_path: custom.models_path || null,
+                response_format: custom.response_format || null,
               });
             } catch (e) {
               return json({ error: e instanceof Error ? e.message : String(e) }, 400);
@@ -204,6 +212,10 @@ Deno.serve(async (req) => {
             insert.custom_auth_scheme = resolved.auth_scheme;
             insert.custom_auth_header = resolved.auth_header;
             insert.custom_extra_headers = sanitizeExtraHeaders(custom.extra_headers || null);
+            insert.custom_path_prefix = custom.path_prefix || null;
+            insert.custom_chat_path = custom.chat_path || null;
+            insert.custom_models_path = custom.models_path || null;
+            insert.custom_response_format = resolved.response_format;
             if (Array.isArray(custom.model_suggestions)) {
               insert.custom_model_suggestions = custom.model_suggestions
                 .filter((x: unknown) => typeof x === "string" && x.trim())
@@ -237,7 +249,7 @@ Deno.serve(async (req) => {
       // =====================================================================
       case "list_endpoints": {
         const { data } = await sb.from("endpoints")
-          .select("id,name,base_url,models_url,kind,auth_scheme,auth_header,extra_headers,model_suggestions,default_model,created_at,updated_at,provider_key_encrypted")
+          .select("id,name,base_url,models_url,kind,auth_scheme,auth_header,extra_headers,model_suggestions,default_model,path_prefix,chat_path,models_path,response_format,created_at,updated_at,provider_key_encrypted")
           .eq("user_id", userId).order("created_at", { ascending: false });
         // Mask the encrypted key — return only a "has key" bool to the UI.
         const endpoints = (data ?? []).map((e: any) => {
@@ -260,7 +272,8 @@ Deno.serve(async (req) => {
         // Create or update. Pass `id` to update.
         const { id, name, base_url, models_url, kind, auth_scheme, auth_header,
                 extra_headers, model_suggestions, default_model, provider_key,
-                clear_provider_key } = body;
+                clear_provider_key,
+                path_prefix, chat_path, models_path, response_format } = body;
         if (!name || !base_url) return json({ error: "Name and base URL required" }, 400);
 
         let resolved;
@@ -269,6 +282,10 @@ Deno.serve(async (req) => {
             base_url, models_url: models_url || null, kind,
             auth_scheme, auth_header: auth_header || null,
             extra_headers: extra_headers || null,
+            path_prefix: path_prefix || null,
+            chat_path: chat_path || null,
+            models_path: models_path || null,
+            response_format: response_format || null,
           });
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
@@ -289,6 +306,10 @@ Deno.serve(async (req) => {
                 .map((x: string) => x.trim())
             : [],
           default_model: default_model ? String(default_model).slice(0, 200) : null,
+          path_prefix: path_prefix ? String(path_prefix).slice(0, 200) : null,
+          chat_path: chat_path ? String(chat_path).slice(0, 200) : null,
+          models_path: models_path ? String(models_path).slice(0, 200) : null,
+          response_format: resolved.response_format,
         };
 
         if (provider_key) {
@@ -345,6 +366,8 @@ Deno.serve(async (req) => {
             base_url: row.base_url, models_url: row.models_url,
             kind: row.kind, auth_scheme: row.auth_scheme,
             auth_header: row.auth_header, extra_headers: row.extra_headers,
+            path_prefix: row.path_prefix, chat_path: row.chat_path,
+            models_path: row.models_path, response_format: row.response_format,
           };
           if (row.provider_key_encrypted && !upstreamKey) {
             upstreamKey = await decryptString(row.provider_key_encrypted);
@@ -359,6 +382,10 @@ Deno.serve(async (req) => {
             kind: cfg.kind, auth_scheme: cfg.auth_scheme,
             auth_header: cfg.auth_header || null,
             extra_headers: cfg.extra_headers || null,
+            path_prefix: cfg.path_prefix || null,
+            chat_path: cfg.chat_path || null,
+            models_path: cfg.models_path || null,
+            response_format: cfg.response_format || null,
           });
         } catch (e) {
           return json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 400);
@@ -397,6 +424,7 @@ Deno.serve(async (req) => {
             latency_ms: Date.now() - t0,
             url: pingUrl,
             chat_url: resolved.url,
+            response_format: resolved.response_format,
             sample_model: sample,
             model_count: count,
             error: r.ok ? null : text.slice(0, 300),
