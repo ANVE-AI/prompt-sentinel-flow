@@ -1352,7 +1352,7 @@ Deno.serve(async (req) => {
       // applying it later is a pure write — no ID linkage to the live rows.
       case "list_policy_templates": {
         const { data } = await sb.from("policy_templates")
-          .select("id,name,description,policy,settings,rules,created_at,updated_at")
+          .select("id,name,description,policy,settings,rules,applies_to_intents,created_at,updated_at")
           .eq("user_id", userId).order("created_at", { ascending: false });
         return json({ templates: data ?? [] });
       }
@@ -1361,6 +1361,23 @@ Deno.serve(async (req) => {
         const name = String(body?.name ?? "").trim();
         if (!name) return json({ error: "name required" }, 400);
         const description = body?.description ? String(body.description).slice(0, 500) : null;
+
+        // Template-level intent scope. Empty list = applies to every intent.
+        // When non-empty we also propagate the scope onto each rule's own
+        // `applies_to_intents` (intersected if the rule already specified one)
+        // so the live policy engine — which routes per-rule by intent — honors
+        // the scope without needing a separate template-aware code path.
+        const tplIntents = Array.isArray(body?.applies_to_intents)
+          ? body.applies_to_intents.map((s: unknown) => String(s)).filter(Boolean)
+          : [];
+
+        const intersectIntents = (ruleIntents: string[]): string[] => {
+          if (!tplIntents.length) return ruleIntents;
+          if (!ruleIntents.length) return tplIntents.slice();
+          const set = new Set(tplIntents);
+          const overlap = ruleIntents.filter((i) => set.has(i));
+          return overlap.length ? overlap : tplIntents.slice();
+        };
 
         // Sanitize the rule snapshot — strip ids/timestamps so applying the
         // template later inserts fresh rows owned by whoever applies it.
@@ -1374,7 +1391,9 @@ Deno.serve(async (req) => {
             direction: ["input", "output", "both"].includes(r.direction) ? r.direction : "both",
             enabled: r.enabled !== false,
             config: r.config && typeof r.config === "object" ? r.config : {},
-            applies_to_intents: Array.isArray(r.applies_to_intents) ? r.applies_to_intents : [],
+            applies_to_intents: intersectIntents(
+              Array.isArray(r.applies_to_intents) ? r.applies_to_intents : [],
+            ),
           }));
 
         const policy = body?.policy && typeof body.policy === "object" ? body.policy : {};
@@ -1383,17 +1402,18 @@ Deno.serve(async (req) => {
         const id = body?.id ? String(body.id) : null;
         if (id) {
           const { data, error } = await sb.from("policy_templates")
-            .update({ name, description, policy, settings, rules })
+            .update({ name, description, policy, settings, rules, applies_to_intents: tplIntents })
             .eq("id", id).eq("user_id", userId).select().maybeSingle();
           if (error) return json({ error: error.message }, 400);
           return json({ template: data });
         }
         const { data, error } = await sb.from("policy_templates")
-          .insert({ user_id: userId, name, description, policy, settings, rules })
+          .insert({ user_id: userId, name, description, policy, settings, rules, applies_to_intents: tplIntents })
           .select().maybeSingle();
         if (error) return json({ error: error.message }, 400);
         return json({ template: data });
       }
+
 
       case "delete_policy_template": {
         const id = String(body?.id ?? "");
