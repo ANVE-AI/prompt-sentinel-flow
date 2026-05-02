@@ -163,13 +163,24 @@ const Keys = () => {
   // and shows the result in a dialog: ok/fail, latency, reply, tokens, error.
   const [testingKey, setTestingKey] = useState<{ id: string; name: string } | null>(null);
   const [testKeyResult, setTestKeyResult] = useState<any | null>(null);
+  // Number of concurrent requests to fire at the upstream when running a test.
+  // 1 = single-shot health check; >1 = parallel test that proves the key handles
+  // multiple model calls in flight simultaneously.
+  const [testParallel, setTestParallel] = useState<number>(1);
   const testKey = useMutation({
-    mutationFn: (id: string) => call<any>("test_api_key", { body: { api_key_id: id } }),
+    mutationFn: ({ id, parallel }: { id: string; parallel: number }) =>
+      call<any>("test_api_key", { body: { api_key_id: id, parallel } }),
     onMutate: () => setTestKeyResult(null),
     onSuccess: (r) => {
       setTestKeyResult(r);
-      if (r?.ok) toast.success(`Key works · ${r.latency_ms}ms`);
-      else toast.error(r?.error || "Test failed");
+      if (r?.parallel) {
+        if (r.ok) toast.success(`${r.succeeded}/${r.attempts} parallel calls OK · ${r.wall_ms}ms wall`);
+        else toast.error(`${r.failed}/${r.attempts} parallel calls failed`);
+      } else if (r?.ok) {
+        toast.success(`Key works · ${r.latency_ms}ms`);
+      } else {
+        toast.error(r?.error || "Test failed");
+      }
     },
     onError: (e: any) => {
       setTestKeyResult({ ok: false, error: e?.message || "Request failed" });
