@@ -1286,7 +1286,7 @@ Deno.serve(async (req) => {
             return json({ error: "behavioral_length_multiplier must be 1..100" }, 400);
           }
           patch.behavioral_length_multiplier = n;
-        }
+        if ("semantic_threshold" in (body ?? {})) {
           const n = Number(body.semantic_threshold);
           if (!(n >= 0.5 && n <= 0.95)) {
             return json({ error: "semantic_threshold must be 0.5..0.95" }, 400);
