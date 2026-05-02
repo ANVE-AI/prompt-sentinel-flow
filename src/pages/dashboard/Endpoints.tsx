@@ -434,14 +434,28 @@ const Endpoints = () => {
                 <Label>Template (optional)</Label>
                 <Select value={form.template} onValueChange={applyTemplate}>
                   <SelectTrigger className="mt-1.5">
-                    <SelectValue placeholder="Pick a template to prefill" />
+                    <SelectValue placeholder="Pick a provider to prefill URL, auth, models…" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-80">
                     {customSchema.templates.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>{t.label}</SelectItem>
+                      <SelectItem key={t.id} value={t.id}>
+                        <div className="flex flex-col items-start py-0.5">
+                          <span className="font-medium">{t.label}</span>
+                          {t.description && (
+                            <span className="text-[11px] text-muted-foreground">
+                              {t.description}
+                            </span>
+                          )}
+                        </div>
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                {form.template && (
+                  <p className="text-[11px] text-muted-foreground mt-1.5">
+                    Template applied — review and tweak before saving.
+                  </p>
+                )}
               </div>
             )}
 
