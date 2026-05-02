@@ -1108,6 +1108,91 @@ const Endpoints = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Import preview dialog */}
+      <Dialog open={importOpen} onOpenChange={(o) => { if (!o) { setImportOpen(false); setImportPayload(null); } }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="h-4 w-4" /> Import endpoints
+            </DialogTitle>
+          </DialogHeader>
+
+          {importPayload && (
+            <div className="space-y-4 text-sm">
+              <div className="rounded-md border p-3 space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Endpoints in file</span>
+                  <span className="font-medium">{importPayload.endpoints?.length ?? 0}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Format</span>
+                  <code className="text-xs">{importPayload.format ?? "—"} v{importPayload.version ?? 1}</code>
+                </div>
+                {importPayload.exported_at && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Exported</span>
+                    <span className="text-xs">{new Date(importPayload.exported_at).toLocaleString()}</span>
+                  </div>
+                )}
+                {importPayload.endpoints?.some((e: any) => e.provider_key_encrypted) && (
+                  <div className="flex items-start gap-2 mt-2 text-xs text-muted-foreground">
+                    <KeyRound className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                    <span>This file contains encrypted provider keys. They will only restore on this same project.</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label>On name conflict</Label>
+                <Select value={importStrategy} onValueChange={(v: any) => setImportStrategy(v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="rename">Import as new (append "(imported)")</SelectItem>
+                    <SelectItem value="skip">Skip existing endpoints</SelectItem>
+                    <SelectItem value="overwrite">Overwrite existing endpoints</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {importPayload.endpoints?.some((e: any) => e.provider_key_encrypted) && (
+                <label className="flex items-start gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 mt-0.5 accent-primary"
+                    checked={acceptKeys}
+                    onChange={(e) => setAcceptKeys(e.target.checked)}
+                  />
+                  <span>Restore encrypted provider keys from this file (only works on the project that exported them).</span>
+                </label>
+              )}
+
+              <div className="rounded-md border p-2 max-h-40 overflow-y-auto space-y-1">
+                {(importPayload.endpoints ?? []).slice(0, 30).map((e: any, i: number) => (
+                  <div key={i} className="flex items-center gap-2 text-xs">
+                    <Plug className="h-3 w-3 text-muted-foreground shrink-0" />
+                    <span className="font-medium truncate">{e.name || "(unnamed)"}</span>
+                    <code className="text-muted-foreground truncate">{e.base_url}</code>
+                    {e.provider_key_encrypted && <KeyRound className="h-3 w-3 text-primary ml-auto shrink-0" />}
+                  </div>
+                ))}
+                {(importPayload.endpoints?.length ?? 0) > 30 && (
+                  <div className="text-[11px] text-muted-foreground pt-1">
+                    + {importPayload.endpoints.length - 30} more…
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => { setImportOpen(false); setImportPayload(null); }}>Cancel</Button>
+            <Button onClick={runImport} disabled={importing || !importPayload}>
+              {importing ? "Importing…" : "Import"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
