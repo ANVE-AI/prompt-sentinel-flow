@@ -158,6 +158,25 @@ const Keys = () => {
     onSuccess: () => { toast.success("Key revoked"); qc.invalidateQueries({ queryKey: ["keys"] }); },
   });
 
+  // -------- Live API key test ---------------------------------------------
+  // Sends a tiny real chat request through the upstream the key is bound to
+  // and shows the result in a dialog: ok/fail, latency, reply, tokens, error.
+  const [testingKey, setTestingKey] = useState<{ id: string; name: string } | null>(null);
+  const [testKeyResult, setTestKeyResult] = useState<any | null>(null);
+  const testKey = useMutation({
+    mutationFn: (id: string) => call<any>("test_api_key", { body: { api_key_id: id } }),
+    onMutate: () => setTestKeyResult(null),
+    onSuccess: (r) => {
+      setTestKeyResult(r);
+      if (r?.ok) toast.success(`Key works · ${r.latency_ms}ms`);
+      else toast.error(r?.error || "Test failed");
+    },
+    onError: (e: any) => {
+      setTestKeyResult({ ok: false, error: e?.message || "Request failed" });
+      toast.error(e?.message || "Test failed");
+    },
+  });
+
   const reset = () => {
     setOpen(false); setNewKey(null); setName("");
     setProviderId("lovable"); setModel(""); setProviderKey("");
