@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/input";
 import { useDashboardApi } from "@/lib/api";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/page-header";
+import { Badge } from "@/components/ui/badge";
 
 const Policies = () => {
   const { call } = useDashboardApi();
@@ -39,30 +41,41 @@ const Policies = () => {
     onError: (e: any) => toast.error(e.message),
   });
 
-  if (isLoading) return <div className="p-8"><Skeleton className="h-96" /></div>;
+  if (isLoading) return <div className="px-6 py-5"><Skeleton className="h-96" /></div>;
 
   return (
-    <div className="p-8 space-y-6 max-w-4xl">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Policies</h1>
-        <p className="text-muted-foreground text-sm mt-1">Keyword guardrails applied to every prompt and response.</p>
-      </div>
+    <div className="px-6 py-5 space-y-5 max-w-3xl mx-auto">
+      <PageHeader
+        title="Policies"
+        description="Keyword guardrails applied to every prompt and response."
+        actions={
+          <Button onClick={() => save.mutate()} disabled={save.isPending}>
+            {save.isPending ? "Saving…" : "Save changes"}
+          </Button>
+        }
+      />
 
-      <Card>
-        <CardHeader><CardTitle className="text-base font-medium">Global defaults</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
+      {/* Global defaults */}
+      <Card className="surface-1 border-border">
+        <div className="px-5 pt-4 pb-3 border-b border-border">
+          <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Section</div>
+          <div className="text-h2 font-medium mt-0.5">Global defaults</div>
+        </div>
+        <CardContent className="p-5 space-y-4">
           <div className="flex items-start justify-between gap-6">
             <div>
-              <p className="font-medium text-sm">Apply AnveGuard global defaults</p>
-              <p className="text-xs text-muted-foreground mt-1">A curated list of obvious prompt-injection terms maintained by AnveGuard.</p>
+              <p className="font-medium text-body">Apply AnveGuard global defaults</p>
+              <p className="text-meta text-muted-foreground mt-1">
+                A curated list of obvious prompt-injection terms maintained by AnveGuard.
+              </p>
             </div>
             <Switch checked={useDefaults} onCheckedChange={setUseDefaults} />
           </div>
           {useDefaults && (
-            <div className="rounded-md border border-border bg-muted/40 p-3">
+            <div className="rounded-md border border-border surface-2 p-3">
               <div className="flex flex-wrap gap-1.5">
                 {(data?.global_defaults ?? []).map((t: string) => (
-                  <span key={t} className="text-xs font-mono px-2 py-0.5 rounded bg-card border border-border">{t}</span>
+                  <Badge key={t} variant="outline" className="font-mono">{t}</Badge>
                 ))}
               </div>
             </div>
@@ -70,27 +83,42 @@ const Policies = () => {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader><CardTitle className="text-base font-medium">Your overrides</CardTitle></CardHeader>
-        <CardContent className="space-y-5">
+      {/* Overrides */}
+      <Card className="surface-1 border-border">
+        <div className="px-5 pt-4 pb-3 border-b border-border">
+          <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Section</div>
+          <div className="text-h2 font-medium mt-0.5">Your overrides</div>
+        </div>
+        <CardContent className="p-5 space-y-5">
           <div>
-            <Label htmlFor="blk">Blocked keywords</Label>
-            <p className="text-xs text-muted-foreground mt-0.5 mb-2">One term per line. Case-insensitive substring match on prompts and responses.</p>
-            <Textarea id="blk" rows={6} value={blocked} onChange={(e) => setBlocked(e.target.value)} className="font-mono text-sm" />
+            <Label htmlFor="blk" className="text-body">Blocked keywords</Label>
+            <p className="text-meta text-muted-foreground mt-0.5 mb-2">
+              One term per line. Case-insensitive substring match on prompts and responses.
+            </p>
+            <Textarea
+              id="blk" rows={6} value={blocked}
+              onChange={(e) => setBlocked(e.target.value)}
+              className="font-mono text-xs surface-2 border-border"
+            />
           </div>
           <div>
-            <Label htmlFor="alw">Allowed keywords (allowlist exceptions)</Label>
-            <p className="text-xs text-muted-foreground mt-0.5 mb-2">Terms here override the blocked list when they appear in the same message.</p>
-            <Textarea id="alw" rows={4} value={allowed} onChange={(e) => setAllowed(e.target.value)} className="font-mono text-sm" />
+            <Label htmlFor="alw" className="text-body">Allowed keywords (allowlist exceptions)</Label>
+            <p className="text-meta text-muted-foreground mt-0.5 mb-2">
+              Terms here override the blocked list when they appear in the same message.
+            </p>
+            <Textarea
+              id="alw" rows={4} value={allowed}
+              onChange={(e) => setAllowed(e.target.value)}
+              className="font-mono text-xs surface-2 border-border"
+            />
           </div>
           <div>
-            <Label htmlFor="msg">Block message</Label>
-            <Input id="msg" value={message} onChange={(e) => setMessage(e.target.value)} className="mt-1.5" />
-          </div>
-          <div className="flex justify-end">
-            <Button onClick={() => save.mutate()} disabled={save.isPending}>
-              {save.isPending ? "Saving…" : "Save changes"}
-            </Button>
+            <Label htmlFor="msg" className="text-body">Block message</Label>
+            <Input
+              id="msg" value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              className="mt-1.5 surface-2 border-border"
+            />
           </div>
         </CardContent>
       </Card>

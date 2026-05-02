@@ -1,116 +1,170 @@
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Activity, ShieldAlert, KeyRound, Gauge } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { ShieldAlert, ArrowUpRight } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts";
+import { Link } from "react-router-dom";
 import { useDashboardApi } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/page-header";
+import { EmptyState } from "@/components/empty-state";
 
-const Stat = ({ icon: Icon, label, value, sub }: any) => (
-  <Card>
-    <CardContent className="pt-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm text-muted-foreground">{label}</p>
-          <p className="text-3xl font-semibold mt-1 tracking-tight">{value}</p>
-          {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
-        </div>
-        <div className="h-10 w-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
-          <Icon className="h-5 w-5" />
-        </div>
-      </div>
-    </CardContent>
-  </Card>
-);
-
+/**
+ * Overview — operator-style: one hero KPI, a chart that takes the whole
+ * width, then two compact insight cards (latency + recent traffic).
+ * Density-tuned so every pixel carries signal — the old 4-equal-square
+ * stat grid is gone.
+ */
 const Overview = () => {
   const { call } = useDashboardApi();
-  const { data, isLoading } = useQuery({
-    queryKey: ["stats"],
-    queryFn: () => call<any>("stats"),
-  });
+  const { data, isLoading } = useQuery({ queryKey: ["stats"], queryFn: () => call<any>("stats") });
   const { data: logsData } = useQuery({
     queryKey: ["logs", "recent"],
-    queryFn: () => call<any>("list_logs", { query: { limit: "5" } }),
+    queryFn: () => call<any>("list_logs", { query: { limit: "6" } }),
   });
 
   const total = data?.total ?? 0;
   const blocked = data?.blocked ?? 0;
   const blockedPct = total ? ((blocked / total) * 100).toFixed(1) : "0";
+  const avgLatency = data?.avg_latency_ms ?? 0;
+  const activeKeys = data?.active_keys ?? 0;
+  const totalKeys = data?.total_keys ?? 0;
 
   return (
-    <div className="p-8 space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
-        <p className="text-muted-foreground text-sm mt-1">Last 14 days of activity across your AnveGuard keys.</p>
-      </div>
+    <div className="px-6 py-5 space-y-6 max-w-[1200px] mx-auto">
+      <PageHeader
+        title="Overview"
+        description="Live signal across every AnveGuard key in the last 14 days."
+      />
 
+      {/* Hero KPI block */}
       {isLoading ? (
-        <div className="grid grid-cols-4 gap-4">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-28" />)}</div>
+        <Skeleton className="h-40" />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Stat icon={Activity} label="Total requests" value={total.toLocaleString()} sub="14d window" />
-          <Stat icon={ShieldAlert} label="Blocked" value={blocked} sub={`${blockedPct}% of traffic`} />
-          <Stat icon={KeyRound} label="Active keys" value={data?.active_keys ?? 0} sub={`${data?.total_keys ?? 0} total`} />
-          <Stat icon={Gauge} label="Avg. latency" value={`${data?.avg_latency_ms ?? 0}ms`} sub="All providers" />
-        </div>
+        <Card className="surface-1 border-border shadow-pop overflow-hidden">
+          <CardContent className="p-0">
+            <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr_1fr_1fr] divide-y lg:divide-y-0 lg:divide-x divide-border">
+              <div className="p-5">
+                <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Total requests</div>
+                <div className="mt-1 flex items-baseline gap-2.5">
+                  <div className="text-display-lg font-semibold tabular-nums tracking-tight">
+                    {total.toLocaleString()}
+                  </div>
+                  <Badge status="ok">live</Badge>
+                </div>
+                <div className="mt-1 text-meta text-muted-foreground">14-day rolling window</div>
+              </div>
+              <Satellite label="Blocked" value={blocked.toLocaleString()} sub={`${blockedPct}% of traffic`} tone="block" />
+              <Satellite label="Avg. latency" value={`${avgLatency}ms`} sub="All providers" tone="info" />
+              <Satellite label="Active keys" value={`${activeKeys}`} sub={`${totalKeys} total`} tone="ok" />
+            </div>
+          </CardContent>
+        </Card>
       )}
 
-      <Card>
-        <CardHeader><CardTitle className="text-base font-medium">Requests over time</CardTitle></CardHeader>
-        <CardContent>
-          <div className="h-72">
+      {/* Chart */}
+      <Card className="surface-1 border-border">
+        <div className="px-5 pt-4 pb-2 flex items-center justify-between">
+          <div>
+            <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Traffic</div>
+            <div className="text-h2 font-medium mt-0.5">Requests over time</div>
+          </div>
+          <div className="text-meta text-muted-foreground tabular-nums">last 14 days</div>
+        </div>
+        <CardContent className="pt-2 pb-4">
+          <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data?.chart ?? []}>
+              <AreaChart data={data?.chart ?? []} margin={{ top: 6, right: 12, bottom: 0, left: -16 }}>
                 <defs>
                   <linearGradient id="g1" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.4} />
+                    <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.35} />
                     <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
                   </linearGradient>
                   <linearGradient id="g2" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="hsl(var(--destructive))" stopOpacity={0.35} />
-                    <stop offset="100%" stopColor="hsl(var(--destructive))" stopOpacity={0} />
+                    <stop offset="0%" stopColor="hsl(var(--status-block))" stopOpacity={0.3} />
+                    <stop offset="100%" stopColor="hsl(var(--status-block))" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                <XAxis dataKey="day" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
-                <Tooltip contentStyle={{ background: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }} />
-                <Area type="monotone" dataKey="requests" stroke="hsl(var(--primary))" fill="url(#g1)" strokeWidth={2} />
-                <Area type="monotone" dataKey="blocked" stroke="hsl(var(--destructive))" fill="url(#g2)" strokeWidth={2} />
+                <CartesianGrid strokeDasharray="2 4" stroke="hsl(var(--border))" vertical={false} />
+                <XAxis dataKey="day" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} width={32} />
+                <Tooltip
+                  contentStyle={{
+                    background: "hsl(var(--popover))",
+                    border: "1px solid hsl(var(--border-strong))",
+                    borderRadius: 8,
+                    fontSize: 12,
+                    padding: "8px 10px",
+                  }}
+                  labelStyle={{ color: "hsl(var(--muted-foreground))", fontSize: 11 }}
+                />
+                <Area type="monotone" dataKey="requests" stroke="hsl(var(--primary))" fill="url(#g1)" strokeWidth={1.75} />
+                <Area type="monotone" dataKey="blocked" stroke="hsl(var(--status-block))" fill="url(#g2)" strokeWidth={1.5} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader><CardTitle className="text-base font-medium">Recent requests</CardTitle></CardHeader>
-        <CardContent>
-          {(!logsData?.logs || logsData.logs.length === 0) ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">No requests yet. Create a key and send your first prompt through the proxy.</p>
+      {/* Recent requests — same row format used in Logs for consistency */}
+      <Card className="surface-1 border-border">
+        <div className="px-5 pt-4 pb-3 flex items-center justify-between border-b border-border">
+          <div>
+            <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Stream</div>
+            <div className="text-h2 font-medium mt-0.5">Recent requests</div>
+          </div>
+          <Link
+            to="/dashboard/logs"
+            className="text-meta text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1"
+          >
+            Open Logs <ArrowUpRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+        <CardContent className="p-0">
+          {!logsData?.logs || logsData.logs.length === 0 ? (
+            <EmptyState
+              icon={<ShieldAlert className="h-5 w-5" />}
+              title="No requests yet"
+              description="Issue an AnveGuard key and send your first request through the proxy."
+            />
           ) : (
-            <div className="space-y-2">
+            <ul className="divide-y divide-border">
               {logsData.logs.map((log: any) => {
-                const prompt = (log.messages?.[log.messages.length - 1]?.content ?? "").toString().slice(0, 100);
+                const prompt = (log.messages?.[log.messages.length - 1]?.content ?? "").toString();
+                const status =
+                  log.status === "allowed" ? "ok" :
+                  log.status === "error"   ? "warn" : "block";
                 return (
-                  <div key={log.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm truncate">{prompt || "—"}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">{log.api_key_name} · {log.model}</p>
+                  <li key={log.id} className="grid grid-cols-[80px_1fr_auto] gap-3 items-center px-5 py-2.5 hover:bg-surface-2 transition-colors">
+                    <span className="text-meta text-muted-foreground tabular-nums">
+                      {new Date(log.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-body truncate">{prompt || "—"}</p>
+                      <p className="text-meta text-muted-foreground mt-0.5 font-mono">
+                        {log.api_key_name} · {log.model}
+                      </p>
                     </div>
-                    <span className={`ml-4 text-xs px-2 py-1 rounded-md ${
-                      log.status === "allowed" ? "bg-success/10 text-success"
-                      : log.status === "error" ? "bg-warning/10 text-warning"
-                      : "bg-destructive/10 text-destructive"}`}>{log.status}</span>
-                  </div>
+                    <Badge status={status as any}>{log.status}</Badge>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
           )}
         </CardContent>
       </Card>
     </div>
   );
 };
+
+const Satellite = ({
+  label, value, sub,
+}: { label: string; value: string; sub: string; tone: "ok" | "warn" | "block" | "info" }) => (
+  <div className="p-5">
+    <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</div>
+    <div className="mt-1 text-display font-semibold tabular-nums tracking-tight">{value}</div>
+    <div className="mt-1 text-meta text-muted-foreground">{sub}</div>
+  </div>
+);
 
 export default Overview;
