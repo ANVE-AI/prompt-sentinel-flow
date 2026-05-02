@@ -481,16 +481,15 @@ Deno.serve(async (req) => {
     forwardFormat === "responses" ? responsesToChatResponse(rawData, model) :
     rawData;
   const assistantText = data?.choices?.[0]?.message?.content ?? "";
-  const outCheck = typeof assistantText === "string"
-    ? checkPolicy(assistantText, blocked, allowed) : { blocked: false };
+  const outEval = typeof assistantText === "string"
+    ? await evaluateOutput(assistantText, policyState, { systemPrompt, toolsRequested })
+    : { status: "allowed" as const, blockReason: null, layers: [] as any[] };
 
   let finalResponse = data;
-  let status: "allowed" | "blocked_output" = "allowed";
-  let blockReason: string | null = null;
+  const status = outEval.status;
+  const blockReason = outEval.blockReason;
 
-  if (outCheck.blocked) {
-    status = "blocked_output";
-    blockReason = `Output matched: "${outCheck.matched}"`;
+  if (status === "blocked_output") {
     finalResponse = {
       ...data,
       choices: [{
@@ -498,12 +497,14 @@ Deno.serve(async (req) => {
         finish_reason: "content_filter",
         message: { role: "assistant", content: blockMessage },
       }],
-      anveguard: { blocked: true, reason: blockReason },
+      anveguard: { blocked: true, reason: blockReason, layers: outEval.layers },
     };
   }
 
   await sb.from("request_logs").insert({
     ...logBase, model: data?.model || model, status, block_reason: blockReason,
+    verdict: status === "blocked_output" ? "block" : "allow",
+    verdict_layers: outEval.layers,
     response: finalResponse, latency_ms: Date.now() - start,
     tokens_in: data?.usage?.prompt_tokens ?? null,
     tokens_out: data?.usage?.completion_tokens ?? null,
