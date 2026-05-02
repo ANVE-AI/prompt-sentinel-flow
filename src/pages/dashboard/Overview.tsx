@@ -163,6 +163,48 @@ const Overview = () => {
         </CardContent>
       </Card>
 
+      {/* Top triggered rules — quick view of which policies are catching the most traffic */}
+      <Card className="surface-1 border-border">
+        <div className="px-5 pt-4 pb-3 flex items-center justify-between border-b border-border">
+          <div>
+            <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Policy</div>
+            <div className="text-h2 font-medium mt-0.5">Top triggered rules</div>
+          </div>
+          <Link
+            to="/dashboard/logs?tab=security"
+            className="text-meta text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1"
+          >
+            Security events <ArrowUpRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+        <div className="p-0">
+          {isLoading ? (
+            <SkeletonRows rows={4} cols="grid-cols-[1fr_auto]" rowClassName="px-5 py-2.5 h-auto" />
+          ) : !data?.top_rules || data.top_rules.length === 0 ? (
+            <EmptyState
+              icon={<ShieldAlert className="h-5 w-5" />}
+              title="No rules triggered yet"
+              description="Once your policies start firing, the most active rules will rank here."
+            />
+          ) : (
+            <ul className="divide-y divide-border">
+              {data.top_rules.map((r: any) => (
+                <li key={r.key} className="grid grid-cols-[1fr_auto_auto] gap-3 items-center px-5 py-2.5 hover:bg-surface-2 transition-colors">
+                  <div className="min-w-0">
+                    <p className="text-body truncate">{r.rule}</p>
+                    <p className="text-meta text-muted-foreground mt-0.5 font-mono">{r.layer}</p>
+                  </div>
+                  {r.blocks > 0
+                    ? <Badge status="block">{r.blocks} blocked</Badge>
+                    : <Badge status="warn">flagged</Badge>}
+                  <span className="text-meta tabular-nums text-muted-foreground w-12 text-right">{r.count}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </Card>
+
       {/* Recent requests — same row format used in Logs for consistency */}
       <Card className="surface-1 border-border">
         <div className="px-5 pt-4 pb-3 flex items-center justify-between border-b border-border">
