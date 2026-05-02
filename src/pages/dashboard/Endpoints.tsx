@@ -992,7 +992,7 @@ const Endpoints = () => {
 
 function StatTile({
   label, value, hint, tone,
-}: { label: string; value: React.ReactNode; hint?: string; tone?: "warn" }) {
+}: { label: string; value: ReactNode; hint?: string; tone?: "warn" }) {
   return (
     <div className={`rounded-md border p-3 ${tone === "warn" ? "border-destructive/30 bg-destructive/5" : ""}`}>
       <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
