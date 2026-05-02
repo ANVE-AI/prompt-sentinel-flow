@@ -139,6 +139,67 @@ export function BehavioralSection() {
 
             <div className="rounded-lg border border-border p-4 space-y-3">
               <div>
+                <Label className="text-body-sm font-medium">Heuristic thresholds</Label>
+                <p className="text-body-sm text-foreground-muted mt-1">
+                  Tune how aggressive each detector is. Lower values fire sooner; higher values reduce false positives.
+                </p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <Label htmlFor="b_churn" className="text-body-sm">Instruction-churn count</Label>
+                  <Input
+                    id="b_churn"
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={churn}
+                    onChange={(e) => setChurn(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+                  />
+                  <p className="text-body-xs text-foreground-muted mt-1">Min flip-phrase turns out of the last 4.</p>
+                </div>
+                <div>
+                  <Label htmlFor="b_persona" className="text-body-sm">Persona match limit</Label>
+                  <Input
+                    id="b_persona"
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={persona}
+                    onChange={(e) => setPersona(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+                  />
+                  <p className="text-body-xs text-foreground-muted mt-1">Min jailbreak-persona mentions across user turns.</p>
+                </div>
+                <div>
+                  <Label htmlFor="b_encoding" className="text-body-sm">Encoding ratio step</Label>
+                  <Input
+                    id="b_encoding"
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    max={1}
+                    value={encodingStep}
+                    onChange={(e) => setEncodingStep(Math.min(1, Math.max(0, Number(e.target.value) || 0)))}
+                  />
+                  <p className="text-body-xs text-foreground-muted mt-1">Final encoded ratio (0–1) the last turn must exceed.</p>
+                </div>
+                <div>
+                  <Label htmlFor="b_length" className="text-body-sm">Length-spike multiplier</Label>
+                  <Input
+                    id="b_length"
+                    type="number"
+                    step="0.5"
+                    min={1}
+                    max={100}
+                    value={lengthMult}
+                    onChange={(e) => setLengthMult(Math.max(1, Number(e.target.value) || 1))}
+                  />
+                  <p className="text-body-xs text-foreground-muted mt-1">Latest turn must exceed this multiple of the average.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-border p-4 space-y-3">
+              <div>
                 <Label className="text-body-sm font-medium">Risk-window throttle</Label>
                 <p className="text-body-sm text-foreground-muted mt-1">
                   Refuse new requests (HTTP 429) from an API key that has accumulated
