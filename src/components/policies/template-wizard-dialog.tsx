@@ -421,6 +421,95 @@ function SettingsPicker({
   );
 }
 
+function IntentScopeStep({
+  knownIntents, scope, onChange, customIntent, onCustomChange,
+}: {
+  knownIntents: string[];
+  scope: string[];
+  onChange: (next: string[]) => void;
+  customIntent: string;
+  onCustomChange: (v: string) => void;
+}) {
+  const isAll = scope.length === 0;
+  const toggle = (intent: string) => {
+    if (scope.includes(intent)) onChange(scope.filter((i) => i !== intent));
+    else onChange([...scope, intent]);
+  };
+  const addCustom = () => {
+    const v = customIntent.trim().toLowerCase().replace(/\s+/g, "_");
+    if (!v) return;
+    if (!scope.includes(v)) onChange([...scope, v]);
+    onCustomChange("");
+  };
+  return (
+    <div className="space-y-4 py-2">
+      <p className="text-meta text-muted-foreground">
+        Restrict this template's rules to specific user intents. The intent
+        classifier must be enabled for routing to take effect — when a request's
+        detected intent isn't in this list, the template's rules are skipped.
+      </p>
+
+      <div className="rounded-md border border-border surface-2 p-3">
+        <label className="flex items-start gap-2 cursor-pointer">
+          <Checkbox
+            checked={isAll}
+            onCheckedChange={(v) => { if (v) onChange([]); }}
+            className="mt-0.5"
+          />
+          <span className="space-y-0.5">
+            <span className="text-body block">Apply to all intents</span>
+            <span className="text-meta text-muted-foreground">
+              Default — rules run on every request regardless of detected intent.
+            </span>
+          </span>
+        </label>
+      </div>
+
+      <div>
+        <Label className="text-meta uppercase tracking-wider text-muted-foreground">
+          Limit to these intents
+        </Label>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {knownIntents.map((intent) => {
+            const on = scope.includes(intent);
+            return (
+              <button
+                type="button"
+                key={intent}
+                onClick={() => toggle(intent)}
+                className={cn(
+                  "px-2.5 py-1 rounded-full border text-meta font-mono transition-colors",
+                  on
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border surface-2 text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {intent}
+              </button>
+            );
+          })}
+        </div>
+        <div className="mt-3 flex gap-2">
+          <Input
+            value={customIntent}
+            onChange={(e) => onCustomChange(e.target.value)}
+            placeholder="Add custom intent (e.g. billing)"
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustom(); } }}
+          />
+          <Button type="button" variant="outline" onClick={addCustom} disabled={!customIntent.trim()}>
+            Add
+          </Button>
+        </div>
+        {scope.length > 0 && (
+          <p className="text-meta text-muted-foreground mt-2 tabular-nums">
+            {scope.length} intent{scope.length === 1 ? "" : "s"} selected
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ReviewStep({
   name,
   description,
@@ -428,6 +517,7 @@ function ReviewStep({
   policy,
   settings,
   rules,
+  intentScope,
 }: {
   name: string;
   description: string;
@@ -435,6 +525,7 @@ function ReviewStep({
   policy: Record<string, any>;
   settings: Record<string, unknown>;
   rules: Rule[];
+  intentScope: string[];
 }) {
   const stats = [
     { label: "Rules", value: rules.length },
@@ -460,6 +551,18 @@ function ReviewStep({
             <div className="text-display tabular-nums mt-0.5">{s.value}</div>
           </div>
         ))}
+      </div>
+      <div className="rounded-md border border-border surface-2 p-3">
+        <div className="text-meta uppercase tracking-wider text-muted-foreground mb-1.5">Intent routing</div>
+        {intentScope.length === 0 ? (
+          <div className="text-meta text-muted-foreground">All intents (no routing)</div>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {intentScope.map((i) => (
+              <Badge key={i} variant="outline" className="text-[10px] font-mono">{i}</Badge>
+            ))}
+          </div>
+        )}
       </div>
       {rules.length > 0 && (
         <div>
