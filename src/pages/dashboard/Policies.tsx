@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { useDashboardApi } from "@/lib/api";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SkeletonBlock } from "@/components/skeletons";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { KeywordChipInput } from "@/components/keyword-chip-input";
@@ -43,11 +44,14 @@ const Policies = () => {
   });
 
   if (isLoading) {
+    // Mirror the resolved layout: header + two stacked policy cards. Avoids a
+    // visible reflow when data lands.
     return (
       <div className="px-4 md:px-6 py-5 max-w-4xl mx-auto space-y-5">
-        <Skeleton className="h-12 w-64" />
-        <Skeleton className="h-32" />
-        <Skeleton className="h-64" />
+        <Skeleton className="h-9 w-48" />
+        <Skeleton className="h-4 w-72" />
+        <SkeletonBlock variant="card" className="rounded-lg border border-border surface-1" />
+        <SkeletonBlock variant="card" className="rounded-lg border border-border surface-1" />
       </div>
     );
   }

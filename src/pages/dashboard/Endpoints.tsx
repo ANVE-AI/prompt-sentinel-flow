@@ -7,6 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SkeletonBlock, SkeletonRows } from "@/components/skeletons";
+import { EmptyState } from "@/components/empty-state";
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
@@ -887,14 +889,25 @@ const Endpoints = () => {
       <Card>
         <CardHeader><CardTitle className="text-base font-medium">Saved endpoints</CardTitle></CardHeader>
         <CardContent>
-          {isLoading ? <Skeleton className="h-24" /> :
-            endpoints.length === 0 ? (
-              <div className="text-sm text-muted-foreground py-12 text-center">
-                <Plug className="h-8 w-8 mx-auto mb-3 opacity-40" />
-                <p>No endpoints yet.</p>
-                <p className="mt-1">Click <strong>New endpoint</strong> to add Ollama, vLLM, Azure, Groq, or any custom URL.</p>
-              </div>
-            ) : (
+          {isLoading ? (
+            <SkeletonRows
+              rows={3}
+              cols="grid-cols-[1fr_auto]"
+              rowClassName="h-14 px-0"
+              className="!divide-y-0 space-y-2"
+            />
+          ) : endpoints.length === 0 ? (
+            <EmptyState
+              icon={<Plug className="h-5 w-5" />}
+              title="No endpoints yet"
+              description="Add Ollama, vLLM, Azure, Groq, or any custom OpenAI-compatible URL."
+              action={
+                <Button onClick={startCreate} size="sm">
+                  <Plus className="h-3.5 w-3.5 mr-1.5" /> New endpoint
+                </Button>
+              }
+            />
+          ) : (
               <div className="divide-y divide-border">
                 {endpoints.map((e) => (
                   <div key={e.id} className="py-4 flex items-center gap-4">

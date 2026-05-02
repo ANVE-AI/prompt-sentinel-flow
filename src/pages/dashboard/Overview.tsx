@@ -6,6 +6,7 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianG
 import { Link } from "react-router-dom";
 import { useDashboardApi } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SkeletonBlock, SkeletonRows } from "@/components/skeletons";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 
@@ -18,7 +19,7 @@ import { EmptyState } from "@/components/empty-state";
 const Overview = () => {
   const { call } = useDashboardApi();
   const { data, isLoading } = useQuery({ queryKey: ["stats"], queryFn: () => call<any>("stats") });
-  const { data: logsData } = useQuery({
+  const { data: logsData, isLoading: logsLoading } = useQuery({
     queryKey: ["logs", "recent"],
     queryFn: () => call<any>("list_logs", { query: { limit: "6" } }),
   });
@@ -39,7 +40,7 @@ const Overview = () => {
 
       {/* Hero KPI block */}
       {isLoading ? (
-        <Skeleton className="h-40" />
+        <SkeletonBlock variant="kpi" />
       ) : (
         <Card className="surface-1 border-border shadow-pop overflow-hidden">
           <CardContent className="p-0">
@@ -121,11 +122,25 @@ const Overview = () => {
           </Link>
         </div>
         <CardContent className="p-0">
-          {!logsData?.logs || logsData.logs.length === 0 ? (
+          {logsLoading ? (
+            <SkeletonRows
+              rows={6}
+              cols="grid-cols-[80px_1fr_auto]"
+              rowClassName="px-5 py-2.5 h-auto"
+            />
+          ) : !logsData?.logs || logsData.logs.length === 0 ? (
             <EmptyState
               icon={<ShieldAlert className="h-5 w-5" />}
               title="No requests yet"
               description="Issue an AnveGuard key and send your first request through the proxy."
+              action={
+                <Link
+                  to="/dashboard/keys"
+                  className="inline-flex items-center gap-1 text-meta text-primary hover:underline"
+                >
+                  Create a key <ArrowUpRight className="h-3.5 w-3.5" />
+                </Link>
+              }
             />
           ) : (
             <ul className="divide-y divide-border">

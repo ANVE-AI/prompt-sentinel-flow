@@ -9,10 +9,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Copy, Plus, Trash2, Check, X, Plug, Beaker, Loader2 } from "lucide-react";
+import { Copy, Plus, Trash2, Check, X, Plug, Beaker, Loader2, KeyRound } from "lucide-react";
 import { useDashboardApi } from "@/lib/api";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SkeletonRows } from "@/components/skeletons";
+import { EmptyState } from "@/components/empty-state";
 
 const PROXY_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proxy`;
 
@@ -540,14 +542,22 @@ const Keys = () => {
           <div className="text-right">Actions</div>
         </div>
         {isLoading ? (
-          <div className="p-4 space-y-2">
-            <Skeleton className="h-9" /><Skeleton className="h-9" /><Skeleton className="h-9" />
-          </div>
+          <SkeletonRows
+            rows={5}
+            cols="grid-cols-[minmax(0,1.4fr)_minmax(0,1.2fr)_120px_92px_auto]"
+            rowClassName="h-12"
+          />
         ) : (data?.keys?.length ?? 0) === 0 ? (
-          <div className="px-6 py-12 text-center">
-            <p className="text-body font-medium">No keys yet</p>
-            <p className="text-meta text-muted-foreground mt-1">Click <strong>New key</strong> to issue your first AnveGuard key.</p>
-          </div>
+          <EmptyState
+            icon={<KeyRound className="h-5 w-5" />}
+            title="No keys yet"
+            description="Issue your first AnveGuard key to start proxying requests."
+            action={
+              <Button onClick={() => setOpen(true)} size="sm">
+                <Plus className="h-3.5 w-3.5 mr-1.5" /> New key
+              </Button>
+            }
+          />
         ) : (
           <ul className="divide-y divide-border">
             {data.keys.map((k: any) => (

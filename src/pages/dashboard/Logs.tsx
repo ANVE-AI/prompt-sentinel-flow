@@ -10,6 +10,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Search, ShieldAlert, Ban, ShieldCheck, Inbox } from "lucide-react";
 import { useDashboardApi } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SkeletonRows } from "@/components/skeletons";
 import { PageHeader } from "@/components/page-header";
 import { KeyValue } from "@/components/key-value";
 import { EmptyState } from "@/components/empty-state";
@@ -120,7 +121,7 @@ const RequestLogs = () => {
           <div>Time</div><div>Prompt</div><div>Key</div><div className="text-right">Latency</div><div className="text-right">Tokens</div><div>Status</div>
         </div>
         {isLoading ? (
-          <Skeleton className="h-48 m-4" />
+          <SkeletonRows rows={8} cols={requestsCols} />
         ) : filtered.length === 0 ? (
           <EmptyState
             icon={<Inbox className="h-5 w-5" />}
@@ -249,7 +250,7 @@ const AuditLog = () => {
           <div>Time</div><div>Action</div><div>Target</div><div>Actor</div>
         </div>
         {isLoading ? (
-          <Skeleton className="h-48 m-4" />
+          <SkeletonRows rows={6} cols={auditCols} />
         ) : entries.length === 0 ? (
           <EmptyState
             icon={<ShieldCheck className="h-5 w-5" />}
