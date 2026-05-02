@@ -1660,6 +1660,31 @@ const Endpoints = () => {
                         <span className="ml-auto text-xs text-muted-foreground">
                           {k.last_used_at ? `last used ${new Date(k.last_used_at).toLocaleString()}` : "never used"}
                         </span>
+                        {k.is_active && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10 shrink-0"
+                            onClick={() => setConfirmRevokeKey({ id: k.id, name: k.name, key_prefix: k.key_prefix })}
+                            title="Revoke this API key"
+                          >
+                            <Ban className="h-3.5 w-3.5 mr-1" />
+                            Revoke
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                      <div key={k.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+                        <span className="font-medium truncate">{k.name}</span>
+                        <code className="text-xs text-muted-foreground">{k.key_prefix}…</code>
+                        {k.is_active ? (
+                          <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30">active</Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px]">revoked</Badge>
+                        )}
+                        <span className="ml-auto text-xs text-muted-foreground">
+                          {k.last_used_at ? `last used ${new Date(k.last_used_at).toLocaleString()}` : "never used"}
+                        </span>
                       </div>
                     ))}
                   </div>
