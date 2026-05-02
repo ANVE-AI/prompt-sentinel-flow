@@ -15,6 +15,7 @@ import {
   detectRequestShape, translateRequestToOpenAI, translateResponseFromOpenAI,
   type RequestShape,
 } from "../_shared/shape_translators.ts";
+import { parseModelsResponse } from "../_shared/models_parsers.ts";
 
 // ---- Error envelope helpers ------------------------------------------------
 // Every error response goes through `errorResponse` so the public shape is
