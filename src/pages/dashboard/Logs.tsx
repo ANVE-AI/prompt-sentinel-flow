@@ -52,6 +52,15 @@ const RequestLogs = () => {
   // auto-open that log's detail sheet once the data has loaded, then strip
   // the param so a refresh doesn't re-trigger it.
   const [searchParams, setSearchParams] = useSearchParams();
+
+  // Deep-link: respect `?status=blocked_input` (used by Overview alerts) so
+  // operators land directly on the filtered view they expected.
+  useEffect(() => {
+    const s = searchParams.get("status");
+    if (s && s !== status) setStatus(s);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     const focusId = searchParams.get("focus");
     if (!focusId || !data?.logs) return;
