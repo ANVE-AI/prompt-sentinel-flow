@@ -252,6 +252,15 @@ const Keys = () => {
             {!newKey ? (
               <>
                 <DialogHeader><DialogTitle>Create a new API key</DialogTitle></DialogHeader>
+                {prefilledEndpointId && (
+                  <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs flex items-start gap-2">
+                    <Plug className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
+                    <div className="text-muted-foreground">
+                      Replacement key — will be bound to the same endpoint as the
+                      key you're rotating.
+                    </div>
+                  </div>
+                )}
                 <div className="space-y-4 py-2">
                   <div>
                     <Label htmlFor="name">Name</Label>
