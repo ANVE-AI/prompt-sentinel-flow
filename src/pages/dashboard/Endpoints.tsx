@@ -25,10 +25,22 @@ interface CustomSchema {
   kinds: { id: string; label: string }[];
   auth_schemes: { id: string; label: string }[];
   templates: {
-    id: string; label: string;
+    id: string;
+    label: string;
+    description?: string;
     values: {
-      kind: string; base_url: string; auth_scheme: string;
-      auth_header?: string; default_model: string; model_suggestions: string;
+      kind: string;
+      base_url: string;
+      auth_scheme: string;
+      auth_header?: string;
+      default_model?: string;
+      model_suggestions?: string;
+      models_url?: string;
+      path_prefix?: string;
+      chat_path?: string;
+      models_path?: string;
+      response_format?: string;
+      extra_headers?: Record<string, string>;
     };
   }[];
 }
@@ -154,17 +166,32 @@ const Endpoints = () => {
   const applyTemplate = (templateId: string) => {
     const t = customSchema?.templates.find((x) => x.id === templateId);
     if (!t) return;
+    const v = t.values;
+    const fmt = v.response_format
+      || (v.kind === "anthropic" ? "anthropic_messages" : "chat_completions");
     setForm((c) => ({
       ...c,
       template: templateId,
-      kind: t.values.kind,
-      base_url: t.values.base_url,
-      auth_scheme: t.values.auth_scheme,
-      auth_header: t.values.auth_header || (t.values.auth_scheme === "query" ? "key" : "Authorization"),
-      default_model: t.values.default_model || c.default_model,
-      model_suggestions: t.values.model_suggestions || c.model_suggestions,
+      // Preserve user's chosen Name if they already typed one; otherwise prefill from label.
+      name: c.name.trim() ? c.name : t.label,
+      kind: v.kind,
+      base_url: v.base_url,
+      models_url: v.models_url ?? "",
+      auth_scheme: v.auth_scheme,
+      auth_header: v.auth_header || (v.auth_scheme === "query" ? "key" : "Authorization"),
+      default_model: v.default_model || c.default_model,
+      model_suggestions: v.model_suggestions || c.model_suggestions,
+      path_prefix: v.path_prefix ?? "",
+      chat_path: v.chat_path ?? "",
+      models_path: v.models_path ?? "",
+      response_format: fmt,
+      extra_headers: v.extra_headers
+        ? Object.entries(v.extra_headers).map(([key, value]) => ({ key, value }))
+        : c.extra_headers,
     }));
     setTestResult(null);
+    setLiveModels(null);
+    setModelsResult(null);
   };
 
   // When auth scheme changes, give it a sensible default header/param name
@@ -407,14 +434,28 @@ const Endpoints = () => {
                 <Label>Template (optional)</Label>
                 <Select value={form.template} onValueChange={applyTemplate}>
                   <SelectTrigger className="mt-1.5">
-                    <SelectValue placeholder="Pick a template to prefill" />
+                    <SelectValue placeholder="Pick a provider to prefill URL, auth, models…" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-80">
                     {customSchema.templates.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>{t.label}</SelectItem>
+                      <SelectItem key={t.id} value={t.id}>
+                        <div className="flex flex-col items-start py-0.5">
+                          <span className="font-medium">{t.label}</span>
+                          {t.description && (
+                            <span className="text-[11px] text-muted-foreground">
+                              {t.description}
+                            </span>
+                          )}
+                        </div>
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                {form.template && (
+                  <p className="text-[11px] text-muted-foreground mt-1.5">
+                    Template applied — review and tweak before saving.
+                  </p>
+                )}
               </div>
             )}
 
