@@ -452,6 +452,24 @@ async function handleRequest(req: Request): Promise<Response> {
   // Load workspace policy state (legacy + v2 layered).
   const policyState = await loadWorkspacePolicy(sb, keyRow.user_id);
   const { legacy, rules, intents, settings, blockMessage } = policyState;
+
+  // ---- Workspace guardrail system prompt --------------------------------
+  // If the workspace has configured a guardrail system prompt, prepend it as
+  // a `system` message so it reaches the model on every request — regardless
+  // of what the calling client sent. If the caller already supplied a system
+  // message we keep theirs after the guardrail (the model treats the first
+  // system message as the highest-priority instruction). Mutating `body.messages`
+  // before evaluation also means the guardrail itself is included in
+  // input/output policy checks and request logs, which is what operators want
+  // when auditing.
+  const guardrail = (settings as any)?.guardrail_system_prompt;
+  if (typeof guardrail === "string" && guardrail.trim()) {
+    body.messages = [
+      { role: "system", content: guardrail.trim() },
+      ...body.messages,
+    ];
+  }
+
   const systemPrompt = extractSystemPrompt(body.messages);
   const toolsRequested = Array.isArray(body.tools) && body.tools.length > 0;
 
