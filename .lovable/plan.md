@@ -1,65 +1,89 @@
-# AnveGuard MVP — Build Plan
+## Goal
 
-A drop-in `/v1/chat/completions` proxy that authenticates with AnveGuard-issued API keys, applies keyword guardrails, forwards to either Lovable AI or OpenAI, and logs every interaction to a dashboard.
+Make AnveGuard work the way you described:
 
-## 1. Auth (Clerk)
-- Integrate `@clerk/clerk-react` for sign-in / sign-up / user button.
-- You'll need to provide your **Clerk Publishable Key** (and a **Clerk Secret Key** stored as a backend secret so the edge function can verify dashboard requests).
-- Dashboard routes (`/dashboard/*`) gated behind `<SignedIn>`; landing page is public.
+1. User pastes upstream provider API keys (OpenRouter, Anthropic Claude, OpenAI, Moonshot/Kimi, DashScope/Qwen, plus the built-in Lovable AI).
+2. User configures policies (blocked / allowed keywords, global defaults, custom block message).
+3. User generates an AnveGuard key (`ag_live_…`) bound to one upstream provider+credential.
+4. Their app calls AnveGuard's `/proxy` endpoint with that key — AnveGuard enforces policies, forwards to the right upstream, and logs every request for tracking.
 
-## 2. Database (Lovable Cloud)
-Tables:
-- `profiles` — mirrors Clerk user (`clerk_user_id` PK, email, created_at).
-- `api_keys` — `id`, `user_id`, `name`, `key_hash`, `key_prefix`, `provider` (`lovable` | `openai`), `provider_key_encrypted` (nullable; required if provider=openai), `model_default`, `is_active`, `created_at`, `last_used_at`.
-- `policies` — one row per user: `blocked_keywords[]`, `allowed_keywords[]`, `use_global_defaults` (bool), `block_message`.
-- `request_logs` — `id`, `user_id`, `api_key_id`, `provider`, `model`, `messages` (jsonb), `response` (jsonb), `status` (`allowed` | `blocked_input` | `blocked_output` | `error`), `block_reason`, `latency_ms`, `tokens_in`, `tokens_out`, `created_at`.
-- Global defaults: hardcoded blocked-term seed list (e.g. obvious unsafe categories) merged in at proxy time when `use_global_defaults=true`.
+The skeleton already exists (Lovable + OpenAI). This plan extends it cleanly to the rest.
 
-RLS: users can only read/write their own rows. The proxy edge function uses the service role to bypass RLS after validating the AnveGuard API key.
+## What changes
 
-## 3. Proxy edge function — `POST /functions/v1/v1/chat/completions`
-Public function (no JWT). Flow:
-1. Read `Authorization: Bearer ag_...` header → look up `api_keys` by `key_hash`.
-2. Validate request body matches OpenAI chat-completions shape.
-3. Load user's `policies` (+ global defaults if enabled). Scan all `messages[].content` for blocked keywords (case-insensitive substring). On hit → log `blocked_input`, return `{error: {message: block_message, type: "policy_violation"}}` with 200 in OpenAI shape so SDKs don't crash.
-4. Forward:
-   - `provider=lovable` → `https://ai.gateway.lovable.dev/v1/chat/completions` with `LOVABLE_API_KEY`.
-   - `provider=openai` → `https://api.openai.com/v1/chat/completions` with the user's stored OpenAI key (decrypted).
-5. Streaming and non-streaming both supported (pass `stream` through; for streaming, tee chunks to accumulate the final text for output policy check + logging).
-6. Run output keyword scan on the assistant message. On hit → replace `choices[0].message.content` with safe fallback, mark `blocked_output`.
-7. Insert a row into `request_logs`, update `last_used_at`. Return final response in identical OpenAI format.
+### 1. Provider catalog (single source of truth)
 
-## 4. Dashboard pages
+New file `supabase/functions/_shared/providers.ts` describing each supported upstream:
 
-**Landing `/`** — product pitch, "AI Firewall for LLM Apps", code-snippet showing how to swap a base URL, sign-in CTA.
-
-**`/dashboard`** — overview cards: total requests (24h / 7d), blocked count, active keys, requests-over-time sparkline, top blocked keywords.
-
-**`/dashboard/keys`** — list API keys (showing only `ag_xxxx…last4`), Create-key dialog (name, provider, default model, paste OpenAI key if applicable). Newly created key shown **once** with copy button. Revoke action.
-
-**`/dashboard/policies`** — toggle global defaults; two textareas (one term per line) for blocked / allowed keywords; custom block message; Save.
-
-**`/dashboard/logs`** — paginated table (timestamp, key, model, status badge, latency). Row click → drawer with full prompt + response JSON, block reason if any. Filters: status, key, date range, free-text search.
-
-**`/dashboard/playground`** — quick form: pick a key, type a prompt, send through the proxy, render result + whether policy fired. Useful for confirming setup.
-
-## 5. Integration snippet (shown in dashboard)
+```text
+lovable     → https://ai.gateway.lovable.dev/v1/chat/completions   (OpenAI-compatible, uses LOVABLE_API_KEY, no user key)
+openai      → https://api.openai.com/v1/chat/completions           (OpenAI-compatible, user key)
+openrouter  → https://openrouter.ai/api/v1/chat/completions        (OpenAI-compatible, user key)
+kimi        → https://api.moonshot.ai/v1/chat/completions          (OpenAI-compatible, user key)
+qwen        → https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions (OpenAI-compatible, user key)
+anthropic   → https://api.anthropic.com/v1/messages                (NOT OpenAI-compatible — needs adapter)
 ```
-base_url = "https://<project>.functions.supabase.co/v1"
-api_key  = "ag_live_xxx"
-# Drop-in: any OpenAI SDK works unchanged
-```
+
+Each entry stores: id, label, base URL, auth header style, default model suggestions, and a `kind` of `openai_compatible` or `anthropic`.
+
+### 2. Database
+
+Schema-compatible — `api_keys.provider` is already `text`, so no migration needed for the new IDs. We will add one optional column for clarity:
+
+- `api_keys.provider_label` (text, nullable) — display name shown in dashboard if user gave one.
+
+(Optional, can be skipped — not strictly required.)
+
+### 3. Edge function: `proxy`
+
+Refactor `supabase/functions/proxy/index.ts`:
+
+- Replace the hard-coded `lovable | openai` branching with a lookup in the provider catalog.
+- For `openai_compatible` providers: forward the OpenAI-shaped body straight through with `Authorization: Bearer <decrypted user key>`.
+- For `anthropic`: translate request/response between OpenAI Chat Completions shape and Anthropic Messages shape, including streaming SSE deltas, so user apps keep using one consistent client.
+- Keep policy enforcement (input + output keyword scan, block message, logging) exactly as today — it runs before/after the upstream call regardless of provider.
+- Keep usage tracking (`tokens_in`, `tokens_out`, `latency_ms`, `status`, `block_reason`) in `request_logs`.
+
+### 4. Edge function: `dashboard`
+
+Update `create_key` in `supabase/functions/dashboard/index.ts`:
+
+- Accept any `provider` from the catalog (not just `lovable | openai`).
+- Require `provider_key` for every provider except `lovable`.
+- Encrypt with existing `encryptString` and store in `provider_key_encrypted`.
+
+Add a tiny new action `list_providers` returning the catalog so the frontend stays in sync.
+
+### 5. Frontend: Keys page
+
+`src/pages/dashboard/Keys.tsx`:
+
+- Replace the 2-item Select with the full provider list fetched from `list_providers`.
+- Conditionally show the "Provider API key" input for any provider other than `lovable`, with provider-specific placeholder (`sk-…`, `sk-or-…`, `sk-ant-…`, etc.) and a "where to get it" helper link.
+- Suggest a sensible default model per provider (e.g. `anthropic/claude-3-5-sonnet-latest`, `openrouter/auto`, `moonshot-v1-8b`, `qwen-plus`).
+- Code-snippet card stays the same — the AnveGuard key + proxy URL is the only thing the end app needs.
+
+### 6. Policies, Logs, Playground, Overview
+
+No structural changes — they already work off `user_id` and `api_key_id`, so they automatically cover new providers. Logs page will start showing the new provider names in its existing column.
 
 ## Technical notes
-- API keys: generate `ag_live_` + 32 random bytes base62. Store SHA-256 hash + first 8 chars as prefix for display. Only show full key on creation.
-- OpenAI keys at rest: encrypt via AES-GCM using a `KEY_ENCRYPTION_SECRET` (we'll add as a project secret).
-- Clerk → Cloud bridge: frontend passes Clerk JWT to a small `whoami` edge function that upserts `profiles` and returns a short-lived Supabase JWT (signed with project JWT secret) so the dashboard can read its own rows under RLS. Alternatively, every dashboard query goes through edge functions that verify the Clerk JWT directly — we'll use the latter to keep it simple and avoid JWT minting.
-- Streaming policy check: parse SSE deltas, accumulate, run check at `[DONE]`; if violation, append a final SSE event with the safe fallback (best-effort, since earlier tokens already streamed — we'll document this limitation in the dashboard).
-- Stack: React + Vite + Tailwind + shadcn (existing), Clerk, Lovable Cloud (Postgres + edge functions), Lovable AI Gateway, recharts for the overview chart.
 
-## Out of scope (per PRD)
-Multi-provider load balancing, rate limits, cost tracking, RBAC, AI-based filtering, red-teaming.
+- Anthropic adapter lives entirely inside `proxy/index.ts` (or a small `_shared/anthropic.ts`) — no new dependencies. Streaming uses Anthropic's `event: content_block_delta` SSE frames mapped to OpenAI `choices[0].delta.content`.
+- The provider catalog is defined once and imported by both edge functions and the frontend (frontend gets it via `list_providers` to avoid duplicating the list in TS).
+- Encryption for stored upstream keys already uses `KEY_ENCRYPTION_SECRET` via `encryptString` / `decryptString` — reused unchanged.
+- Policy engine, request logging, key hashing, and Clerk auth are untouched.
 
-## What I need from you on approval
-1. Clerk Publishable Key + Secret Key.
-2. Confirmation to enable Lovable Cloud (for DB + edge functions + Lovable AI).
+## Files touched
+
+- `supabase/functions/_shared/providers.ts` (new)
+- `supabase/functions/_shared/anthropic.ts` (new, small adapter)
+- `supabase/functions/proxy/index.ts` (refactor branching)
+- `supabase/functions/dashboard/index.ts` (open up `create_key`, add `list_providers`)
+- `src/pages/dashboard/Keys.tsx` (dynamic provider select + per-provider key input)
+
+## Out of scope (can do later)
+
+- Image / embeddings endpoints — current proxy is chat-completions only.
+- Per-key spend limits / rate limits — easy follow-up once usage tracking data is there.
+- Fine-grained "which models are allowed" policies (today policy = keyword filter only).
