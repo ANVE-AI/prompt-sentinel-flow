@@ -14,20 +14,45 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 const PROXY_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proxy`;
 
+interface ProviderDef {
+  id: string; label: string; managed?: boolean;
+  default_model: string; model_suggestions: string[];
+  key_placeholder: string; get_key_url: string;
+}
+
 const Keys = () => {
   const { call } = useDashboardApi();
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({ queryKey: ["keys"], queryFn: () => call<any>("list_keys") });
+  const { data: provData } = useQuery({ queryKey: ["providers"], queryFn: () => call<{ providers: ProviderDef[] }>("list_providers") });
+  const providers = provData?.providers ?? [];
 
   const [open, setOpen] = useState(false);
   const [newKey, setNewKey] = useState<string | null>(null);
   const [name, setName] = useState("");
-  const [provider, setProvider] = useState<"lovable" | "openai">("lovable");
-  const [model, setModel] = useState("google/gemini-3-flash-preview");
-  const [openaiKey, setOpenaiKey] = useState("");
+  const [providerId, setProviderId] = useState<string>("lovable");
+  const [model, setModel] = useState("");
+  const [providerKey, setProviderKey] = useState("");
+
+  const selected = providers.find((p) => p.id === providerId);
+
+  // When provider changes, reset model to its default
+  const onProviderChange = (id: string) => {
+    setProviderId(id);
+    const def = providers.find((p) => p.id === id);
+    setModel(def?.default_model ?? "");
+    setProviderKey("");
+  };
 
   const create = useMutation({
-    mutationFn: () => call<any>("create_key", { body: { name, provider, model, openai_key: openaiKey || undefined } }),
+    mutationFn: () => call<any>("create_key", {
+      body: {
+        name,
+        provider: providerId,
+        model: model || selected?.default_model,
+        provider_key: providerKey || undefined,
+      },
+    }),
     onSuccess: (res) => { setNewKey(res.full_key); qc.invalidateQueries({ queryKey: ["keys"] }); },
     onError: (e: any) => toast.error(e.message),
   });
@@ -38,7 +63,7 @@ const Keys = () => {
 
   const reset = () => {
     setOpen(false); setNewKey(null); setName("");
-    setProvider("lovable"); setModel("google/gemini-3-flash-preview"); setOpenaiKey("");
+    setProviderId("lovable"); setModel(""); setProviderKey("");
   };
   const copy = (val: string) => { navigator.clipboard.writeText(val); toast.success("Copied"); };
 
@@ -66,29 +91,37 @@ const Keys = () => {
                   </div>
                   <div>
                     <Label>Provider</Label>
-                    <Select value={provider} onValueChange={(v: any) => setProvider(v)}>
+                    <Select value={providerId} onValueChange={onProviderChange}>
                       <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="lovable">Lovable AI (Gemini, GPT-5)</SelectItem>
-                        <SelectItem value="openai">OpenAI (your key)</SelectItem>
+                        {providers.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
                     <Label htmlFor="model">Default model</Label>
-                    <Input id="model" value={model} onChange={(e) => setModel(e.target.value)} className="mt-1.5 font-mono text-sm" />
+                    <Input id="model" value={model || selected?.default_model || ""} onChange={(e) => setModel(e.target.value)} className="mt-1.5 font-mono text-sm" />
+                    {selected && selected.model_suggestions.length > 0 && (
+                      <p className="text-xs text-muted-foreground mt-1.5">
+                        Suggestions: {selected.model_suggestions.slice(0, 3).join(", ")}
+                      </p>
+                    )}
                   </div>
-                  {provider === "openai" && (
+                  {selected && !selected.managed && (
                     <div>
-                      <Label htmlFor="ok">OpenAI API key</Label>
-                      <Input id="ok" type="password" value={openaiKey} onChange={(e) => setOpenaiKey(e.target.value)} placeholder="sk-..." className="mt-1.5 font-mono text-sm" />
-                      <p className="text-xs text-muted-foreground mt-1.5">Encrypted at rest. Used to forward requests for this AnveGuard key only.</p>
+                      <Label htmlFor="ok">{selected.label} API key</Label>
+                      <Input id="ok" type="password" value={providerKey} onChange={(e) => setProviderKey(e.target.value)} placeholder={selected.key_placeholder} className="mt-1.5 font-mono text-sm" />
+                      <p className="text-xs text-muted-foreground mt-1.5">
+                        Encrypted at rest. <a href={selected.get_key_url} target="_blank" rel="noreferrer" className="underline">Get a key →</a>
+                      </p>
                     </div>
                   )}
                 </div>
                 <DialogFooter>
                   <Button variant="ghost" onClick={reset}>Cancel</Button>
-                  <Button onClick={() => create.mutate()} disabled={create.isPending}>
+                  <Button onClick={() => create.mutate()} disabled={create.isPending || !name || (!selected?.managed && !providerKey)}>
                     {create.isPending ? "Creating…" : "Create key"}
                   </Button>
                 </DialogFooter>
