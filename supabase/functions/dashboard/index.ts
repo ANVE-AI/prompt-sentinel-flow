@@ -1601,7 +1601,25 @@ Deno.serve(async (req) => {
           use_global_defaults: tplPolicy.use_global_defaults !== false,
         };
         const settings = { ...DEFAULT_SETTINGS, ...tplSettings } as PolicySettings;
-        const rules = rawRules
+
+        const tplIntentScope = Array.isArray(body?.applies_to_intents)
+          ? body.applies_to_intents.map((s: unknown) => String(s)).filter(Boolean)
+          : [];
+        const fallback = ["apply_no_rules", "apply_default_rules", "reject"].includes(
+          String(body?.unknown_intent_fallback ?? ""),
+        ) ? String(body.unknown_intent_fallback) : "apply_no_rules";
+
+        // Optional simulation overrides used by the wizard "Test" step:
+        // - force_intent: pretend the classifier returned this intent (skips
+        //   the live LLM call so previews are deterministic and free).
+        // - simulate_unknown: pretend the classifier returned no intent, to
+        //   exercise the unknown-intent fallback branch.
+        const simulateUnknown = body?.simulate_unknown === true;
+        const forceIntent = !simulateUnknown && typeof body?.force_intent === "string" && body.force_intent.trim()
+          ? body.force_intent.trim()
+          : null;
+
+        const allRules = rawRules
           .filter((r: any) => r && (r.kind === "regex" || r.kind === "detector"))
           .map((r: any, i: number) => ({
             id: r.id ?? `tpl-${i}`,
@@ -1614,26 +1632,38 @@ Deno.serve(async (req) => {
             applies_to_intents: Array.isArray(r.applies_to_intents) ? r.applies_to_intents : [],
           })) as PolicyRule[];
 
-        const tplIntentScope = Array.isArray(body?.applies_to_intents)
-          ? body.applies_to_intents.map((s: unknown) => String(s)).filter(Boolean)
-          : [];
-        const fallback = ["apply_no_rules", "apply_default_rules", "reject"].includes(
-          String(body?.unknown_intent_fallback ?? ""),
-        ) ? String(body.unknown_intent_fallback) : "apply_no_rules";
+        // Resolve "applicable rules" for the simulation: a rule applies when
+        // its own applies_to_intents is empty OR includes the forced intent.
+        // Also dropped if the template's intent scope is non-empty and
+        // doesn't include the forced intent.
+        const intentForFilter = forceIntent;
+        const isUnknownForFilter =
+          !intentForFilter ||
+          (tplIntentScope.length > 0 && !tplIntentScope.includes(intentForFilter));
+        const applicableRules: PolicyRule[] = allRules.filter((r) => {
+          if (!intentForFilter) return true; // no override → engine decides
+          if (!r.applies_to_intents || r.applies_to_intents.length === 0) return true;
+          return r.applies_to_intents.includes(intentForFilter);
+        });
+        const skippedRules = allRules.filter((r) => !applicableRules.includes(r))
+          .map((r) => ({ id: r.id, name: r.name, applies_to_intents: r.applies_to_intents ?? [] }));
+
+        // When simulating (force or unknown) we disable the live classifier
+        // so the preview is deterministic and doesn't burn an LLM call.
+        const evalSettings: PolicySettings = (forceIntent || simulateUnknown)
+          ? { ...settings, enable_intent: false }
+          : settings;
 
         const t0 = Date.now();
         try {
           const r = await evaluatePolicy({
             text: inputText, direction: "input",
-            legacy, rules, intents: [], settings,
+            legacy, rules: applicableRules, intents: [], settings: evalSettings,
           });
-          // Apply unknown-intent fallback: an intent is "unknown" when the
-          // classifier didn't run, returned nothing, or returned an intent
-          // outside the template's scope.
-          const detected = r.detected_intent ?? null;
-          const isUnknown =
-            !detected ||
-            (tplIntentScope.length > 0 && !tplIntentScope.includes(detected));
+          const detected = simulateUnknown ? null : (forceIntent ?? r.detected_intent ?? null);
+          const isUnknown = simulateUnknown ? true : (forceIntent
+            ? isUnknownForFilter
+            : (!detected || (tplIntentScope.length > 0 && !tplIntentScope.includes(detected))));
           let verdict = r.verdict;
           let firedLayers = r.layers
             .filter((l) => l.verdict !== "allow")
@@ -1655,7 +1685,13 @@ Deno.serve(async (req) => {
           return json({
             verdict,
             detected_intent: detected,
+            forced_intent: forceIntent,
             unknown_intent_fallback_applied: fallbackApplied,
+            applicable_rules: applicableRules.map((r) => ({
+              id: r.id, name: r.name, kind: r.kind, severity: r.severity,
+              applies_to_intents: r.applies_to_intents ?? [],
+            })),
+            skipped_rules: skippedRules,
             fired_layers: firedLayers,
             latency_ms: Date.now() - t0,
           });
