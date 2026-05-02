@@ -275,7 +275,34 @@ Deno.serve(async (req) => {
 
       case "revoke_key": {
         const { id } = body;
-        await sb.from("api_keys").update({ is_active: false }).eq("id", id).eq("user_id", userId);
+        // Read the key first so the audit entry can capture name/prefix even
+        // if the row is later deleted. Scoped by user_id for ownership.
+        const { data: keyRow } = await sb.from("api_keys")
+          .select("id,name,key_prefix,provider,is_active,endpoint_id")
+          .eq("id", id).eq("user_id", userId).maybeSingle();
+        if (!keyRow) return json({ error: "Key not found" }, 404);
+
+        const { error: updErr } = await sb.from("api_keys")
+          .update({ is_active: false }).eq("id", id).eq("user_id", userId);
+        if (updErr) return json({ error: updErr.message }, 400);
+
+        // Best-effort audit entry. Don't fail the revoke if logging fails — the
+        // security action (disabling the key) already succeeded.
+        const wasAlreadyRevoked = keyRow.is_active === false;
+        await sb.from("audit_logs").insert({
+          user_id: userId,
+          actor_user_id: userId,
+          action: "api_key.revoked",
+          target_type: "api_key",
+          target_id: id,
+          metadata: {
+            key_name: keyRow.name,
+            key_prefix: keyRow.key_prefix,
+            provider: keyRow.provider,
+            endpoint_id: keyRow.endpoint_id,
+            already_revoked: wasAlreadyRevoked,
+          },
+        });
         return json({ ok: true });
       }
 
