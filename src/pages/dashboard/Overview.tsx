@@ -225,7 +225,7 @@ const Overview = () => {
             <SkeletonRows rows={4} cols="grid-cols-[1fr_auto]" rowClassName="px-5 py-3 h-auto" />
           ) : !data?.recent_blocks || data.recent_blocks.length === 0 ? (
             <EmptyState
-              icon={<ShieldCheckIconStub />}
+              icon={<ShieldAlert className="h-5 w-5" />}
               title="No blocks recently"
               description="When a request is stopped, you'll see what tripped here — rule, layer, and the matched snippet."
             />
