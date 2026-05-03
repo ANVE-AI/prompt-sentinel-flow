@@ -46,6 +46,10 @@ const statusOf = (s: string): "ok" | "warn" | "block" =>
 
 const auditActionMeta: Record<string, { label: string; icon: typeof Ban }> = {
   "api_key.revoked": { label: "API key revoked", icon: Ban },
+  "api_key.admin_granted": { label: "Key admin granted", icon: ShieldCheck },
+  "api_key.admin_revoked": { label: "Key admin revoked", icon: ShieldAlert },
+  "system_prompt.allowed": { label: "system_prompt allowed", icon: CheckCircle2 },
+  "system_prompt.rejected": { label: "system_prompt rejected", icon: ShieldAlert },
 };
 
 // Shared 6-column grid template so the Requests + Audit tabs visually align.
@@ -688,6 +692,10 @@ const AuditLog = () => {
           <SelectContent>
             <SelectItem value="all">All actions</SelectItem>
             <SelectItem value="api_key.revoked">API key revoked</SelectItem>
+            <SelectItem value="api_key.admin_granted">Key admin granted</SelectItem>
+            <SelectItem value="api_key.admin_revoked">Key admin revoked</SelectItem>
+            <SelectItem value="system_prompt.allowed">system_prompt allowed</SelectItem>
+            <SelectItem value="system_prompt.rejected">system_prompt rejected</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -711,9 +719,16 @@ const AuditLog = () => {
             {entries.map((e: any) => {
               const meta = auditActionMeta[e.action] ?? { label: e.action, icon: ShieldCheck };
               const Icon = meta.icon;
-              const target = e.metadata?.key_name
-                ? `${e.metadata.key_name} (${e.metadata.key_prefix ?? "—"}…)`
-                : e.target_id ?? "—";
+              const isSysPrompt = e.action?.startsWith("system_prompt.");
+              const target = isSysPrompt
+                // For system_prompt rows, surface the failing gate + code so
+                // operators can scan the list without opening every entry.
+                ? `${e.metadata?.gate ?? "—"} · ${e.metadata?.code ?? "—"}${
+                    e.metadata?.prompt_length != null ? ` · ${e.metadata.prompt_length} chars` : ""
+                  }`
+                : e.metadata?.key_name
+                  ? `${e.metadata.key_name} (${e.metadata.key_prefix ?? "—"}…)`
+                  : e.target_id ?? "—";
               return (
                 <li key={e.id}>
                   <button
