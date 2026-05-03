@@ -719,9 +719,16 @@ const AuditLog = () => {
             {entries.map((e: any) => {
               const meta = auditActionMeta[e.action] ?? { label: e.action, icon: ShieldCheck };
               const Icon = meta.icon;
-              const target = e.metadata?.key_name
-                ? `${e.metadata.key_name} (${e.metadata.key_prefix ?? "—"}…)`
-                : e.target_id ?? "—";
+              const isSysPrompt = e.action?.startsWith("system_prompt.");
+              const target = isSysPrompt
+                // For system_prompt rows, surface the failing gate + code so
+                // operators can scan the list without opening every entry.
+                ? `${e.metadata?.gate ?? "—"} · ${e.metadata?.code ?? "—"}${
+                    e.metadata?.prompt_length != null ? ` · ${e.metadata.prompt_length} chars` : ""
+                  }`
+                : e.metadata?.key_name
+                  ? `${e.metadata.key_name} (${e.metadata.key_prefix ?? "—"}…)`
+                  : e.target_id ?? "—";
               return (
                 <li key={e.id}>
                   <button
