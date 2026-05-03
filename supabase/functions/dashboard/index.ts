@@ -222,6 +222,63 @@ Deno.serve(async (req) => {
         return json({ ok: true });
       }
 
+      case "bulk_set_key_admin": {
+        // Bulk-toggle the per-key admin permission for multiple keys at once.
+        // We always scope by `user_id` so a forged id list can't touch keys
+        // outside the caller's workspace. We also re-read the rows first so
+        // the audit trail can capture the previous value (some keys may be
+        // a no-op if they're already in the requested state).
+        const { ids, is_admin } = body as { ids?: unknown; is_admin?: unknown };
+        if (!Array.isArray(ids) || ids.length === 0) {
+          return json({ error: "ids must be a non-empty array" }, 400);
+        }
+        const idList = ids.filter((v): v is string => typeof v === "string" && v.length > 0);
+        if (idList.length === 0) return json({ error: "no valid ids" }, 400);
+        if (idList.length > 200) return json({ error: "too many ids (max 200)" }, 400);
+        const target = !!is_admin;
+
+        const { data: rows, error: readErr } = await sb.from("api_keys")
+          .select("id,name,key_prefix,is_admin")
+          .eq("user_id", userId).in("id", idList);
+        if (readErr) return json({ error: readErr.message }, 400);
+        const safeRows = rows ?? [];
+        const changing = safeRows.filter((r: any) => !!r.is_admin !== target);
+
+        if (changing.length === 0) {
+          return json({ ok: true, updated: 0, unchanged: safeRows.length });
+        }
+
+        const { error: updErr } = await sb.from("api_keys")
+          .update({ is_admin: target })
+          .eq("user_id", userId)
+          .in("id", changing.map((r: any) => r.id));
+        if (updErr) return json({ error: updErr.message }, 400);
+
+        // One audit row per changed key — keeps the audit feed scannable and
+        // matches the per-key action format the UI already renders.
+        const auditRows = changing.map((r: any) => ({
+          user_id: userId,
+          actor_user_id: userId,
+          action: target ? "api_key.admin_granted" : "api_key.admin_revoked",
+          target_type: "api_key",
+          target_id: r.id,
+          metadata: {
+            key_name: r.name,
+            key_prefix: r.key_prefix,
+            previous_is_admin: !!r.is_admin,
+            new_is_admin: target,
+            via: "bulk",
+            batch_size: changing.length,
+          },
+        }));
+        await sb.from("audit_logs").insert(auditRows);
+        return json({
+          ok: true,
+          updated: changing.length,
+          unchanged: safeRows.length - changing.length,
+        });
+      }
+
       case "create_key": {
         const { name, provider, model, provider_key, custom, endpoint_id, is_admin } = body;
         const def = getProvider(provider);

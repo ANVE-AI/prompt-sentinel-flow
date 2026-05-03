@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Copy, Plus, Trash2, Check, X, Plug, Beaker, Loader2, KeyRound, Tags, Code2, Play, ShieldAlert, ShieldCheck, AlertTriangle } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useDashboardApi } from "@/lib/api";
@@ -227,6 +228,33 @@ const Keys = () => {
       qc.invalidateQueries({ queryKey: ["keys"] });
     },
     onError: (e: any) => toast.error(e.message),
+  });
+
+  // ---- Bulk admin permission toggle --------------------------------------
+  // Lets operators flip many keys at once (e.g. revoke `system_prompt` rights
+  // across an entire team). Selection is held in a Set keyed by key id and
+  // wiped after a successful bulk write so the next selection starts clean.
+  const [selectedKeyIds, setSelectedKeyIds] = useState<Set<string>>(new Set());
+  const toggleSelected = (id: string) => {
+    setSelectedKeyIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const bulkSetAdmin = useMutation({
+    mutationFn: ({ ids, is_admin }: { ids: string[]; is_admin: boolean }) =>
+      call<{ updated: number; unchanged: number }>("bulk_set_key_admin", { body: { ids, is_admin } }),
+    onSuccess: (r, vars) => {
+      const action = vars.is_admin ? "granted" : "revoked";
+      const skipped = r?.unchanged ? ` · ${r.unchanged} already ${action.replace("ed", "ed")}` : "";
+      toast.success(`${r?.updated ?? 0} key${(r?.updated ?? 0) === 1 ? "" : "s"} ${action}${skipped}`, {
+        description: "See the Audit tab in Logs for the full trail.",
+      });
+      setSelectedKeyIds(new Set());
+      qc.invalidateQueries({ queryKey: ["keys"] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Bulk update failed"),
   });
 
   // -------- Live API key test ---------------------------------------------
@@ -543,14 +571,63 @@ const Keys = () => {
         </Dialog>
       </div>
 
+      {/* Bulk action bar — only rendered when there's an active selection so
+          the page stays calm in the common case. Both buttons hit the
+          `bulk_set_key_admin` endpoint, which writes one audit_logs row per
+          changed key. */}
+      {selectedKeyIds.size > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface-2 px-4 py-2.5">
+          <div className="text-meta">
+            <span className="font-medium tabular-nums">{selectedKeyIds.size}</span> key{selectedKeyIds.size === 1 ? "" : "s"} selected
+            <span className="text-muted-foreground"> · changes are logged to the audit trail</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm" variant="outline"
+              disabled={bulkSetAdmin.isPending}
+              onClick={() => bulkSetAdmin.mutate({ ids: Array.from(selectedKeyIds), is_admin: true })}
+              title="Allow these keys to send a custom system_prompt"
+            >
+              <ShieldCheck className="h-3.5 w-3.5 mr-1.5 text-emerald-500" />
+              Grant system_prompt
+            </Button>
+            <Button
+              size="sm" variant="outline"
+              disabled={bulkSetAdmin.isPending}
+              onClick={() => bulkSetAdmin.mutate({ ids: Array.from(selectedKeyIds), is_admin: false })}
+              title="Revoke per-request system_prompt permission from these keys"
+            >
+              <ShieldAlert className="h-3.5 w-3.5 mr-1.5" />
+              Revoke system_prompt
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setSelectedKeyIds(new Set())}>
+              Clear
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* High-density key table */}
       <Card className="surface-1 border-border overflow-hidden">
         {/* Horizontal scroll on narrow viewports keeps the dense table readable
             without collapsing columns. min-w on the inner grid preserves the
             intended column proportions. */}
         <div className="overflow-x-auto">
-        <div className="min-w-[640px]">
-        <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.2fr)_120px_92px_auto] gap-3 px-4 h-9 items-center border-b border-border bg-surface-2/60 text-[10px] font-medium text-muted-foreground uppercase tracking-[0.1em]">
+        <div className="min-w-[680px]">
+        <div className="grid grid-cols-[32px_minmax(0,1.4fr)_minmax(0,1.2fr)_120px_92px_auto] gap-3 px-4 h-9 items-center border-b border-border bg-surface-2/60 text-[10px] font-medium text-muted-foreground uppercase tracking-[0.1em]">
+          <div className="flex items-center">
+            <Checkbox
+              aria-label="Select all keys"
+              checked={
+                (data?.keys?.length ?? 0) > 0 &&
+                data!.keys!.every((k: any) => selectedKeyIds.has(k.id))
+              }
+              onCheckedChange={(v) => {
+                if (v) setSelectedKeyIds(new Set((data?.keys ?? []).map((k: any) => k.id)));
+                else setSelectedKeyIds(new Set());
+              }}
+            />
+          </div>
           <div>Key</div>
           <div>Provider · Model</div>
           <div>Last used</div>
@@ -560,7 +637,7 @@ const Keys = () => {
         {isLoading ? (
           <SkeletonRows
             rows={5}
-            cols="grid-cols-[minmax(0,1.4fr)_minmax(0,1.2fr)_120px_92px_auto]"
+            cols="grid-cols-[32px_minmax(0,1.4fr)_minmax(0,1.2fr)_120px_92px_auto]"
             rowClassName="h-12"
           />
         ) : (data?.keys?.length ?? 0) === 0 ? (
@@ -580,10 +657,17 @@ const Keys = () => {
               <li
                 key={k.id}
                 data-key-row={k.id}
-                className={`grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.2fr)_120px_92px_auto] gap-3 px-4 h-12 items-center hover:bg-surface-2/60 transition-colors ${
+                className={`grid grid-cols-[32px_minmax(0,1.4fr)_minmax(0,1.2fr)_120px_92px_auto] gap-3 px-4 h-12 items-center hover:bg-surface-2/60 transition-colors ${
                   focusKeyId === k.id ? "ring-2 ring-primary/60 bg-primary/5" : ""
                 }`}
               >
+                <div className="flex items-center">
+                  <Checkbox
+                    aria-label={`Select ${k.name}`}
+                    checked={selectedKeyIds.has(k.id)}
+                    onCheckedChange={() => toggleSelected(k.id)}
+                  />
+                </div>
                 <div className="min-w-0">
                   <div className="text-body font-medium truncate flex items-center gap-2">
                     {k.name}
