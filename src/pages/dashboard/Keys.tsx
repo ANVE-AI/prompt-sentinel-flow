@@ -229,6 +229,33 @@ const Keys = () => {
     onError: (e: any) => toast.error(e.message),
   });
 
+  // ---- Bulk admin permission toggle --------------------------------------
+  // Lets operators flip many keys at once (e.g. revoke `system_prompt` rights
+  // across an entire team). Selection is held in a Set keyed by key id and
+  // wiped after a successful bulk write so the next selection starts clean.
+  const [selectedKeyIds, setSelectedKeyIds] = useState<Set<string>>(new Set());
+  const toggleSelected = (id: string) => {
+    setSelectedKeyIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const bulkSetAdmin = useMutation({
+    mutationFn: ({ ids, is_admin }: { ids: string[]; is_admin: boolean }) =>
+      call<{ updated: number; unchanged: number }>("bulk_set_key_admin", { body: { ids, is_admin } }),
+    onSuccess: (r, vars) => {
+      const action = vars.is_admin ? "granted" : "revoked";
+      const skipped = r?.unchanged ? ` · ${r.unchanged} already ${action.replace("ed", "ed")}` : "";
+      toast.success(`${r?.updated ?? 0} key${(r?.updated ?? 0) === 1 ? "" : "s"} ${action}${skipped}`, {
+        description: "See the Audit tab in Logs for the full trail.",
+      });
+      setSelectedKeyIds(new Set());
+      qc.invalidateQueries({ queryKey: ["keys"] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Bulk update failed"),
+  });
+
   // -------- Live API key test ---------------------------------------------
   // Sends a tiny real chat request through the upstream the key is bound to
   // and shows the result in a dialog: ok/fail, latency, reply, tokens, error.
