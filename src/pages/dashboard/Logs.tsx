@@ -692,6 +692,10 @@ const AuditLog = () => {
           <SelectContent>
             <SelectItem value="all">All actions</SelectItem>
             <SelectItem value="api_key.revoked">API key revoked</SelectItem>
+            <SelectItem value="api_key.admin_granted">Key admin granted</SelectItem>
+            <SelectItem value="api_key.admin_revoked">Key admin revoked</SelectItem>
+            <SelectItem value="system_prompt.allowed">system_prompt allowed</SelectItem>
+            <SelectItem value="system_prompt.rejected">system_prompt rejected</SelectItem>
           </SelectContent>
         </Select>
       </div>
