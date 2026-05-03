@@ -90,3 +90,60 @@ export function validateSystemPrompt(
   }
   return { error: null, code: null, value: trimmed };
 }
+
+/** Stable machine codes for the permission gates that run AFTER validation
+ *  succeeds. Distinct from validation codes so callers can tell the
+ *  difference between "you sent garbage" and "you're not allowed". */
+export type SystemPromptGateCode =
+  | "system_prompt_disabled_workspace"
+  | "system_prompt_forbidden"
+  | "system_prompt_accepted";
+
+export type SystemPromptGateDecision =
+  | { allowed: true; status: 200; code: "system_prompt_accepted"; gate: null }
+  | {
+    allowed: false;
+    status: 403;
+    code: "system_prompt_disabled_workspace" | "system_prompt_forbidden";
+    gate: "workspace" | "key_admin";
+  };
+
+/**
+ * Permission decision for an already-validated, non-empty `system_prompt`.
+ * Encodes the full 2x2 matrix of (workspace allows) × (key is admin) so the
+ * proxy and the tests stay in lock-step. The proxy calls this AFTER
+ * `validateSystemPrompt` returns success and AFTER confirming the value is
+ * non-empty (an empty value never reaches the gates — it's a no-op).
+ *
+ * | workspace | key admin | result                          |
+ * | --------- | --------- | ------------------------------- |
+ * | false     | false     | 403 system_prompt_disabled_…    |
+ * | false     | true      | 403 system_prompt_disabled_…    |
+ * | true      | false     | 403 system_prompt_forbidden     |
+ * | true      | true      | 200 system_prompt_accepted      |
+ *
+ * Workspace gate runs FIRST so an admin key in a locked-down workspace still
+ * sees the workspace-level message (which is the more actionable fix).
+ */
+export function decideSystemPromptGate(opts: {
+  workspaceAllows: boolean;
+  keyIsAdmin: boolean;
+}): SystemPromptGateDecision {
+  if (!opts.workspaceAllows) {
+    return {
+      allowed: false,
+      status: 403,
+      code: "system_prompt_disabled_workspace",
+      gate: "workspace",
+    };
+  }
+  if (!opts.keyIsAdmin) {
+    return {
+      allowed: false,
+      status: 403,
+      code: "system_prompt_forbidden",
+      gate: "key_admin",
+    };
+  }
+  return { allowed: true, status: 200, code: "system_prompt_accepted", gate: null };
+}
