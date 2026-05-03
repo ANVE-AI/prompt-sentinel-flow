@@ -517,10 +517,53 @@ async function handleRequest(req: Request): Promise<Response> {
   const rawSystemPrompt = (body as any)?.system_prompt;
   const systemPromptMax = resolveSystemPromptMax((settings as any)?.system_prompt_max_length);
   const validation = validateSystemPrompt(rawSystemPrompt, systemPromptMax);
+  // Helper: write a single audit_logs row capturing the system_prompt
+  // override decision. Best-effort: a failed insert must never break the
+  // user request. The metadata is intentionally compact so the Audit tab
+  // can render it inline (no PII beyond the prompt length itself).
+  const auditSystemPrompt = async (
+    outcome: "allowed" | "rejected",
+    detail: {
+      gate?: "validation" | "workspace" | "key_admin";
+      code?: string | null;
+      reason?: string | null;
+      length?: number;
+    },
+  ) => {
+    try {
+      await sb.from("audit_logs").insert({
+        user_id: keyRow.user_id,
+        actor_user_id: keyRow.user_id,
+        action: outcome === "allowed"
+          ? "system_prompt.allowed"
+          : "system_prompt.rejected",
+        target_type: "api_key",
+        target_id: keyRow.id,
+        metadata: {
+          outcome,
+          gate: detail.gate ?? null,
+          code: detail.code ?? null,
+          reason: detail.reason ?? null,
+          prompt_length: detail.length ?? null,
+          model: model ?? null,
+          is_admin_key: !!keyRow.is_admin,
+          workspace_allows: (settings as any)?.allow_client_system_prompt === true,
+          max_length: systemPromptMax,
+        },
+      });
+    } catch { /* swallow — auditing must not break the request path */ }
+  };
+
   if (validation.error) {
     // Use the stable per-failure code from the validator (e.g.
     // "system_prompt_too_long") so SDKs can branch precisely instead of
     // string-matching the message.
+    await auditSystemPrompt("rejected", {
+      gate: "validation",
+      code: validation.code,
+      reason: validation.error,
+      length: typeof rawSystemPrompt === "string" ? rawSystemPrompt.length : 0,
+    });
     return errorResponse(reqShape, 400, validation.error, {
       code: validation.code,
       param: "system_prompt",
@@ -536,6 +579,12 @@ async function handleRequest(req: Request): Promise<Response> {
     // exactly which gate rejected them rather than a generic permission error.
     const workspaceAllows = (settings as any)?.allow_client_system_prompt === true;
     if (!workspaceAllows) {
+      await auditSystemPrompt("rejected", {
+        gate: "workspace",
+        code: "system_prompt_disabled_workspace",
+        reason: "Workspace policy disallows per-request system_prompt overrides.",
+        length: customSystemPrompt.length,
+      });
       return errorResponse(reqShape, 403,
         "Per-request `system_prompt` overrides are disabled for this workspace. Ask a workspace admin to enable them under Policies → Guardrails, or remove the `system_prompt` field from the request body.",
         {
@@ -545,6 +594,12 @@ async function handleRequest(req: Request): Promise<Response> {
         });
     }
     if (!keyRow.is_admin) {
+      await auditSystemPrompt("rejected", {
+        gate: "key_admin",
+        code: "system_prompt_forbidden",
+        reason: "API key lacks the admin permission required to inject a custom system_prompt.",
+        length: customSystemPrompt.length,
+      });
       return errorResponse(reqShape, 403,
         "This API key is not permitted to send a custom `system_prompt`. Ask a workspace admin to grant the admin permission to this key on the Keys page, or remove the `system_prompt` field from the request body.",
         {
@@ -559,6 +614,10 @@ async function handleRequest(req: Request): Promise<Response> {
       { role: "system", content: customSystemPrompt },
       ...body.messages.slice(insertAt),
     ];
+    await auditSystemPrompt("allowed", {
+      code: "system_prompt_accepted",
+      length: customSystemPrompt.length,
+    });
   }
   if ("system_prompt" in (body as any)) {
     delete (body as any).system_prompt;
