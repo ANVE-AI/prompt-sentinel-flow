@@ -19,6 +19,7 @@ import { parseModelsResponse } from "../_shared/models_parsers.ts";
 import {
   validateSystemPrompt,
   resolveSystemPromptMax,
+  decideSystemPromptGate,
   SYSTEM_PROMPT_DOC_URL,
 } from "../_shared/system_prompt.ts";
 
