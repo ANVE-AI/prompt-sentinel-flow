@@ -637,7 +637,7 @@ const Keys = () => {
         {isLoading ? (
           <SkeletonRows
             rows={5}
-            cols="grid-cols-[minmax(0,1.4fr)_minmax(0,1.2fr)_120px_92px_auto]"
+            cols="grid-cols-[32px_minmax(0,1.4fr)_minmax(0,1.2fr)_120px_92px_auto]"
             rowClassName="h-12"
           />
         ) : (data?.keys?.length ?? 0) === 0 ? (
