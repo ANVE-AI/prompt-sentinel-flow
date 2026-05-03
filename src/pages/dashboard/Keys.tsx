@@ -657,10 +657,17 @@ const Keys = () => {
               <li
                 key={k.id}
                 data-key-row={k.id}
-                className={`grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.2fr)_120px_92px_auto] gap-3 px-4 h-12 items-center hover:bg-surface-2/60 transition-colors ${
+                className={`grid grid-cols-[32px_minmax(0,1.4fr)_minmax(0,1.2fr)_120px_92px_auto] gap-3 px-4 h-12 items-center hover:bg-surface-2/60 transition-colors ${
                   focusKeyId === k.id ? "ring-2 ring-primary/60 bg-primary/5" : ""
                 }`}
               >
+                <div className="flex items-center">
+                  <Checkbox
+                    aria-label={`Select ${k.name}`}
+                    checked={selectedKeyIds.has(k.id)}
+                    onCheckedChange={() => toggleSelected(k.id)}
+                  />
+                </div>
                 <div className="min-w-0">
                   <div className="text-body font-medium truncate flex items-center gap-2">
                     {k.name}
