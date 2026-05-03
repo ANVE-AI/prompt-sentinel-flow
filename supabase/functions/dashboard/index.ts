@@ -278,6 +278,8 @@ Deno.serve(async (req) => {
           unchanged: safeRows.length - changing.length,
         });
       }
+
+      case "create_key": {
         const { name, provider, model, provider_key, custom, endpoint_id, is_admin } = body;
         const def = getProvider(provider);
         if (!name || !def) return json({ error: "Invalid provider" }, 400);
