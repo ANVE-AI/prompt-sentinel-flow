@@ -46,6 +46,10 @@ const statusOf = (s: string): "ok" | "warn" | "block" =>
 
 const auditActionMeta: Record<string, { label: string; icon: typeof Ban }> = {
   "api_key.revoked": { label: "API key revoked", icon: Ban },
+  "api_key.admin_granted": { label: "Key admin granted", icon: ShieldCheck },
+  "api_key.admin_revoked": { label: "Key admin revoked", icon: ShieldAlert },
+  "system_prompt.allowed": { label: "system_prompt allowed", icon: CheckCircle2 },
+  "system_prompt.rejected": { label: "system_prompt rejected", icon: ShieldAlert },
 };
 
 // Shared 6-column grid template so the Requests + Audit tabs visually align.
