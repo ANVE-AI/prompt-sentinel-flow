@@ -1363,6 +1363,9 @@ Deno.serve(async (req) => {
             token_spike_min_tokens: 10000,
             token_spike_ratio: 3.0,
             token_spike_webhook_url: null,
+            severity_baseline_days: 7,
+            severity_volume_dampening: 0.6,
+            severity_score_cap: 100,
           },
           known_intents: await loadKnownIntentNames(sb, userId),
         });
@@ -1510,6 +1513,27 @@ Deno.serve(async (req) => {
             }
             patch.token_spike_webhook_url = s;
           }
+        }
+        if ("severity_baseline_days" in (body ?? {})) {
+          const n = Number(body.severity_baseline_days);
+          if (!Number.isInteger(n) || n < 1 || n > 30) {
+            return json({ error: "severity_baseline_days must be an integer 1-30" }, 400);
+          }
+          patch.severity_baseline_days = n;
+        }
+        if ("severity_volume_dampening" in (body ?? {})) {
+          const n = Number(body.severity_volume_dampening);
+          if (!Number.isFinite(n) || n < 0 || n > 1) {
+            return json({ error: "severity_volume_dampening must be 0..1" }, 400);
+          }
+          patch.severity_volume_dampening = n;
+        }
+        if ("severity_score_cap" in (body ?? {})) {
+          const n = Number(body.severity_score_cap);
+          if (!Number.isInteger(n) || n < 1 || n > 100) {
+            return json({ error: "severity_score_cap must be an integer 1-100" }, 400);
+          }
+          patch.severity_score_cap = n;
         }
         await sb.from("policy_settings").upsert(patch, { onConflict: "user_id" });
         return json({ ok: true });
@@ -2137,21 +2161,26 @@ Deno.serve(async (req) => {
       // tokens_in and tokens_out spikes with per-key attribution.
       case "token_spike_alert": {
         const { data: settings } = await sb.from("policy_settings")
-          .select("token_spike_alert_enabled,token_spike_window_hours,token_spike_min_tokens,token_spike_ratio,token_spike_webhook_url")
+          .select("token_spike_alert_enabled,token_spike_window_hours,token_spike_min_tokens,token_spike_ratio,token_spike_webhook_url,severity_baseline_days,severity_volume_dampening,severity_score_cap")
           .eq("user_id", userId).maybeSingle();
         const enabled = settings?.token_spike_alert_enabled !== false;
         const windowH = Math.max(1, Math.min(24, Number(settings?.token_spike_window_hours ?? 1)));
         const minTokens = Math.max(0, Number(settings?.token_spike_min_tokens ?? 10000));
         const ratioThreshold = Math.max(1.1, Number(settings?.token_spike_ratio ?? 3));
+        const baselineDays = Math.max(1, Math.min(30, Number(settings?.severity_baseline_days ?? 7)));
+        const volumeDampening = Math.max(0, Math.min(1, Number(settings?.severity_volume_dampening ?? 0.6)));
+        const scoreCap = Math.max(1, Math.min(100, Number(settings?.severity_score_cap ?? 100)));
 
         const now = Date.now();
         const windowMs = windowH * 3600 * 1000;
-        const sinceISO = new Date(now - 8 * windowMs).toISOString();
+        // Pull enough history to fill `baselineDays` worth of same-length windows.
+        const baselineWindows = Math.max(1, Math.floor((baselineDays * 24) / windowH));
+        const sinceISO = new Date(now - (baselineWindows + 1) * windowMs).toISOString();
         const { data: rows, error } = await sb.from("request_logs")
           .select("api_key_id,created_at,tokens_in,tokens_out")
           .eq("user_id", userId)
           .gte("created_at", sinceISO)
-          .limit(10000);
+          .limit(20000);
         if (error) return json({ error: error.message }, 400);
 
         const cutoff = now - windowMs;
@@ -2168,8 +2197,10 @@ Deno.serve(async (req) => {
           else { priorIn += ti; priorOut += to; v.priorIn += ti; v.priorOut += to; }
           perKey.set(k, v);
         }
-        const baselineIn = priorIn / 7;
-        const baselineOut = priorOut / 7;
+        // Baseline = average tokens per *current-window-length* over the
+        // configured number of prior windows. Comparable to current window.
+        const baselineIn = priorIn / baselineWindows;
+        const baselineOut = priorOut / baselineWindows;
         const ratioIn = baselineIn > 0 ? curIn / baselineIn : (curIn >= minTokens ? Infinity : 0);
         const ratioOut = baselineOut > 0 ? curOut / baselineOut : (curOut >= minTokens ? Infinity : 0);
         const spikeIn = enabled && curIn >= minTokens && (baselineIn === 0 || ratioIn >= ratioThreshold);
@@ -2181,24 +2212,23 @@ Deno.serve(async (req) => {
         // so 1× threshold ≈ 25, 2× ≈ ~58, 4× ≈ ~92, 8×+ saturates at 100.
         // Below threshold we still give a small score (0..24) proportional to
         // how close it is so operators can see things "trending up".
-        // Volume gate: anything well below `min_tokens` is capped low to
-        // avoid scary scores on near-zero traffic.
+        // Volume gate: below `min_tokens`, the score is multiplied by
+        // (volume/floor) × `severity_volume_dampening`, then clamped to
+        // `severity_score_cap` so operators can cap loud alerts.
         const scoreFromRatio = (ratio: number, volume: number): number => {
-          if (!Number.isFinite(ratio) && ratio > 0) return 100;
+          if (!Number.isFinite(ratio) && ratio > 0) return Math.min(100, scoreCap);
           if (ratio <= 0) return 0;
           const t = ratioThreshold;
           let s: number;
           if (ratio < t) {
             s = Math.max(0, Math.min(24, Math.round((ratio / t) * 24)));
           } else {
-            // 25 + 25 * log2(ratio / t), clamped to 100
             const over = Math.log2(Math.max(1, ratio / t));
             s = Math.min(100, Math.round(25 + over * 25));
           }
-          // Volume dampening — half-credit until we cross the floor.
           const floor = Math.max(1, minTokens);
-          if (volume < floor) s = Math.round(s * (volume / floor) * 0.6);
-          return Math.max(0, Math.min(100, s));
+          if (volume < floor) s = Math.round(s * (volume / floor) * volumeDampening);
+          return Math.max(0, Math.min(scoreCap, s));
         };
         const severityScore = Math.max(
           scoreFromRatio(ratioIn, curIn),
@@ -2216,7 +2246,7 @@ Deno.serve(async (req) => {
         const topKeys = Array.from(perKey.entries())
           .map(([api_key_id, v]) => {
             const meta = keyMeta.get(api_key_id) as any;
-            const bIn = v.priorIn / 7, bOut = v.priorOut / 7;
+            const bIn = v.priorIn / baselineWindows, bOut = v.priorOut / baselineWindows;
             const rIn = bIn > 0 ? v.in / bIn : (v.in >= Math.max(1000, minTokens / 4) ? Infinity : 0);
             const rOut = bOut > 0 ? v.out / bOut : (v.out >= Math.max(1000, minTokens / 4) ? Infinity : 0);
             const keySeverity = Math.max(
@@ -2292,6 +2322,12 @@ Deno.serve(async (req) => {
           severity_score: severityScore,
           severity_level: severityLevel,
           threshold: { min_tokens: minTokens, ratio: ratioThreshold },
+          calibration: {
+            baseline_days: baselineDays,
+            baseline_windows: baselineWindows,
+            volume_dampening: volumeDampening,
+            score_cap: scoreCap,
+          },
           top_keys: topKeys,
         });
       }

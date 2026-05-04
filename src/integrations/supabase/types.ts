@@ -483,6 +483,9 @@ export type Database = {
           injection_action: string
           intent_shadow_mode: boolean
           semantic_threshold: number
+          severity_baseline_days: number
+          severity_score_cap: number
+          severity_volume_dampening: number
           strict_mode: boolean
           system_prompt_max_length: number
           throttle_flag_threshold: number
@@ -519,6 +522,9 @@ export type Database = {
           injection_action?: string
           intent_shadow_mode?: boolean
           semantic_threshold?: number
+          severity_baseline_days?: number
+          severity_score_cap?: number
+          severity_volume_dampening?: number
           strict_mode?: boolean
           system_prompt_max_length?: number
           throttle_flag_threshold?: number
@@ -555,6 +561,9 @@ export type Database = {
           injection_action?: string
           intent_shadow_mode?: boolean
           semantic_threshold?: number
+          severity_baseline_days?: number
+          severity_score_cap?: number
+          severity_volume_dampening?: number
           strict_mode?: boolean
           system_prompt_max_length?: number
           throttle_flag_threshold?: number

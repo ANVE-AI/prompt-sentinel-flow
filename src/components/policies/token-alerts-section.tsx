@@ -21,6 +21,9 @@ type Draft = {
   token_spike_min_tokens: number;
   token_spike_ratio: number;
   token_spike_webhook_url: string;
+  severity_baseline_days: number;
+  severity_volume_dampening: number;
+  severity_score_cap: number;
 };
 
 const EMPTY: Draft = {
@@ -29,6 +32,9 @@ const EMPTY: Draft = {
   token_spike_min_tokens: 10000,
   token_spike_ratio: 3,
   token_spike_webhook_url: "",
+  severity_baseline_days: 7,
+  severity_volume_dampening: 0.6,
+  severity_score_cap: 100,
 };
 
 export function TokenAlertsSection() {
@@ -49,6 +55,9 @@ export function TokenAlertsSection() {
       token_spike_min_tokens: clampInt(s.token_spike_min_tokens ?? 10000, 0, 100_000_000),
       token_spike_ratio: clampNum(s.token_spike_ratio ?? 3, 1.1, 50),
       token_spike_webhook_url: typeof s.token_spike_webhook_url === "string" ? s.token_spike_webhook_url : "",
+      severity_baseline_days: clampInt(s.severity_baseline_days ?? 7, 1, 30),
+      severity_volume_dampening: clampNum(s.severity_volume_dampening ?? 0.6, 0, 1),
+      severity_score_cap: clampInt(s.severity_score_cap ?? 100, 1, 100),
     };
   }, [settingsQ.data]);
 
@@ -65,6 +74,9 @@ export function TokenAlertsSection() {
         token_spike_min_tokens: draft.token_spike_min_tokens,
         token_spike_ratio: draft.token_spike_ratio,
         token_spike_webhook_url: draft.token_spike_webhook_url.trim() || null,
+        severity_baseline_days: draft.severity_baseline_days,
+        severity_volume_dampening: draft.severity_volume_dampening,
+        severity_score_cap: draft.severity_score_cap,
       },
     }),
     onSuccess: () => {
@@ -151,6 +163,52 @@ export function TokenAlertsSection() {
             <p className="text-[11px] text-muted-foreground mt-1">
               Receives a POST with spike details when an alert fires. HTTPS only.
             </p>
+          </div>
+        </div>
+
+        {/* Severity calibration — tune how the 0..100 score reacts to
+            deviation, low-volume noise, and the absolute ceiling. */}
+        <div className="rounded-md border border-border bg-surface-2 px-3 py-3 space-y-3">
+          <div>
+            <div className="text-body font-medium">Severity calibration</div>
+            <p className="text-meta text-muted-foreground">
+              Tune how the 0–100 anomaly score reacts to deviation and traffic volume.
+            </p>
+          </div>
+          <div className="grid sm:grid-cols-3 gap-4">
+            <div>
+              <Label className="text-meta text-muted-foreground">Baseline window (days)</Label>
+              <Input
+                type="number" min={1} max={30} className="mt-1.5"
+                value={draft.severity_baseline_days}
+                onChange={(e) => setDraft((d) => ({ ...d, severity_baseline_days: clampInt(Number(e.target.value), 1, 30) }))}
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Prior days averaged into the baseline. Longer = smoother, slower to react.
+              </p>
+            </div>
+            <div>
+              <Label className="text-meta text-muted-foreground">Volume dampening</Label>
+              <Input
+                type="number" min={0} max={1} step={0.05} className="mt-1.5"
+                value={draft.severity_volume_dampening}
+                onChange={(e) => setDraft((d) => ({ ...d, severity_volume_dampening: clampNum(Number(e.target.value), 0, 1) }))}
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                0 silences low-volume windows; 1 trusts every ratio. Default 0.6.
+              </p>
+            </div>
+            <div>
+              <Label className="text-meta text-muted-foreground">Score cap</Label>
+              <Input
+                type="number" min={1} max={100} className="mt-1.5"
+                value={draft.severity_score_cap}
+                onChange={(e) => setDraft((d) => ({ ...d, severity_score_cap: clampInt(Number(e.target.value), 1, 100) }))}
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Maximum value the score can ever reach. Useful to keep alerts quieter.
+              </p>
+            </div>
           </div>
         </div>
       </CardContent>
