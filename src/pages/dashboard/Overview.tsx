@@ -409,6 +409,7 @@ const Overview = () => {
       </Card>
 
       {/* Chart */}
+      {!noData && (
       <Card className="surface-1 border-border">
         <div className="px-5 pt-4 pb-2 flex items-center justify-between">
           <div>
@@ -419,6 +420,13 @@ const Overview = () => {
         </div>
         <CardContent className="pt-2 pb-4">
           <div className="h-64">
+            {isLoading ? (
+              <div className="h-full grid place-items-center text-meta text-muted-foreground">
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading traffic…
+                </span>
+              </div>
+            ) : (
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={data?.chart ?? []} margin={{ top: 6, right: 12, bottom: 0, left: -16 }}>
                 <defs>
@@ -448,10 +456,11 @@ const Overview = () => {
                 <Area type="monotone" dataKey="blocked" stroke="hsl(var(--status-block))" fill="url(#g2)" strokeWidth={1.5} />
               </AreaChart>
             </ResponsiveContainer>
+            )}
           </div>
         </CardContent>
       </Card>
-
+      )}
       {/* Top triggered rules — quick view of which policies are catching the most traffic */}
       <Card className="surface-1 border-border">
         <div className="px-5 pt-4 pb-3 flex items-center justify-between border-b border-border">
