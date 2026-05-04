@@ -622,6 +622,20 @@ const Keys = () => {
               <ShieldAlert className="h-3.5 w-3.5 mr-1.5" />
               Revoke system_prompt
             </Button>
+            <Select
+              onValueChange={(mode) =>
+                bulkSetCompression.mutate({ ids: Array.from(selectedKeyIds), mode })
+              }
+            >
+              <SelectTrigger className="h-8 w-[160px] text-xs"><SelectValue placeholder="Set compression…" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="inherit">Inherit workspace</SelectItem>
+                <SelectItem value="off">Off</SelectItem>
+                <SelectItem value="light">Light</SelectItem>
+                <SelectItem value="balanced">Balanced</SelectItem>
+                <SelectItem value="aggressive">Aggressive</SelectItem>
+              </SelectContent>
+            </Select>
             <Button size="sm" variant="ghost" onClick={() => setSelectedKeyIds(new Set())}>
               Clear
             </Button>
