@@ -361,6 +361,10 @@ const Endpoints = () => {
     setSavedDefaultModel("");
     setPreviewTemplateId("");
     setFormMode(templateId ? "simple" : "advanced");
+    setAutoCreateKey(true);
+    setAutoKeyName("");
+    setAutoKeyIsAdmin(false);
+    setCreatedKey(null);
     setOpen(true);
     if (templateId) {
       // Defer so emptyForm settles, then apply the template inline.
