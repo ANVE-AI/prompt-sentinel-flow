@@ -2322,6 +2322,12 @@ Deno.serve(async (req) => {
           severity_score: severityScore,
           severity_level: severityLevel,
           threshold: { min_tokens: minTokens, ratio: ratioThreshold },
+          calibration: {
+            baseline_days: baselineDays,
+            baseline_windows: baselineWindows,
+            volume_dampening: volumeDampening,
+            score_cap: scoreCap,
+          },
           top_keys: topKeys,
         });
       }
