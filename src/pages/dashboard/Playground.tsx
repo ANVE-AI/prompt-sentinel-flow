@@ -372,13 +372,15 @@ const Playground = () => {
                 </Select>
 
                 {selectedEndpoint && (
-                  <div className="mt-3 rounded-md border border-border bg-surface-2 p-3 space-y-2">
+                  <div className="mt-3 rounded-md border border-status-warn/40 bg-status-warn/5 p-3 space-y-2">
                     <div className="flex items-start gap-2 text-body">
                       <ShieldAlert className="h-4 w-4 mt-0.5 text-status-warn shrink-0" />
                       <div className="flex-1">
-                        <div className="font-medium">No AnveGuard key bound to this endpoint yet.</div>
+                        <div className="font-medium text-status-warn">
+                          Can't send: "{selectedEndpoint.name}" has no AnveGuard key.
+                        </div>
                         <div className="text-meta text-muted-foreground mt-0.5">
-                          Create one to start sending requests through the proxy. The endpoint config and your upstream provider key will be reused.
+                          The Playground sends through an AnveGuard key. Create one bound to this endpoint — the upstream provider key you saved on the endpoint will be reused, so you won't need to re-enter it.
                         </div>
                       </div>
                     </div>
