@@ -4,6 +4,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ErrorBoundary } from "@/components/error-boundary";
 import { CLERK_PUBLISHABLE_KEY } from "@/lib/clerk";
 import Landing from "./pages/Landing";
 import NotFound from "./pages/NotFound";
@@ -53,7 +54,7 @@ const App = () => (
             <Route path="/" element={<Landing />} />
             <Route path="/sign-in/*" element={<SignInPage />} />
             <Route path="/sign-up/*" element={<SignUpPage />} />
-            <Route path="/dashboard" element={<Protected><DashboardLayout /></Protected>}>
+            <Route path="/dashboard" element={<Protected><ErrorBoundary><DashboardLayout /></ErrorBoundary></Protected>}>
               <Route index element={<Overview />} />
               <Route path="keys" element={<Keys />} />
               <Route path="endpoints" element={<Endpoints />} />
