@@ -25,7 +25,7 @@ const RANGE_DAYS: Record<Range, number> = { "7d": 7, "14d": 14, "30d": 30, "90d"
 const Overview = () => {
   const { call } = useDashboardApi();
   const [range, setRange] = useState<Range>("14d");
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isFetching } = useQuery({
     queryKey: ["stats", range],
     queryFn: () => call<any>("stats", { query: { range } }),
   });
