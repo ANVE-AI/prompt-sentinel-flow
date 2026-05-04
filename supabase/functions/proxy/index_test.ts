@@ -169,6 +169,7 @@ Deno.test("proxy rejects revoked API key with 401 before calling provider", asyn
 });
 
 Deno.test("proxy returns the same 401 for an unknown API key (no info leak)", async () => {
+  await clearRateLimitBuckets();
   // A well-formed but never-seeded token. Same shape as a real key so the
   // Authorization regex passes and we exercise the DB lookup branch.
   const bogus = `ag_live_unknown_${crypto.randomUUID().replace(/-/g, "")}`;
