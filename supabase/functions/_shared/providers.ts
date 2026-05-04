@@ -902,5 +902,12 @@ export function resolveEndpoint(keyRow: {
     headers["X-Title"] = "AnveGuard";
   }
   const response_format: ResponseFormat = def.kind === "anthropic" ? "anthropic_messages" : "chat_completions";
-  return { url: def.url, models_url: def.models_url, kind: def.kind, response_format, headers };
+  return {
+    url: def.url,
+    models_url: def.models_url,
+    kind: def.kind,
+    response_format,
+    headers,
+    normalize_model: def.model_id_normalize,
+  };
 }
