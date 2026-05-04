@@ -331,6 +331,26 @@ const CONSTRUCTION_INTENT_RE = /\b(?:how to (?:assemble|build|construct|make|coo
 // what verb follows. Combined with HARMFUL_SUBJECT_RE this becomes Tier 2.
 const NARRATIVE_FRAME_RE = /\b(?:write (?:a |an )?(?:story|fictional (?:account|story|scenario|tale)|hypothetical|scenario|tale|fable|essay|article|paper|guide|tutorial|walk-?through) (?:about|where|in which)|as (?:a |an )?(?:fictional|hypothetical|imaginary) (?:character|scenario|world|setting)|imagine (?:you|yourself) (?:are|were)|pretend (?:you are|to be|that you|that we'?re)|role[- ]?play(?:ing)? as|play(?:ing)? the role of|act as my (?:deceased |late |dead )?(?:grandmother|grandfather|grandparent|grandma|grandpa|granny|relative|aunt|uncle|mother|father|mom|dad)|in (?:a |this )?(?:hypothetical|fictional|fantasy|alternate|imaginary|made[- ]?up) (?:scenario|world|universe|reality|setting)|for (?:purely )?(?:educational|research|academic|historical|fictional|hypothetical) (?:purposes|reasons)|my (?:deceased |late |dead )?(?:grandmother|grandfather|grandparent|grandma|grandpa|granny)\s+(?:was |is |used to|would|always|loved|liked|told|taught|read))\b/i;
 
+// Unicode-smuggling detection — CVE-2025-32711 family. Catches the three
+// invisible-character classes attackers use to hide instructions in plain
+// view of users while still being read by the LLM:
+//
+//   - Tag characters U+E0000..U+E007F (entirely invisible in every
+//     mainstream renderer; "ASCII smuggling" attack). NO legitimate use
+//     case — always block.
+//   - Zero-width / formatting U+200B..U+200F + U+2060..U+206F (used to
+//     hide instructions between letters; some legitimate use in RTL/BiDi
+//     so we flag on high density rather than block).
+//   - Variation selectors U+FE00..U+FE0F + U+E0100..U+E01EF (emoji style
+//     hints; rarely needed in LLM prompts at high density).
+//
+// Refs:
+//   https://thehgtech.com/guides/unicode-llm-attacks-advanced.html
+//   https://embracethered.com/blog/posts/2024/hiding-and-finding-text-with-unicode-tags/
+const TAG_CHARS_RE = /[\u{E0000}-\u{E007F}]/gu;
+const ZERO_WIDTH_RE = /[​-‏⁠-⁯﻿]/g;
+const VARIATION_SELECTORS_RE = /[︀-️]|[\u{E0100}-\u{E01EF}]/gu;
+
 // Deepfake / non-consensual likeness intent. Catches direct mentions
 // (deepfake, fake video, etc.) and the "photorealistic + named figure" /
 // "realistic photo of [the president/politician/celebrity]" pattern that
@@ -449,6 +469,38 @@ const DETECTORS: Record<string, Detector> = {
         verdict: "flag",
         reason: "Narrative framing combined with a sensitive subject (likely jailbreak misdirection).",
       };
+    }
+    return { matched: false };
+  },
+  unicode_smuggling: ({ rawText, direction }) => {
+    if (direction !== "input") return { matched: false };
+    // Tier 0 — Unicode tag chars (U+E0000-U+E007F) have NO legitimate use
+    // in chat/image/audio prompts. Any presence is a smuggling attempt.
+    // Per CVE-2025-32711 (June 2025) this was the bypass for major
+    // commercial LLM guardrails until vendors hardened against it.
+    const tagMatches = rawText.match(TAG_CHARS_RE);
+    if (tagMatches && tagMatches.length > 0) {
+      return {
+        matched: true,
+        verdict: "block",
+        reason: `Unicode tag characters detected (${tagMatches.length} chars in U+E0000-U+E007F) — invisible smuggling attack.`,
+      };
+    }
+    // Tier 1 — high-density zero-width or variation-selector chars. Some
+    // legitimate use (RTL/BiDi, emoji styling) so we flag rather than
+    // block, threshold at 2% to catch density attacks without false-
+    // flagging an emoji-heavy genuine prompt.
+    if (rawText.length >= 50) {
+      const zw = (rawText.match(ZERO_WIDTH_RE) ?? []).length;
+      const vs = (rawText.match(VARIATION_SELECTORS_RE) ?? []).length;
+      const density = (zw + vs) / rawText.length;
+      if (density > 0.02 && (zw + vs) >= 4) {
+        return {
+          matched: true,
+          verdict: "flag",
+          reason: `High invisible-character density: ${(density * 100).toFixed(1)}% (${zw} zero-width + ${vs} variation selectors).`,
+        };
+      }
     }
     return { matched: false };
   },
@@ -603,7 +655,7 @@ export function evaluateHeuristics(
   // returning `verdict` in its result (used by narrative_misdirection's
   // persona-bypass tier which is a high-confidence jailbreak signal).
   const out: LayerVerdict[] = [];
-  for (const name of ["role_impersonation", "pseudo_system_block", "encoded_density", "narrative_misdirection", "deepfake_intent"] as const) {
+  for (const name of ["role_impersonation", "pseudo_system_block", "encoded_density", "narrative_misdirection", "deepfake_intent", "unicode_smuggling"] as const) {
     const r = DETECTORS[name]({ rawText, normalizedText, direction });
     if (r.matched) {
       out.push({ layer: "heuristics", verdict: r.verdict ?? "flag", reason: r.reason, rule: name });

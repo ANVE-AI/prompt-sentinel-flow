@@ -5,6 +5,8 @@
 // raw request body. Receivers verify by re-computing the HMAC with the
 // shared secret. Optional — when no secret is configured we just POST plain.
 
+
+
 const enc = new TextEncoder();
 
 export async function hmacSha256Hex(secret: string, body: string): Promise<string> {
