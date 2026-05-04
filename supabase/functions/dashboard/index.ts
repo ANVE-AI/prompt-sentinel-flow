@@ -201,9 +201,23 @@ Deno.serve(async (req) => {
 
       case "list_keys": {
         const { data } = await sb.from("api_keys")
-          .select("id,name,key_prefix,provider,model_default,is_active,is_admin,compression_mode,created_at,last_used_at,custom_base_url,custom_kind")
+          .select("id,name,key_prefix,provider,model_default,is_active,is_admin,compression_mode,created_at,last_used_at,custom_base_url,custom_kind,endpoint_id")
           .eq("user_id", userId).order("created_at", { ascending: false });
-        return json({ keys: data ?? [] });
+        const keys = data ?? [];
+        // Enrich custom-endpoint-bound keys with the endpoint name so the UI
+        // can show "my-key — Perplexity (Sonar)" instead of just "custom".
+        const epIds = Array.from(new Set(keys.map((k: any) => k.endpoint_id).filter(Boolean)));
+        let epMap: Record<string, string> = {};
+        if (epIds.length > 0) {
+          const { data: eps } = await sb.from("endpoints")
+            .select("id,name").in("id", epIds);
+          for (const e of eps ?? []) epMap[e.id] = e.name;
+        }
+        const enriched = keys.map((k: any) => ({
+          ...k,
+          endpoint_name: k.endpoint_id ? (epMap[k.endpoint_id] ?? null) : null,
+        }));
+        return json({ keys: enriched });
       }
 
       case "set_key_admin": {
