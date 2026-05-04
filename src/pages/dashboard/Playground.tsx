@@ -213,8 +213,27 @@ const Playground = () => {
 
   const sendDisabled = loading || selection?.kind !== "key";
 
-  // Empty-state: user has endpoints but no keys at all.
-  const showEndpointOnlyEmpty = activeKeys.length === 0 && unboundEndpoints.length > 0;
+  // Reason the Send button is currently disabled (shown inline next to the
+  // button so users don't have to guess why nothing happens on click).
+  const sendBlockedReason: string | null = (() => {
+    if (loading) return null;
+    if (selection?.kind === "endpoint" && selectedEndpoint) {
+      return `"${selectedEndpoint.name}" has no AnveGuard API key bound — create one to send requests through this endpoint.`;
+    }
+    if (!selection) {
+      if (activeKeys.length === 0 && unboundEndpoints.length > 0) {
+        return "Pick an endpoint above and create an AnveGuard key for it to send requests.";
+      }
+      return "Pick an AnveGuard key above to send a request.";
+    }
+    return null;
+  })();
+
+  // Show the top-of-page warning whenever the user has at least one endpoint
+  // configured without a bound AnveGuard key. Previously this only appeared
+  // when the user had zero keys total, which hid the explanation as soon as
+  // *any* other key existed (e.g. the default Lovable key).
+  const showUnboundEndpointsBanner = unboundEndpoints.length > 0;
 
   return (
     <div className="px-4 md:px-6 py-5 space-y-5 max-w-[1320px] mx-auto">
