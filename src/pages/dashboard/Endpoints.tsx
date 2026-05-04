@@ -114,6 +114,8 @@ interface CustomSchema {
     id: string;
     label: string;
     description?: string;
+    category?: "managed" | "hosted" | "self_hosted";
+    managed?: boolean;
     values: {
       kind: string;
       base_url: string;
@@ -324,10 +326,12 @@ const Endpoints = () => {
   // overwrite the form. It populates this state instead, which renders a diff
   // panel so the user can review every field before confirming "Apply".
   const [previewTemplateId, setPreviewTemplateId] = useState<string>("");
+  // Form mode: Simple shows just name/key/model; Advanced is the full form.
+  const [formMode, setFormMode] = useState<"simple" | "advanced">("advanced");
 
   const isEdit = !!form.id;
 
-  const startCreate = () => {
+  const startCreate = (templateId?: string) => {
     setForm(emptyForm);
     setTestResult(null);
     setLiveModels(null);
@@ -335,7 +339,12 @@ const Endpoints = () => {
     setLastRefreshOk(false);
     setSavedDefaultModel("");
     setPreviewTemplateId("");
+    setFormMode(templateId ? "simple" : "advanced");
     setOpen(true);
+    if (templateId) {
+      // Defer so emptyForm settles, then apply the template inline.
+      setTimeout(() => applyTemplate(templateId), 0);
+    }
   };
 
   const startEdit = (e: EndpointRow) => {
@@ -364,6 +373,7 @@ const Endpoints = () => {
     setLastRefreshOk(false);
     setSavedDefaultModel(e.default_model ?? "");
     setPreviewTemplateId("");
+    setFormMode("advanced");
     setOpen(true);
   };
 
@@ -880,11 +890,92 @@ const Endpoints = () => {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button onClick={startCreate} size="sm">
+          <Button onClick={() => startCreate()} size="sm">
             <Plus className="h-3.5 w-3.5 mr-1.5" /> New endpoint
           </Button>
         </div>
       </div>
+
+      {/* Provider gallery — pre-built templates grouped by category. */}
+      {customSchema && customSchema.templates.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base font-medium">Add an endpoint</CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              Pick a pre-configured provider to get started in one click, or build a custom endpoint.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {(["managed", "hosted", "self_hosted"] as const).map((cat) => {
+              const items = customSchema.templates.filter(
+                (t) => (t.category ?? "hosted") === cat,
+              );
+              if (items.length === 0) return null;
+              const heading =
+                cat === "managed" ? "Managed"
+                : cat === "hosted" ? "Hosted providers"
+                : "Self-hosted";
+              return (
+                <div key={cat}>
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                    {heading}
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    {items.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => startCreate(t.id)}
+                        className="group text-left rounded-md border border-border bg-card hover:border-primary/40 hover:bg-accent/30 transition-colors p-3 flex items-start gap-3"
+                      >
+                        <div className="h-8 w-8 rounded-md bg-primary/10 text-primary flex items-center justify-center font-semibold text-sm shrink-0">
+                          {t.label.slice(0, 1).toUpperCase()}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-sm font-medium truncate">{t.label}</span>
+                            {t.managed && (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-primary/10 text-primary border-primary/30">
+                                no key needed
+                              </Badge>
+                            )}
+                          </div>
+                          {t.description && (
+                            <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">
+                              {t.description}
+                            </p>
+                          )}
+                        </div>
+                        <Plus className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+            <div>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                Bring your own
+              </h3>
+              <button
+                type="button"
+                onClick={() => startCreate()}
+                className="w-full text-left rounded-md border border-dashed border-border hover:border-primary/40 hover:bg-accent/30 transition-colors p-3 flex items-center gap-3"
+              >
+                <div className="h-8 w-8 rounded-md bg-muted text-muted-foreground flex items-center justify-center shrink-0">
+                  <Plus className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">Custom endpoint</div>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    Configure any OpenAI- or Anthropic-compatible URL by hand (Advanced mode).
+                  </p>
+                </div>
+              </button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader><CardTitle className="text-base font-medium">Saved endpoints</CardTitle></CardHeader>
@@ -900,9 +991,9 @@ const Endpoints = () => {
             <EmptyState
               icon={<Plug className="h-5 w-5" />}
               title="No endpoints yet"
-              description="Add Ollama, vLLM, Azure, Groq, or any custom OpenAI-compatible URL."
+              description="Pick a provider from the gallery above (OpenAI, Claude, Gemini, OpenRouter, Lovable AI, Ollama, …) or build a custom endpoint."
               action={
-                <Button onClick={startCreate} size="sm">
+                <Button onClick={() => startCreate()} size="sm">
                   <Plus className="h-3.5 w-3.5 mr-1.5" /> New endpoint
                 </Button>
               }
@@ -956,7 +1047,26 @@ const Endpoints = () => {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{isEdit ? "Edit endpoint" : "New custom endpoint"}</DialogTitle>
+            <div className="flex items-center justify-between gap-3">
+              <DialogTitle>{isEdit ? "Edit endpoint" : "New endpoint"}</DialogTitle>
+              <div className="inline-flex items-center rounded-md border bg-muted/30 p-0.5 shrink-0">
+                {(["simple", "advanced"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setFormMode(m)}
+                    aria-pressed={formMode === m}
+                    className={`px-2.5 py-1 text-xs rounded-sm transition-colors capitalize ${
+                      formMode === m
+                        ? "bg-background text-foreground shadow-sm font-medium"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </div>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
@@ -970,7 +1080,27 @@ const Endpoints = () => {
               />
             </div>
 
-            {customSchema && !isEdit && (
+            {formMode === "simple" && (
+              <div className="rounded-md border border-border/60 bg-muted/20 p-3 space-y-1.5 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">Base URL</span>
+                  <code className="font-mono truncate text-foreground">{form.base_url || "—"}</code>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">Auth</span>
+                  <span className="font-mono text-foreground">{form.auth_scheme}</span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">Format</span>
+                  <span className="font-mono text-foreground">{form.response_format}</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground pt-1 border-t border-border/60 mt-2">
+                  Need to tweak paths, headers, or response format? Switch to <strong>Advanced</strong>.
+                </p>
+              </div>
+            )}
+
+            {formMode === "advanced" && customSchema && !isEdit && (
               <div className="space-y-2">
                 <Label>Template (optional)</Label>
                 {/* Selecting a template only stages a preview — nothing is written
@@ -1078,6 +1208,7 @@ const Endpoints = () => {
               </div>
             )}
 
+            {formMode === "advanced" && (<>
             <div>
               <Label>Kind</Label>
               <Select value={form.kind} onValueChange={(v) => setForm({ ...form, kind: v })}>
@@ -1200,6 +1331,7 @@ const Endpoints = () => {
                 </div>
               )}
             </div>
+            </>)}
 
             {requiresKey && (
               <div>
@@ -1382,6 +1514,7 @@ const Endpoints = () => {
                 )}
               </div>
 
+              {formMode === "advanced" && (
               <div>
                 <div className="flex items-center justify-between">
                   <Label className="text-xs">Fallback model suggestions</Label>
@@ -1406,9 +1539,10 @@ const Endpoints = () => {
                   Shown if <code>/models</code> can't be reached at request time.
                 </p>
               </div>
+              )}
             </div>
 
-
+            {formMode === "advanced" && (
             <div>
               <div className="flex items-center justify-between">
                 <Label>Extra headers</Label>
@@ -1461,6 +1595,7 @@ const Endpoints = () => {
                 ))}
               </div>
             </div>
+            )}
 
             <div className="space-y-2">
               {/* Validation summary — visible whenever required fields are missing
@@ -1549,7 +1684,7 @@ const Endpoints = () => {
             </div>
 
             {/* Copyable curl examples — generated from the current form state */}
-            {(() => {
+            {formMode === "advanced" && (() => {
               const ex = buildCurlExamples();
               if (!ex) return null;
               return (

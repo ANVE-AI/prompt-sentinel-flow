@@ -202,9 +202,78 @@ export const CUSTOM_SCHEMA = {
   // every field as optional and only apply ones that are present.
   templates: [
     {
+      id: "lovable_managed",
+      label: "Lovable AI (managed)",
+      description: "Hosted gateway across Gemini and GPT-5. No API key needed — uses your Lovable Cloud workspace credits.",
+      category: "managed",
+      managed: true,
+      values: {
+        kind: "openai_compatible",
+        base_url: "https://ai.gateway.lovable.dev",
+        path_prefix: "/v1",
+        chat_path: "/chat/completions",
+        models_path: "/models",
+        auth_scheme: "none",
+        response_format: "chat_completions",
+        default_model: "google/gemini-3-flash-preview",
+        model_suggestions: "google/gemini-3.1-pro-preview, google/gemini-3-flash-preview, google/gemini-2.5-pro, google/gemini-2.5-flash, google/gemini-2.5-flash-lite, openai/gpt-5, openai/gpt-5-mini, openai/gpt-5-nano, openai/gpt-5.2",
+      },
+    },
+    {
+      id: "openai",
+      label: "OpenAI",
+      description: "OpenAI Chat Completions (gpt-5, gpt-4.1, gpt-4o, o4). Bearer token.",
+      category: "hosted",
+      values: {
+        kind: "openai_compatible",
+        base_url: "https://api.openai.com",
+        path_prefix: "/v1",
+        chat_path: "/chat/completions",
+        models_path: "/models",
+        auth_scheme: "bearer",
+        response_format: "chat_completions",
+        default_model: "gpt-5-mini",
+        model_suggestions: "gpt-5, gpt-5-mini, gpt-5-nano, gpt-4.1-mini, gpt-4o-mini, gpt-4o, o4-mini",
+      },
+    },
+    {
+      id: "gemini",
+      label: "Google Gemini",
+      description: "Google AI Studio's OpenAI-compatible endpoint. Bearer token from aistudio.google.com.",
+      category: "hosted",
+      values: {
+        kind: "openai_compatible",
+        base_url: "https://generativelanguage.googleapis.com",
+        path_prefix: "/v1beta/openai",
+        chat_path: "/chat/completions",
+        models_path: "/models",
+        auth_scheme: "bearer",
+        response_format: "chat_completions",
+        default_model: "gemini-2.5-flash",
+        model_suggestions: "gemini-2.5-pro, gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.0-flash",
+      },
+    },
+    {
+      id: "perplexity",
+      label: "Perplexity (Sonar)",
+      description: "Sonar models with built-in web search. Bearer token.",
+      category: "hosted",
+      values: {
+        kind: "openai_compatible",
+        base_url: "https://api.perplexity.ai",
+        chat_path: "/chat/completions",
+        models_path: "/v1/models",
+        auth_scheme: "bearer",
+        response_format: "chat_completions",
+        default_model: "sonar",
+        model_suggestions: "sonar, sonar-pro, sonar-reasoning-pro, sonar-deep-research",
+      },
+    },
+    {
       id: "ollama",
       label: "Ollama (local)",
       description: "Run llama.cpp / Ollama on your machine. No auth needed.",
+      category: "self_hosted",
       values: {
         kind: "openai_compatible",
         base_url: "http://localhost:11434",
@@ -217,10 +286,12 @@ export const CUSTOM_SCHEMA = {
         model_suggestions: "llama3.1, llama3.2, qwen2.5, mistral, gpt-oss:20b",
       },
     },
+
     {
       id: "vllm",
       label: "vLLM / LM Studio / TGI",
       description: "Self-hosted OpenAI-compatible server. Bearer token (often any string). Tip: run `curl http://localhost:8000/v1/models` to discover the served model id.",
+      category: "self_hosted",
       values: {
         kind: "openai_compatible",
         base_url: "http://localhost:8000",
@@ -237,6 +308,7 @@ export const CUSTOM_SCHEMA = {
       id: "azure_openai",
       label: "Azure OpenAI",
       description: "Replace YOUR-RESOURCE with your Azure resource name. Default model must be your Azure deployment name (not the underlying model name). Uses api-key header + api-version.",
+      category: "hosted",
       values: {
         kind: "openai_compatible",
         base_url: "https://YOUR-RESOURCE.openai.azure.com",
@@ -255,6 +327,7 @@ export const CUSTOM_SCHEMA = {
       id: "groq",
       label: "Groq",
       description: "Fast inference for Llama, GPT-OSS, Gemma, DeepSeek. Bearer token.",
+      category: "hosted",
       values: {
         kind: "openai_compatible",
         base_url: "https://api.groq.com",
@@ -271,6 +344,7 @@ export const CUSTOM_SCHEMA = {
       id: "anthropic",
       label: "Anthropic (Claude)",
       description: "Direct Anthropic Messages API. Uses x-api-key + anthropic-version.",
+      category: "hosted",
       values: {
         kind: "anthropic",
         base_url: "https://api.anthropic.com",
@@ -288,6 +362,7 @@ export const CUSTOM_SCHEMA = {
       id: "openrouter",
       label: "OpenRouter",
       description: "One API for many providers. Bearer token.",
+      category: "hosted",
       values: {
         kind: "openai_compatible",
         base_url: "https://openrouter.ai",
@@ -304,6 +379,7 @@ export const CUSTOM_SCHEMA = {
       id: "together",
       label: "Together AI",
       description: "Open-source models. Bearer token.",
+      category: "hosted",
       values: {
         kind: "openai_compatible",
         base_url: "https://api.together.xyz",
@@ -320,6 +396,7 @@ export const CUSTOM_SCHEMA = {
       id: "fireworks",
       label: "Fireworks",
       description: "Fast hosted open-source models. Bearer token.",
+      category: "hosted",
       values: {
         kind: "openai_compatible",
         base_url: "https://api.fireworks.ai",
@@ -336,6 +413,7 @@ export const CUSTOM_SCHEMA = {
       id: "xai",
       label: "xAI Grok",
       description: "Grok 4 models. Bearer token.",
+      category: "hosted",
       values: {
         kind: "openai_compatible",
         base_url: "https://api.x.ai",
@@ -352,6 +430,7 @@ export const CUSTOM_SCHEMA = {
       id: "mistral",
       label: "Mistral",
       description: "Mistral La Plateforme. Bearer token.",
+      category: "hosted",
       values: {
         kind: "openai_compatible",
         base_url: "https://api.mistral.ai",
@@ -368,6 +447,7 @@ export const CUSTOM_SCHEMA = {
       id: "deepseek",
       label: "DeepSeek",
       description: "DeepSeek chat + reasoner. Bearer token.",
+      category: "hosted",
       values: {
         kind: "openai_compatible",
         base_url: "https://api.deepseek.com",
@@ -384,6 +464,7 @@ export const CUSTOM_SCHEMA = {
       id: "openai_responses",
       label: "OpenAI (Responses API)",
       description: "Hits /v1/responses instead of /v1/chat/completions. We translate request/response shapes.",
+      category: "hosted",
       values: {
         kind: "openai_compatible",
         base_url: "https://api.openai.com",
