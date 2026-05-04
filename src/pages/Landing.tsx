@@ -489,6 +489,7 @@ const Landing = () => {
       </div>
     </footer>
   </div>
-);
+  );
+};
 
 export default Landing;
