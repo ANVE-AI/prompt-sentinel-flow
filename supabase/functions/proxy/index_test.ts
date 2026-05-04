@@ -210,6 +210,7 @@ Deno.test("proxy rejects requests with no Authorization header", async () => {
 //      the proxy must reject before reaching the provider call path.
 //   4. The whole burst completes well under a generous wall-clock budget.
 Deno.test("proxy throttles repeated revoked-key auth failures per IP", async () => {
+  await clearRateLimitBuckets();
   const seeded = await seedRevokedKey();
   try {
     const before = await countLogsForKey(seeded.id);
