@@ -280,12 +280,22 @@ const ROLE_IMPERSONATION = [
 const PSEUDO_SYSTEM_RE = /(^|\n)\s*(?:#{1,3}\s*system|system\s*[:>])/i;
 const FENCED_POLICY_RE = /```(?:policy|system|rules?)[\s\S]{120,}```/i;
 
+// Credential patterns. Aligned with the modern PII openai_key pattern that
+// includes the proj-/svcacct-/admin-/None- subkey prefixes — the older
+// "sk-+20 alnum" pattern missed every post-2024 OpenAI key shape.
+// aws_secret intentionally NOT included here: the "40-char base64" shape is
+// hugely false-positive-prone (jwt sigs, hashes, base64 chunks); aws_access_key
+// catches the unambiguous half. Stripe split into live/test for grep-grep.
+// anveguard_key included so the engine catches its own leaked keys.
 const CRED_PATTERNS: { name: string; re: RegExp }[] = [
-  { name: "openai_key", re: /sk-[A-Za-z0-9]{20,}/g },
-  { name: "anthropic_key", re: /sk-ant-[A-Za-z0-9-]{20,}/g },
+  { name: "openai_key", re: /\bsk-(?:proj-|svcacct-|admin-|None-)?[A-Za-z0-9_-]{20,}\b/g },
+  { name: "anthropic_key", re: /\bsk-ant-[A-Za-z0-9_-]{20,}\b/g },
+  { name: "anveguard_key", re: /\bag_live_[A-Za-z0-9_-]{20,}\b/g },
   { name: "aws_access_key", re: /\bAKIA[0-9A-Z]{16}\b/g },
-  { name: "aws_secret", re: /\b[A-Za-z0-9/+=]{40}\b/g },
-  { name: "stripe_key", re: /\b(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{24,}\b/g },
+  { name: "stripe_live_key", re: /\b(?:sk|pk|rk)_live_[A-Za-z0-9]{24,}\b/g },
+  { name: "stripe_test_key", re: /\b(?:sk|pk|rk)_test_[A-Za-z0-9]{24,}\b/g },
+  { name: "github_pat", re: /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36}\b/g },
+  { name: "google_api_key", re: /\bAIza[A-Za-z0-9_-]{35}\b/g },
   { name: "jwt", re: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g },
   { name: "private_key_block", re: /-----BEGIN (?:RSA |EC |OPENSSH |)PRIVATE KEY-----/g },
 ];
@@ -744,16 +754,36 @@ export function evaluateHeuristics(
   rawText: string,
   normalizedText: string,
   direction: "input" | "output",
+  ctx: { systemPrompt?: string; toolsRequested?: boolean } = {},
 ): LayerVerdict[] {
   // Built-in unconditional heuristics, independent of user-defined rules.
   // Each detector may opt into a stronger verdict than the default "flag" by
   // returning `verdict` in its result (used by narrative_misdirection's
   // persona-bypass tier which is a high-confidence jailbreak signal).
+  //
+  // Output-direction detectors that need request context (system_prompt_leak,
+  // tool_injection) read it from `ctx`. credential_shape runs in any
+  // direction and is a strong block signal because secret-shape strings in
+  // output are almost always RAG bleed-through or training-data extraction.
   const out: LayerVerdict[] = [];
-  for (const name of ["role_impersonation", "pseudo_system_block", "encoded_density", "narrative_misdirection", "deepfake_intent", "unicode_smuggling", "output_repetition", "output_pii_leak", "url_exfil"] as const) {
-    const r = DETECTORS[name]({ rawText, normalizedText, direction });
+  for (const name of ["role_impersonation", "pseudo_system_block", "encoded_density", "narrative_misdirection", "deepfake_intent", "unicode_smuggling", "output_repetition", "output_pii_leak", "url_exfil", "system_prompt_leak", "tool_injection", "credential_shape"] as const) {
+    const r = DETECTORS[name]({
+      rawText,
+      normalizedText,
+      direction,
+      systemPrompt: ctx.systemPrompt,
+      toolsRequested: ctx.toolsRequested,
+    });
     if (r.matched) {
-      out.push({ layer: "heuristics", verdict: r.verdict ?? "flag", reason: r.reason, rule: name });
+      // Default verdicts vary by detector severity:
+      //   credential_shape → block (verbatim secret in output is decisive)
+      //   system_prompt_leak → block (verbatim system-prompt slice in output)
+      //   everything else → whatever the detector returned, defaulting to flag
+      const defaultVerdict =
+        name === "credential_shape" ? "block" :
+        name === "system_prompt_leak" ? "block" :
+        "flag";
+      out.push({ layer: "heuristics", verdict: r.verdict ?? defaultVerdict, reason: r.reason, rule: name });
     }
   }
   return out;
@@ -1637,7 +1667,10 @@ export async function evaluate(input: EvaluateInput, ctx: { systemPrompt?: strin
   }
 
   if (settings.enable_heuristics) {
-    layers.push(...evaluateHeuristics(text, norm.normalized, direction));
+    layers.push(...evaluateHeuristics(text, norm.normalized, direction, {
+      systemPrompt: ctx.systemPrompt,
+      toolsRequested: ctx.toolsRequested,
+    }));
   }
 
   // Dedicated jailbreak / prompt-injection guard. Defaults ON. The action
