@@ -58,6 +58,11 @@ const Overview = () => {
     n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` :
     n >= 1_000 ? `${(n / 1_000).toFixed(1)}k` : String(n);
 
+  // True only after the first fetch settles — drives empty-state messaging
+  // for the selected window without flashing during initial loads or refetches.
+  const noData = !isLoading && data ? (data.total ?? 0) === 0 : false;
+  const isUpdating = isFetching && !isLoading;
+
   return (
     <div className="px-4 md:px-6 py-5 space-y-6 max-w-[1200px] mx-auto">
       <PageHeader
