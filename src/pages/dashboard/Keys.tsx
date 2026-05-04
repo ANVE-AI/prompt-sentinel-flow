@@ -312,7 +312,7 @@ const Keys = () => {
   });
 
   const reset = () => {
-    setOpen(false); setNewKey(null); setName("");
+    setOpen(false); setNewKey(null); setNewKeyId(null); setName("");
     setProviderId("lovable"); setModel(""); setProviderKey("");
     setCustom(emptyCustom); setTestResult(null);
     setPrefilledEndpointId(null);
@@ -588,7 +588,22 @@ const Keys = () => {
                     <Button size="sm" variant="ghost" onClick={() => copy(newKey)}><Copy className="h-3.5 w-3.5" /></Button>
                   </div>
                 </div>
-                <DialogFooter><Button onClick={reset}>Done</Button></DialogFooter>
+                <DialogFooter className="gap-2 sm:gap-2">
+                  {newKeyId && (
+                    <Button
+                      variant="default"
+                      onClick={() => {
+                        const id = newKeyId;
+                        reset();
+                        navigate(`/dashboard/playground?key=${id}`);
+                      }}
+                    >
+                      <Play className="h-3.5 w-3.5" />
+                      Try in Playground
+                    </Button>
+                  )}
+                  <Button variant="outline" onClick={reset}>Done</Button>
+                </DialogFooter>
               </>
             )}
           </DialogContent>
