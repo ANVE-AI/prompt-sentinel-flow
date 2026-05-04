@@ -487,6 +487,11 @@ export type Database = {
           system_prompt_max_length: number
           throttle_flag_threshold: number
           throttle_window_minutes: number
+          token_spike_alert_enabled: boolean
+          token_spike_min_tokens: number
+          token_spike_ratio: number
+          token_spike_webhook_url: string | null
+          token_spike_window_hours: number
           updated_at: string
           user_id: string
           workspace_purpose: string | null
@@ -518,6 +523,11 @@ export type Database = {
           system_prompt_max_length?: number
           throttle_flag_threshold?: number
           throttle_window_minutes?: number
+          token_spike_alert_enabled?: boolean
+          token_spike_min_tokens?: number
+          token_spike_ratio?: number
+          token_spike_webhook_url?: string | null
+          token_spike_window_hours?: number
           updated_at?: string
           user_id: string
           workspace_purpose?: string | null
@@ -549,6 +559,11 @@ export type Database = {
           system_prompt_max_length?: number
           throttle_flag_threshold?: number
           throttle_window_minutes?: number
+          token_spike_alert_enabled?: boolean
+          token_spike_min_tokens?: number
+          token_spike_ratio?: number
+          token_spike_webhook_url?: string | null
+          token_spike_window_hours?: number
           updated_at?: string
           user_id?: string
           workspace_purpose?: string | null
