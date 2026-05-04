@@ -1540,7 +1540,7 @@ const Endpoints = () => {
               </div>
             </div>
 
-
+            {formMode === "advanced" && (
             <div>
               <div className="flex items-center justify-between">
                 <Label>Extra headers</Label>
