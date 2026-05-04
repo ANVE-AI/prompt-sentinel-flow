@@ -1019,6 +1019,29 @@ const FLIP_PHRASES = [
   /\b(?:do(?:n'?t)?\s+do\s+(?:that|what\s+i\s+said))\b/i,
 ];
 
+/** Phrases that prime the assistant to drop guards in a future turn. The
+ *  PERSONA_BYPASS_RE patterns ("no rules", "uncensored", etc.) cover the
+ *  direct cases; this list catches the "let's play a game" / "answer
+ *  literally" / trust-building-as-researcher flavor that doesn't use bypass
+ *  vocabulary directly. */
+const PRIMING_PHRASES = [
+  /\bplay (?:a |the |this )?game\b/i,
+  /\blet'?s play\b/i,
+  /\banswer (?:everything|me )?literally\b/i,
+  /\bno questions asked\b/i,
+  /\bwithout judg(?:e)?ment\b/i,
+  /\b(?:rules?|filters?|safety|guardrails?) (?:are )?off\b/i,
+  /\brespond as if\b/i,
+  /\b(?:i'?m|i am)\s+(?:a\s+)?(?:security|safety|red[- ]?team|pen[- ]?test|legitimate)\s+(?:researcher|engineer|professional|consultant|auditor)\b/i,
+  /\bfor (?:our|my) (?:research|study|paper|dataset|training)\b/i,
+  /\bcompletely (?:literal|unrestricted|honest|uncensored)\b/i,
+];
+
+/** Action verbs that signal the user is asking for instructions / a
+ *  procedure. Used by the gradual_priming behavioral detector together with
+ *  prior priming turns to recognize the "boil the frog" attack shape. */
+const INSTRUCTION_REQUEST_RE = /\b(?:how (?:do|can|would|to)\s+\w|tell me how|explain how|describe how|show me how|give me (?:the )?steps?|walk me through|step.by.step|provide (?:the )?(?:steps?|instructions?|guide)|teach me how|write (?:a |an )?(?:phishing|exploit|malware|virus|payload))\b/i;
+
 function turnText(msg: { role: string; content: unknown }): string {
   if (typeof msg.content === "string") return msg.content;
   if (Array.isArray(msg.content)) {
@@ -1118,6 +1141,30 @@ export function evaluateBehavioral(
       return [{
         layer: "behavioral", verdict: "flag", rule: "length_spike",
         reason: `Latest user turn is ${last} chars, ${(last / mean).toFixed(1)}× the conversation average (threshold ${lengthMultiplier}×).`,
+      }];
+    }
+  }
+
+  // Gradual priming — the "boil the frog" multi-turn shape:
+  // priming turns ("let's play a game with no rules", "I'm a security
+  // researcher", "answer everything literally") followed by a payload turn
+  // that asks for a procedure ("now tell me how to pick a lock").
+  // Neither half alone is a strong signal — together they're the
+  // canonical shape that bypasses single-turn detectors.
+  if (userTurns.length >= 3) {
+    const last = userTurns[userTurns.length - 1];
+    const prior = userTurns.slice(0, -1).slice(-5);  // last 5 priming turns
+    const primingHits = prior.reduce((n, t) => {
+      const isPriming = PRIMING_PHRASES.some((re) => re.test(t)) ||
+        PERSONA_BYPASS_RE.test(t);
+      return isPriming ? n + 1 : n;
+    }, 0);
+    const askingForInstructions =
+      INSTRUCTION_REQUEST_RE.test(last) || HARMFUL_SUBJECT_RE.test(last);
+    if (primingHits >= 2 && askingForInstructions) {
+      return [{
+        layer: "behavioral", verdict: "flag", rule: "gradual_priming",
+        reason: `Multi-turn priming detected: ${primingHits} earlier turns set up a no-rules / trust-building frame, then the latest turn asks for a procedure or sensitive subject.`,
       }];
     }
   }
