@@ -21,6 +21,9 @@ type Draft = {
   token_spike_min_tokens: number;
   token_spike_ratio: number;
   token_spike_webhook_url: string;
+  severity_baseline_days: number;
+  severity_volume_dampening: number;
+  severity_score_cap: number;
 };
 
 const EMPTY: Draft = {
@@ -29,6 +32,9 @@ const EMPTY: Draft = {
   token_spike_min_tokens: 10000,
   token_spike_ratio: 3,
   token_spike_webhook_url: "",
+  severity_baseline_days: 7,
+  severity_volume_dampening: 0.6,
+  severity_score_cap: 100,
 };
 
 export function TokenAlertsSection() {
@@ -49,6 +55,9 @@ export function TokenAlertsSection() {
       token_spike_min_tokens: clampInt(s.token_spike_min_tokens ?? 10000, 0, 100_000_000),
       token_spike_ratio: clampNum(s.token_spike_ratio ?? 3, 1.1, 50),
       token_spike_webhook_url: typeof s.token_spike_webhook_url === "string" ? s.token_spike_webhook_url : "",
+      severity_baseline_days: clampInt(s.severity_baseline_days ?? 7, 1, 30),
+      severity_volume_dampening: clampNum(s.severity_volume_dampening ?? 0.6, 0, 1),
+      severity_score_cap: clampInt(s.severity_score_cap ?? 100, 1, 100),
     };
   }, [settingsQ.data]);
 
@@ -65,6 +74,9 @@ export function TokenAlertsSection() {
         token_spike_min_tokens: draft.token_spike_min_tokens,
         token_spike_ratio: draft.token_spike_ratio,
         token_spike_webhook_url: draft.token_spike_webhook_url.trim() || null,
+        severity_baseline_days: draft.severity_baseline_days,
+        severity_volume_dampening: draft.severity_volume_dampening,
+        severity_score_cap: draft.severity_score_cap,
       },
     }),
     onSuccess: () => {
