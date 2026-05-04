@@ -5,6 +5,7 @@ import { PolicyTemplatesSection } from "@/components/policies/policy-templates-s
 import { KnownIntentsSection } from "@/components/policies/known-intents-section";
 import { GuardrailsSection } from "@/components/policies/guardrails-section";
 import { CompressionSection } from "@/components/policies/compression-section";
+import { TokenAlertsSection } from "@/components/policies/token-alerts-section";
 
 const Policies = () => {
   return (
@@ -20,6 +21,7 @@ const Policies = () => {
       />
       <GuardrailsSection />
       <CompressionSection />
+      <TokenAlertsSection />
       <PolicyTemplatesSection />
       <KnownIntentsSection />
       <PoliciesV2Crud />
