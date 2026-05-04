@@ -896,6 +896,87 @@ const Endpoints = () => {
         </div>
       </div>
 
+      {/* Provider gallery — pre-built templates grouped by category. */}
+      {customSchema && customSchema.templates.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base font-medium">Add an endpoint</CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              Pick a pre-configured provider to get started in one click, or build a custom endpoint.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {(["managed", "hosted", "self_hosted"] as const).map((cat) => {
+              const items = customSchema.templates.filter(
+                (t) => (t.category ?? "hosted") === cat,
+              );
+              if (items.length === 0) return null;
+              const heading =
+                cat === "managed" ? "Managed"
+                : cat === "hosted" ? "Hosted providers"
+                : "Self-hosted";
+              return (
+                <div key={cat}>
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                    {heading}
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    {items.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => startCreate(t.id)}
+                        className="group text-left rounded-md border border-border bg-card hover:border-primary/40 hover:bg-accent/30 transition-colors p-3 flex items-start gap-3"
+                      >
+                        <div className="h-8 w-8 rounded-md bg-primary/10 text-primary flex items-center justify-center font-semibold text-sm shrink-0">
+                          {t.label.slice(0, 1).toUpperCase()}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-sm font-medium truncate">{t.label}</span>
+                            {t.managed && (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-primary/10 text-primary border-primary/30">
+                                no key needed
+                              </Badge>
+                            )}
+                          </div>
+                          {t.description && (
+                            <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">
+                              {t.description}
+                            </p>
+                          )}
+                        </div>
+                        <Plus className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+            <div>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                Bring your own
+              </h3>
+              <button
+                type="button"
+                onClick={() => startCreate()}
+                className="w-full text-left rounded-md border border-dashed border-border hover:border-primary/40 hover:bg-accent/30 transition-colors p-3 flex items-center gap-3"
+              >
+                <div className="h-8 w-8 rounded-md bg-muted text-muted-foreground flex items-center justify-center shrink-0">
+                  <Plus className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">Custom endpoint</div>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    Configure any OpenAI- or Anthropic-compatible URL by hand (Advanced mode).
+                  </p>
+                </div>
+              </button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader><CardTitle className="text-base font-medium">Saved endpoints</CardTitle></CardHeader>
         <CardContent>
