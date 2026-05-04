@@ -283,7 +283,29 @@ Deno.serve(async (req) => {
                 : (keyRow.custom_kind === "ollama" ? "ollama" : null))
             : (getProvider(keyRow.provider)?.kind === "anthropic" ? "anthropic" : null);
           const parsed = parseModelsResponse(j, hint);
-          const models = parsed.ids.length > 0 ? parsed.ids : fallbackSuggestions;
+
+          // Provider-specific filtering + normalization (e.g. Perplexity
+          // advertises external vendor ids in /v1/models that its chat
+          // endpoint won't accept, and uses "perplexity/sonar" instead of
+          // the bare "sonar").
+          const def = keyRow.provider !== "custom" ? getProvider(keyRow.provider) : null;
+          let filteredModels = parsed.models;
+          if (def?.model_id_filter) {
+            filteredModels = filteredModels.filter((m) => def.model_id_filter!({ id: m.id, owned_by: m.owned_by ?? null }));
+          }
+          let ids = filteredModels.map((m) => m.id);
+          if (def?.model_id_normalize) {
+            const seen = new Set<string>();
+            const out: string[] = [];
+            for (const raw of ids) {
+              const norm = def.model_id_normalize(raw);
+              if (!norm || seen.has(norm)) continue;
+              seen.add(norm);
+              out.push(norm);
+            }
+            ids = out;
+          }
+          const models = ids.length > 0 ? ids : fallbackSuggestions;
           modelsCache.set(cacheKey, { models, exp: Date.now() + 5 * 60_000 });
           return json({ models, source: "live", shape: parsed.shape });
         } catch (e) {

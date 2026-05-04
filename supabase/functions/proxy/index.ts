@@ -1443,14 +1443,18 @@ async function handleRequest(req: Request): Promise<Response> {
       ...resolved.headers,
     };
     chosenModel = a.model;
+    // Provider-specific model id rewriting (e.g. Perplexity expects "sonar"
+    // not "perplexity/sonar"). Applied transparently so clients can paste
+    // either form.
+    const forwardModel = resolved.normalize_model ? resolved.normalize_model(a.model) : a.model;
 
     let forwardBody: any;
     if (forwardFormat === "anthropic_messages") {
-      forwardBody = openaiToAnthropicRequest({ ...body, model: a.model });
+      forwardBody = openaiToAnthropicRequest({ ...body, model: forwardModel });
     } else if (forwardFormat === "responses") {
-      forwardBody = chatToResponsesRequest({ ...body, model: a.model, stream });
+      forwardBody = chatToResponsesRequest({ ...body, model: forwardModel, stream });
     } else {
-      forwardBody = { ...body, model: a.model, stream };
+      forwardBody = { ...body, model: forwardModel, stream };
     }
 
     const ctrl = new AbortController();

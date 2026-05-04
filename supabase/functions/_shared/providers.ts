@@ -15,6 +15,19 @@ export interface ProviderDef {
   model_suggestions: string[];
   key_placeholder: string;
   get_key_url: string;
+  /**
+   * Optional predicate to keep only models the provider's chat endpoint can
+   * actually accept. Some providers (notably Perplexity) advertise external
+   * vendor models in their `/v1/models` list that they don't actually serve.
+   * Receives the parsed model object (id + owned_by + display_name).
+   */
+  model_id_filter?: (m: { id: string; owned_by?: string | null }) => boolean;
+  /**
+   * Optional rewriter to translate a model id into the form the chat endpoint
+   * expects. E.g. Perplexity returns `perplexity/sonar` from `/v1/models` but
+   * its `/chat/completions` only accepts the bare `sonar`.
+   */
+  model_id_normalize?: (id: string) => string;
 }
 
 export const PROVIDERS: ProviderDef[] = [
@@ -103,6 +116,19 @@ export const PROVIDERS: ProviderDef[] = [
     model_suggestions: ["sonar", "sonar-pro", "sonar-reasoning-pro", "sonar-deep-research"],
     key_placeholder: "pplx-...",
     get_key_url: "https://www.perplexity.ai/settings/api",
+    // Perplexity's /v1/models advertises external vendor ids (openai/*,
+    // anthropic/*, nvidia/*, xai/*) that their /chat/completions endpoint
+    // does NOT actually accept. Keep only ids Perplexity itself serves.
+    model_id_filter: (m) => {
+      const id = (m.id || "").toLowerCase();
+      const owner = (m.owned_by || "").toLowerCase();
+      if (owner === "perplexity") return true;
+      if (id.startsWith("perplexity/")) return true;
+      if (/^sonar(\b|[-/])/.test(id)) return true;
+      return false;
+    },
+    // /v1/models returns "perplexity/sonar"; /chat/completions wants "sonar".
+    model_id_normalize: (id) => id.replace(/^perplexity\//, ""),
   },
   {
     id: "kimi",
@@ -828,6 +854,8 @@ export function resolveEndpoint(keyRow: {
   response_format: ResponseFormat;
   /** Headers ready to send (auth already applied where applicable). */
   headers: Record<string, string>;
+  /** Optional rewriter to apply to the model id before forwarding. */
+  normalize_model?: (id: string) => string;
 } {
   if (keyRow.provider === "custom") {
     const r = resolveCustomEndpoint({
@@ -874,5 +902,12 @@ export function resolveEndpoint(keyRow: {
     headers["X-Title"] = "AnveGuard";
   }
   const response_format: ResponseFormat = def.kind === "anthropic" ? "anthropic_messages" : "chat_completions";
-  return { url: def.url, models_url: def.models_url, kind: def.kind, response_format, headers };
+  return {
+    url: def.url,
+    models_url: def.models_url,
+    kind: def.kind,
+    response_format,
+    headers,
+    normalize_model: def.model_id_normalize,
+  };
 }
