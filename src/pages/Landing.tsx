@@ -44,8 +44,8 @@ const PILLARS: { eyebrow: string; title: string; body: string; bullets: string[]
   {
     eyebrow: "01 / Inspect",
     title: "Every prompt and response, searchable.",
-    body: "A live request log with status, latency, model, key, and the full payload — one click away in a side sheet.",
-    bullets: ["Live tail with auto-refresh", "Filter by status & key", "Pretty / raw JSON view"],
+    body: "A live request log with status, latency, model, key, and the full payload — plus token spike alerts with a calibratable severity score so anomalies surface early.",
+    bullets: ["Live tail with auto-refresh", "Token spike alerts (in/out)", "Severity score 0–100"],
   },
   {
     eyebrow: "02 / Enforce",
