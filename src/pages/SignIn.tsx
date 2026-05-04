@@ -1,6 +1,7 @@
 import { SignIn } from "@clerk/clerk-react";
 import { Logo } from "@/components/Logo";
 import { AuthShowcasePane } from "@/components/auth/AuthShowcasePane";
+import { QuickstartHelpPanel } from "@/components/quickstart-help-panel";
 
 const SignInPage = () => (
   <div className="min-h-screen grid lg:grid-cols-[480px_1fr] bg-background">
@@ -16,6 +17,12 @@ const SignInPage = () => (
           forceRedirectUrl="/dashboard"
           appearance={{ elements: { rootBox: "w-full", card: "shadow-none border-none bg-transparent" } }}
         />
+        {/* Inline quickstart for new users who landed here first — they can
+            read all setup steps and copy a working curl without first
+            navigating into the dashboard. */}
+        <div className="mt-8">
+          <QuickstartHelpPanel variant="compact" defaultOpen={false} />
+        </div>
       </div>
     </div>
     <AuthShowcasePane />
