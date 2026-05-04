@@ -184,6 +184,18 @@ const Overview = () => {
           tone === "block" ? "bg-status-block" :
           tone === "warn" ? "bg-status-warn" : "bg-status-ok";
         const score = tokenSpike.severity_score ?? 0;
+        // Contextualize the short detector window against the user's currently
+        // selected dashboard range so the spike is interpretable in the same
+        // units the rest of the page is showing.
+        const rangeDays = RANGE_DAYS[range];
+        const rangeHours = rangeDays * 24;
+        const rangeAvgInPerHr = rangeHours > 0 ? tokensIn / rangeHours : 0;
+        const rangeAvgOutPerHr = rangeHours > 0 ? tokensOut / rangeHours : 0;
+        const winH = Math.max(1, tokenSpike.window_hours ?? 1);
+        const curInPerHr = tokenSpike.tokens_in / winH;
+        const curOutPerHr = tokenSpike.tokens_out / winH;
+        const vsRangeIn = rangeAvgInPerHr > 0 ? curInPerHr / rangeAvgInPerHr : null;
+        const vsRangeOut = rangeAvgOutPerHr > 0 ? curOutPerHr / rangeAvgOutPerHr : null;
         return (
         <Card className={`surface-1 ${toneClass}`}>
           <CardContent className="p-4">
@@ -206,6 +218,19 @@ const Overview = () => {
                       out {fmtTok(tokenSpike.tokens_out)} (≈{fmtTok(tokenSpike.baseline_out)} baseline
                       {tokenSpike.ratio_out ? ` · ${tokenSpike.ratio_out}×` : ""})
                     </div>
+                    {/* Range-relative context: compares the short detector window
+                        to the average hourly usage over the dashboard's selected
+                        range (e.g. 14d). Helps tell apart a small absolute spike
+                        on a quiet account from a real load surge. */}
+                    {(vsRangeIn !== null || vsRangeOut !== null) && (
+                      <div className="text-meta text-muted-foreground mt-1 tabular-nums">
+                        vs last {rangeDays}d avg:{" "}
+                        in {vsRangeIn !== null ? `${vsRangeIn.toFixed(1)}×` : "—"}
+                        {" "}({fmtTok(Math.round(curInPerHr))}/h vs {fmtTok(Math.round(rangeAvgInPerHr))}/h) ·
+                        {" "}out {vsRangeOut !== null ? `${vsRangeOut.toFixed(1)}×` : "—"}
+                        {" "}({fmtTok(Math.round(curOutPerHr))}/h vs {fmtTok(Math.round(rangeAvgOutPerHr))}/h)
+                      </div>
+                    )}
                   </div>
                   <Link
                     to="/dashboard/policies"
