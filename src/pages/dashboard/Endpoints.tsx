@@ -1778,12 +1778,99 @@ const Endpoints = () => {
             })()}
           </div>
 
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button onClick={() => save.mutate()} disabled={save.isPending || !canSave}>
-              {save.isPending ? "Saving…" : isEdit ? "Save changes" : "Create endpoint"}
-            </Button>
-          </DialogFooter>
+          {!isEdit && !createdKey && (
+            <div className="rounded-md border border-border bg-muted/20 p-3 space-y-2.5">
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-1 accent-primary"
+                  checked={autoCreateKey}
+                  onChange={(e) => setAutoCreateKey(e.target.checked)}
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium flex items-center gap-2 flex-wrap">
+                    <KeyRound className="h-3.5 w-3.5 text-primary" />
+                    Also create an AnveGuard API key for this endpoint
+                    {detectedAutoProvider && (
+                      <Badge variant="outline" className="text-[10px]">{detectedAutoProvider} detected</Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Skip the extra trip to the Keys page — you'll get an <code className="font-mono">ag_live_…</code> key bound to this endpoint and ready to test in the Playground.
+                  </p>
+                </div>
+              </label>
+              {autoCreateKey && (
+                <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 pl-7">
+                  <Input
+                    value={autoKeyName}
+                    onChange={(e) => setAutoKeyName(e.target.value)}
+                    placeholder={`${form.name || "Endpoint"} key`}
+                    className="text-sm"
+                  />
+                  <label className="flex items-center gap-2 text-xs text-muted-foreground whitespace-nowrap pr-1">
+                    <input
+                      type="checkbox"
+                      className="accent-primary"
+                      checked={autoKeyIsAdmin}
+                      onChange={(e) => setAutoKeyIsAdmin(e.target.checked)}
+                    />
+                    Admin key (allow custom system_prompt)
+                  </label>
+                </div>
+              )}
+            </div>
+          )}
+
+          {createdKey && (
+            <div className="rounded-md border border-primary/40 bg-primary/5 p-3 space-y-2.5">
+              <div className="flex items-center gap-2 text-sm font-medium text-primary">
+                <Check className="h-4 w-4" />
+                Endpoint created and key bound to "{createdKey.endpoint_name}"
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Copy this key now — you won't be able to see it again.
+              </p>
+              <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 font-mono text-xs">
+                <code className="flex-1 truncate">{createdKey.full_key}</code>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    navigator.clipboard.writeText(createdKey.full_key);
+                    toast.success("Key copied");
+                  }}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    const id = createdKey.id;
+                    setOpen(false);
+                    navigate(`/dashboard/playground?key=${id}`);
+                  }}
+                >
+                  <Beaker className="h-3.5 w-3.5" />
+                  Try in Playground
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
+                  Done
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {!createdKey && (
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+              <Button onClick={() => save.mutate()} disabled={save.isPending || !canSave}>
+                {save.isPending ? "Saving…" : isEdit ? "Save changes" : "Create endpoint"}
+              </Button>
+            </DialogFooter>
+          )}
         </DialogContent>
       </Dialog>
 
