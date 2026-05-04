@@ -60,7 +60,6 @@ export function CompressionSection() {
 
   const save = useMutation({
     mutationFn: () => call("save_policy_settings", {
-      method: "POST",
       body: {
         enable_compression: draft.enable_compression,
         compression_level: draft.compression_level,
