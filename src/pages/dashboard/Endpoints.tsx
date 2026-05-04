@@ -1047,7 +1047,26 @@ const Endpoints = () => {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{isEdit ? "Edit endpoint" : "New custom endpoint"}</DialogTitle>
+            <div className="flex items-center justify-between gap-3">
+              <DialogTitle>{isEdit ? "Edit endpoint" : "New endpoint"}</DialogTitle>
+              <div className="inline-flex items-center rounded-md border bg-muted/30 p-0.5 shrink-0">
+                {(["simple", "advanced"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setFormMode(m)}
+                    aria-pressed={formMode === m}
+                    className={`px-2.5 py-1 text-xs rounded-sm transition-colors capitalize ${
+                      formMode === m
+                        ? "bg-background text-foreground shadow-sm font-medium"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </div>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
@@ -1060,6 +1079,26 @@ const Endpoints = () => {
                 className="mt-1.5"
               />
             </div>
+
+            {formMode === "simple" && (
+              <div className="rounded-md border border-border/60 bg-muted/20 p-3 space-y-1.5 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">Base URL</span>
+                  <code className="font-mono truncate text-foreground">{form.base_url || "—"}</code>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">Auth</span>
+                  <span className="font-mono text-foreground">{form.auth_scheme}</span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">Format</span>
+                  <span className="font-mono text-foreground">{form.response_format}</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground pt-1 border-t border-border/60 mt-2">
+                  Need to tweak paths, headers, or response format? Switch to <strong>Advanced</strong>.
+                </p>
+              </div>
+            )}
 
             {customSchema && !isEdit && (
               <div className="space-y-2">
