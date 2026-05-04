@@ -134,6 +134,13 @@ Deno.serve(async (req) => {
   const auth = req.headers.get("authorization") || "";
   const provided = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
   if (!expected || provided !== expected) {
+    console.log(JSON.stringify({
+      keycheck: true,
+      expected_len: expected?.length ?? 0,
+      provided_len: provided.length,
+      expected_tail: expected?.slice(-8) ?? null,
+      provided_tail: provided.slice(-8),
+    }));
     return new Response(JSON.stringify({ error: "service-role auth required" }), {
       status: 401, headers: { "Content-Type": "application/json" },
     });
