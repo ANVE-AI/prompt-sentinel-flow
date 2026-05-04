@@ -4,7 +4,9 @@ import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ShieldAlert, Ban, Flag, Activity, AlertTriangle } from "lucide-react";
+import { ShieldAlert, ShieldCheck, Ban, Flag, Activity, AlertTriangle, Sparkles } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Button } from "@/components/ui/button";
 import { useDashboardApi } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
@@ -70,6 +72,11 @@ export default function Threats() {
           Failed to load attack overview: {(error as Error).message}
         </Card>
       )}
+
+      {/* Hero status banner — single most-important live signal. Color +
+          headline reflect what's happening RIGHT NOW. Replaces the
+          "wall of stats" feel with a focused operational read. */}
+      {!isLoading && data && <HeroStatus data={data} />}
 
       {/* KPI strip */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -226,6 +233,96 @@ export default function Threats() {
         </Card>
       </div>
     </div>
+  );
+}
+
+function HeroStatus({ data }: { data: AttackOverview }) {
+  const blocked = data.blocked_count;
+  const flagged = data.flagged_count;
+  const total = data.total_requests;
+  const noTraffic = total === 0;
+
+  // Three states drive a different color, headline, and primary action.
+  if (noTraffic) {
+    return (
+      <Card className="p-5 border-border bg-surface-2/40">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-lg bg-muted/40 text-muted-foreground">
+              <Activity className="h-5 w-5" aria-hidden="true" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold">Waiting for traffic</h2>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                Once requests start flowing through the proxy, this page becomes your live SOC view —
+                blocks, flags, attack patterns, and per-layer signal.
+              </p>
+            </div>
+          </div>
+          <Button asChild size="sm">
+            <Link to="/dashboard/playground">
+              <Sparkles className="h-4 w-4" aria-hidden="true" />
+              Send a test request
+            </Link>
+          </Button>
+        </div>
+      </Card>
+    );
+  }
+
+  if (blocked === 0 && flagged === 0) {
+    return (
+      <Card className="p-5 border-status-ok/30 bg-status-ok/5">
+        <div className="flex items-start gap-3">
+          <div className="grid h-10 w-10 place-items-center rounded-lg bg-status-ok/15 text-status-ok">
+            <ShieldCheck className="h-5 w-5" aria-hidden="true" />
+          </div>
+          <div>
+            <h2 className="text-base font-semibold">All clear</h2>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              {total.toLocaleString()} requests in the selected window — engine evaluated every one and found nothing to block or flag.
+            </p>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  const tone = blocked > 0 ? "block" : "warn";
+  const Icon = blocked > 0 ? Ban : Flag;
+  const headline =
+    blocked > 0
+      ? `${blocked.toLocaleString()} request${blocked === 1 ? "" : "s"} blocked`
+      : `${flagged.toLocaleString()} request${flagged === 1 ? "" : "s"} flagged`;
+  const sub =
+    blocked > 0
+      ? `Engine intercepted ${blocked.toLocaleString()} blocked + ${flagged.toLocaleString()} flagged across ${total.toLocaleString()} requests · ${data.block_rate_pct}% block rate`
+      : `${flagged.toLocaleString()} flag${flagged === 1 ? "" : "s"} across ${total.toLocaleString()} requests — review below to spot patterns or false positives`;
+
+  return (
+    <Card
+      className={
+        tone === "block"
+          ? "p-5 border-status-block/40 bg-status-block/5"
+          : "p-5 border-status-warn/40 bg-status-warn/5"
+      }
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className={
+            tone === "block"
+              ? "grid h-10 w-10 place-items-center rounded-lg bg-status-block/15 text-status-block"
+              : "grid h-10 w-10 place-items-center rounded-lg bg-status-warn/15 text-status-warn"
+          }
+        >
+          <Icon className="h-5 w-5" aria-hidden="true" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-base font-semibold tabular-nums">{headline}</h2>
+          <p className="mt-0.5 text-sm text-muted-foreground">{sub}</p>
+        </div>
+      </div>
+    </Card>
   );
 }
 

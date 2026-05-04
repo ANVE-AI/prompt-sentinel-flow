@@ -15,6 +15,9 @@ const labelByPath: Record<string, string> = {
   "/dashboard/endpoints": "Endpoints",
   "/dashboard/routes": "Routes",
   "/dashboard/policies": "Policies",
+  "/dashboard/policies/sandbox": "Policy sandbox",
+  "/dashboard/policies/harness": "Policy harness",
+  "/dashboard/threats": "Threats",
   "/dashboard/logs": "Logs",
   "/dashboard/playground": "Playground",
 };
@@ -34,8 +37,32 @@ export const Topbar = ({ onMenuClick }: { onMenuClick: () => void }) => {
     refetchInterval: 30_000,
     staleTime: 25_000,
   });
+  // Live threat status (24h window) drives the topbar pill — color reflects
+  // current operational state at a glance, like Stripe/Linear/Vanta do.
+  const { data: attack } = useQuery<{
+    total_requests: number; blocked_count: number; flagged_count: number;
+  }>({
+    queryKey: ["attack_overview", "topbar"],
+    queryFn: () => call("attack_overview", { query: { range: "24h" } }),
+    refetchInterval: 60_000,
+    staleTime: 50_000,
+  });
   const total = data?.total ?? 0;
   const section = labelByPath[pathname] ?? "Dashboard";
+
+  const threatTone: "ok" | "warn" | "block" =
+    (attack?.blocked_count ?? 0) > 0 ? "block" :
+    (attack?.flagged_count ?? 0) > 0 ? "warn" : "ok";
+  const threatLabel =
+    (attack?.blocked_count ?? 0) > 0 ? `${attack!.blocked_count} blocked` :
+    (attack?.flagged_count ?? 0) > 0 ? `${attack!.flagged_count} flagged` :
+    "All clear";
+  const threatTooltip =
+    (attack?.blocked_count ?? 0) > 0
+      ? `${attack!.blocked_count} blocked, ${attack!.flagged_count} flagged in last 24h — open Threats`
+      : (attack?.flagged_count ?? 0) > 0
+        ? `${attack!.flagged_count} flagged (no blocks) in last 24h — open Threats`
+        : "No blocks or flags in the last 24 hours — open Threats";
 
   const openPalette = () => window.dispatchEvent(new Event(COMMAND_PALETTE_EVENT));
   const isMac = typeof navigator !== "undefined" && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
@@ -75,19 +102,29 @@ export const Topbar = ({ onMenuClick }: { onMenuClick: () => void }) => {
             {isMac ? "⌘K" : "Ctrl K"}
           </kbd>
         </button>
-        <div
-          className="hidden sm:flex items-center gap-2 px-2.5 h-7 rounded-md border border-border bg-surface-2"
-          title="Total requests in the last 14 days"
+        {/* Threat status pill — single most-important live signal in the
+            UI. Click → /dashboard/threats. Colour reflects last-24h state. */}
+        <Link
+          to="/dashboard/threats"
+          className="hidden sm:flex items-center gap-2 px-2.5 h-7 rounded-md border border-border bg-surface-2 hover:border-border-strong transition-colors"
+          title={threatTooltip}
+          aria-label={threatTooltip}
         >
-          <StatusDot status="ok" live />
-          <span className="text-meta tabular-nums text-muted-foreground">
-            <span className="text-foreground font-medium">{total.toLocaleString()}</span>
-            <span className="ml-1">req · 14d</span>
+          <StatusDot status={threatTone} live={threatTone !== "ok"} />
+          <span className="text-meta tabular-nums">
+            <span className="text-foreground font-medium">{threatLabel}</span>
+            <span className="ml-1 text-muted-foreground">· 24h</span>
           </span>
-        </div>
-        <div className="sm:hidden">
-          <StatusDot status="ok" live />
-        </div>
+        </Link>
+        {/* Mobile: dot only, still clickable. */}
+        <Link to="/dashboard/threats" className="sm:hidden inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-surface-2" aria-label={threatTooltip} title={threatTooltip}>
+          <StatusDot status={threatTone} live={threatTone !== "ok"} />
+        </Link>
+        {/* Secondary: total request count over the chart range, rendered
+            small + de-emphasised. Goes away on small screens. */}
+        <span className="hidden md:inline-flex items-center text-meta tabular-nums text-muted-foreground" title="Total requests in the last 14 days">
+          {total.toLocaleString()} req
+        </span>
         <UserButton afterSignOutUrl="/" appearance={{ elements: { avatarBox: "h-7 w-7" } }} />
       </div>
     </header>
