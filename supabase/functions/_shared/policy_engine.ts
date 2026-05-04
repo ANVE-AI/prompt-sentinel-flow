@@ -488,29 +488,11 @@ const DETECTORS: Record<string, Detector> = {
   // 2024, extended in 2025).
   output_repetition: ({ rawText, direction }) => {
     if (direction !== "output") return { matched: false };
-    if (rawText.length < 200) return { matched: false };
-    // Token-frequency entropy collapse — when a single token dominates the
-    // response, the model has lost coherence. Strong divergence-extraction
-    // signal in conjunction with high response length.
     const tokens = rawText.toLowerCase().split(/\s+/).filter((t) => t.length > 0);
-    if (tokens.length < 80) return { matched: false };
-    const counts = new Map<string, number>();
-    for (const t of tokens) counts.set(t, (counts.get(t) ?? 0) + 1);
-    let top = "";
-    let topCount = 0;
-    for (const [k, v] of counts) {
-      if (v > topCount) { top = k; topCount = v; }
-    }
-    const topRatio = topCount / tokens.length;
-    if (topCount >= 50 && topRatio >= 0.3) {
-      return {
-        matched: true,
-        verdict: "flag",
-        reason: `Output repetition collapse: token "${top.slice(0, 40)}" repeats ${topCount} times (${(topRatio * 100).toFixed(0)}% of output). Possible training-data extraction.`,
-      };
-    }
-    // Also: long runs of identical consecutive tokens (the literal "the the
-    // the…" pattern that signals divergence). 30+ in a row is decisive.
+    // Long runs of identical consecutive tokens — the literal "the the the…"
+    // signature of divergence. 30+ in a row is decisive on its own and runs
+    // independently of overall length thresholds (a short response with a
+    // 30-token run is still anomalous).
     let runStart = 0;
     let runLen = 1;
     for (let i = 1; i < tokens.length; i++) {
@@ -527,6 +509,27 @@ const DETECTORS: Record<string, Detector> = {
         runStart = i;
         runLen = 1;
       }
+    }
+    // Token-frequency entropy collapse — when a single token dominates the
+    // response, the model has lost coherence. Strong divergence-extraction
+    // signal in conjunction with high response length. Requires both a
+    // length floor (200 chars / 80 tokens) and ≥50 occurrences at ≥30%.
+    if (rawText.length < 200) return { matched: false };
+    if (tokens.length < 80) return { matched: false };
+    const counts = new Map<string, number>();
+    for (const t of tokens) counts.set(t, (counts.get(t) ?? 0) + 1);
+    let top = "";
+    let topCount = 0;
+    for (const [k, v] of counts) {
+      if (v > topCount) { top = k; topCount = v; }
+    }
+    const topRatio = topCount / tokens.length;
+    if (topCount >= 50 && topRatio >= 0.3) {
+      return {
+        matched: true,
+        verdict: "flag",
+        reason: `Output repetition collapse: token "${top.slice(0, 40)}" repeats ${topCount} times (${(topRatio * 100).toFixed(0)}% of output). Possible training-data extraction.`,
+      };
     }
     return { matched: false };
   },
@@ -747,7 +750,7 @@ export function evaluateHeuristics(
   // returning `verdict` in its result (used by narrative_misdirection's
   // persona-bypass tier which is a high-confidence jailbreak signal).
   const out: LayerVerdict[] = [];
-  for (const name of ["role_impersonation", "pseudo_system_block", "encoded_density", "narrative_misdirection", "deepfake_intent", "unicode_smuggling", "output_repetition", "output_pii_leak"] as const) {
+  for (const name of ["role_impersonation", "pseudo_system_block", "encoded_density", "narrative_misdirection", "deepfake_intent", "unicode_smuggling", "output_repetition", "output_pii_leak", "url_exfil"] as const) {
     const r = DETECTORS[name]({ rawText, normalizedText, direction });
     if (r.matched) {
       out.push({ layer: "heuristics", verdict: r.verdict ?? "flag", reason: r.reason, rule: name });
