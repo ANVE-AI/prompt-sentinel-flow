@@ -167,7 +167,7 @@ Deno.test("proxy returns the same 401 for an unknown API key (no info leak)", as
   const { status, body } = await postChat(bogus);
 
   assertEquals(status, 401);
-  assertEquals(body?.error?.type, "invalid_request_error");
+  assertEquals(body?.error?.type, "authentication_error");
   assertStringIncludes(String(body?.error?.message), "Invalid or revoked API key");
 });
 
