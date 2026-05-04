@@ -51,4 +51,4 @@ jobs:
 
       - name: Run Deno tests
         working-directory: supabase/functions
-        run: deno test --allow-env --allow-net --no-check
+        run: deno test --allow-env --allow-net --allow-read --no-check
