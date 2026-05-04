@@ -1470,6 +1470,42 @@ Deno.serve(async (req) => {
           }
           patch.compression_min_chars = n;
         }
+        if (typeof body?.token_spike_alert_enabled === "boolean") {
+          patch.token_spike_alert_enabled = body.token_spike_alert_enabled;
+        }
+        if ("token_spike_window_hours" in (body ?? {})) {
+          const n = Number(body.token_spike_window_hours);
+          if (!Number.isInteger(n) || n < 1 || n > 24) {
+            return json({ error: "token_spike_window_hours must be an integer 1-24" }, 400);
+          }
+          patch.token_spike_window_hours = n;
+        }
+        if ("token_spike_min_tokens" in (body ?? {})) {
+          const n = Number(body.token_spike_min_tokens);
+          if (!Number.isInteger(n) || n < 0 || n > 100_000_000) {
+            return json({ error: "token_spike_min_tokens must be a non-negative integer" }, 400);
+          }
+          patch.token_spike_min_tokens = n;
+        }
+        if ("token_spike_ratio" in (body ?? {})) {
+          const n = Number(body.token_spike_ratio);
+          if (!Number.isFinite(n) || n < 1.1 || n > 50) {
+            return json({ error: "token_spike_ratio must be 1.1..50" }, 400);
+          }
+          patch.token_spike_ratio = n;
+        }
+        if ("token_spike_webhook_url" in (body ?? {})) {
+          const v = body.token_spike_webhook_url;
+          if (v == null || v === "") {
+            patch.token_spike_webhook_url = null;
+          } else {
+            const s = String(v).trim();
+            if (!/^https:\/\/.+/i.test(s) || s.length > 2000) {
+              return json({ error: "token_spike_webhook_url must be an https URL" }, 400);
+            }
+            patch.token_spike_webhook_url = s;
+          }
+        }
         await sb.from("policy_settings").upsert(patch, { onConflict: "user_id" });
         return json({ ok: true });
       }
