@@ -2399,7 +2399,7 @@ Deno.serve(async (req) => {
 
         // Bucket by day
         const buckets: Record<string, { requests: number; blocked: number; tokens_in: number; tokens_out: number; tokens_saved: number }> = {};
-        for (let i = 13; i >= 0; i--) {
+        for (let i = days - 1; i >= 0; i--) {
           const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
           buckets[d] = { requests: 0, blocked: 0, tokens_in: 0, tokens_out: 0, tokens_saved: 0 };
         }
