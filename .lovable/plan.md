@@ -1,81 +1,106 @@
 ## Goal
 
-Make the **Endpoints** page feel like a real "pick your provider" experience instead of a blank form, and bring back the **Simple mode** alongside the existing **Advanced mode**.
+Save tokens (and money) by compressing the user-supplied messages before they reach the upstream provider, and make token consumption (with savings) visible on the Overview dashboard.
 
-Today the page only has the advanced form; provider templates are buried in a select dropdown inside the create dialog. We also have presets defined in two different places that don't agree:
-- `PROVIDERS` (in `supabase/functions/_shared/providers.ts`) — built-in providers (Lovable managed, OpenAI, OpenRouter, Anthropic, Perplexity, Kimi, Qwen).
-- `CUSTOM_SCHEMA.templates` — quick-start templates used by the form (Ollama, vLLM, Azure, Groq, Anthropic, OpenRouter, Together, Fireworks, xAI, Mistral, DeepSeek, OpenAI Responses).
-
-Notably **Gemini, Perplexity, and Lovable managed are missing from the templates list**. We'll align both.
+Two parts:
+1. **Compression engine + controls** — wired into the proxy, configurable per workspace and overridable per API key.
+2. **Token usage analytics** — new KPIs and chart on the Overview page (powered by existing `tokens_in`/`tokens_out` columns plus a new `tokens_saved`).
 
 ---
 
-## Changes
+## 1. Database (migration)
 
-### 1. Add missing provider templates (backend)
+Add columns to existing tables — no new tables needed.
 
-In `supabase/functions/_shared/providers.ts → CUSTOM_SCHEMA.templates`, add:
+`policy_settings` (workspace-level defaults):
+- `enable_compression boolean not null default false`
+- `compression_level text not null default 'balanced'` — `light | balanced | aggressive`
+- `compression_min_chars integer not null default 400` — skip short prompts where overhead > savings
 
-- **Lovable AI (managed)** — uses `https://ai.gateway.lovable.dev`, no key needed (auth_scheme: `none`), flagged `managed: true` so the UI hides the API-key field.
-- **OpenAI (Chat Completions)** — base `https://api.openai.com`, prefix `/v1`, model `gpt-5-mini`.
-- **Google Gemini** — base `https://generativelanguage.googleapis.com`, prefix `/v1beta/openai`, chat `/chat/completions`, models `/models`, bearer auth, default `gemini-2.5-flash`.
-- **Perplexity (Sonar)** — base `https://api.perplexity.ai`, default `sonar`.
+`api_keys` (per-key override):
+- `compression_mode text not null default 'inherit'` — `inherit | off | light | balanced | aggressive`
 
-Add an optional `managed?: boolean` and `category?: "managed" | "hosted" | "self_hosted"` flag on template entries so the gallery can group them and skip the key prompt for managed ones.
+`request_logs` (so we can chart savings):
+- `tokens_saved_estimate integer` (nullable)
+- `compression_applied boolean not null default false`
 
-### 2. Endpoints page — provider gallery
+(All additive, safe defaults; no data migration required.)
 
-In `src/pages/dashboard/Endpoints.tsx`, above "Saved endpoints", add a **"Add an endpoint"** section that renders templates as a card grid grouped by category:
+---
 
-```text
-Managed                 Hosted providers              Self-hosted
-[ Lovable AI ]          [ OpenAI ]  [ Anthropic ]    [ Ollama ]
-                        [ Gemini ]  [ Perplexity ]   [ vLLM / LM Studio ]
-                        [ OpenRouter ] [ Groq ]      
-                        [ xAI Grok ] [ Mistral ]
-                        [ DeepSeek ] [ Together ]
-                        [ Fireworks ] [ Azure OpenAI ]
-                        [ OpenAI Responses ]
+## 2. Compression engine (`supabase/functions/_shared/compress.ts`, new)
+
+Pure-text, deterministic, no extra LLM calls — keeps cost real:
+
+- **Whitespace normalize**: collapse runs of spaces / blank lines.
+- **Strip noise**: zero-width chars, repeated punctuation (`!!!!` → `!!`), redundant markdown bullets.
+- **Dedupe**: drop identical consecutive lines, collapse repeated paragraphs (common in agent loops).
+- **Quote trimming** (balanced+): truncate quoted blocks > N lines to head + `…[N lines omitted]…` + tail.
+- **History summarization (aggressive only)**: when the conversation has >8 messages, replace the oldest middle messages with a short bulletized recap built from their first sentences. System messages are never compressed.
+
+Exports:
+```ts
+compressMessages(messages, level): { messages, removedChars, originalChars, estimatedTokensSaved }
 ```
+`estimatedTokensSaved = Math.round(removedChars / 4)` (industry rule of thumb; matches what we already use for tokenizer-free estimates elsewhere).
 
-Each card shows: provider logo/initial, name, one-line description, and a "+ Add" button. Clicking opens the create dialog **pre-filled with that template** and pre-switched to **Simple mode**.
+Includes a small `compress.test.ts` covering each level + a no-op case.
 
-A "Custom endpoint" card at the end opens the dialog blank in **Advanced mode** (today's behavior).
+---
 
-### 3. Simple vs Advanced mode in the create/edit dialog
+## 3. Proxy wiring (`supabase/functions/proxy/index.ts`)
 
-Add a Tabs control at the top of the dialog: `Simple | Advanced`.
+After sanitization (around line 794) and **before** building `attempts` / `forwardBody`:
 
-- **Simple mode** (default for template-based creation):
-  - Name (prefilled, editable)
-  - Provider key (only field that really matters — hidden when template is `managed`)
-  - Default model (Select populated from `model_suggestions`, with "Refresh from server" button)
-  - Read-only summary chip showing base URL + auth scheme so the user knows what's wired up
-  - "Test connection" button
-- **Advanced mode** (today's full form):
-  - All current fields: kind, base_url, path_prefix, chat_path, models_path, models_url, auth_scheme, auth_header, extra_headers, response_format, model_suggestions, etc.
-  - Template diff/preview UI stays here.
+1. Resolve effective level: `keyRow.compression_mode === 'inherit' ? settings.compression_level : keyRow.compression_mode` (and `off` short-circuits).
+2. Skip if disabled at workspace AND key inherits, or if total prompt chars < `compression_min_chars`.
+3. Run `compressMessages`. If `estimatedTokensSaved > 0`:
+   - Replace `body.messages` with the compressed copy (the upstream call uses fewer tokens).
+   - Set `logBase.tokens_saved_estimate` and `logBase.compression_applied = true`.
+   - Add an `x-anveguard-compression` debug header to the proxy response with `level` + `saved` so SDK users can verify.
 
-Switching modes preserves form state. Editing an existing endpoint defaults to Advanced (since users editing usually want full control); a "Switch to simple" link is available if the endpoint cleanly maps to a known template.
+System prompts and tool-call messages are passed through unchanged (compression is content-only).
 
-### 4. Empty state + entry points
+---
 
-- Keep the "+ New endpoint" header button → opens the dialog in Advanced mode (custom).
-- Replace the current empty state with a CTA pointing to the new gallery: "Pick a provider above, or create a custom endpoint."
+## 4. Dashboard backend (`supabase/functions/dashboard/index.ts`)
+
+`stats` action (around line 2040):
+- Include `tokens_in`, `tokens_out`, `tokens_saved_estimate`, `compression_applied` in the select.
+- Compute and return:
+  - `tokens_in_total`, `tokens_out_total`, `tokens_saved_total`
+  - `compressed_requests` count
+  - `chart[].tokens_in`, `chart[].tokens_out`, `chart[].tokens_saved` per day bucket (already bucket loop exists — just sum).
+
+New action `update_compression_settings` (workspace) and extension to existing key update action to accept `compression_mode`. Both write to `audit_logs` for parity with the existing system_prompt audit trail (uses the same audit pattern already in place).
+
+---
+
+## 5. Dashboard UI
+
+**`src/pages/dashboard/Overview.tsx`** — extend the hero KPI strip from 4 satellites to 5 by adding a “Tokens used” tile (`tokens_in_total + tokens_out_total`, sub-line: `~X tokens saved via compression`). Add a second small chart card below the existing traffic chart titled **“Token usage”** with two areas (`tokens_in`, `tokens_out`) and a thin overlaid line for `tokens_saved`. Re-uses the existing recharts setup.
+
+**`src/pages/dashboard/Policies.tsx`** — new “Token compression” section with: toggle (Enable), select (Light / Balanced / Aggressive), and min-chars input. Help text explains it never touches system prompts.
+
+**`src/pages/dashboard/Keys.tsx`** — per-key “Compression” select column (`Inherit / Off / Light / Balanced / Aggressive`) and a row action; reuses the existing bulk-action bar pattern from the system_prompt feature so users can flip many keys at once.
 
 ---
 
 ## Technical notes
 
-- No DB schema changes. Templates are static config returned by `list_providers`.
-- `managed` templates: when applied, `auth_scheme = "none"` and the `provider_key` field is hidden in Simple mode. The proxy already routes managed providers via `LOVABLE_API_KEY` server-side (existing `lovable` provider behavior in `resolveEndpoint`), so for the managed template we'll set `kind: "lovable_managed"` *or* simply rely on the existing `lovable` built-in provider id rather than a custom endpoint. Decision: for the gallery card "Lovable AI", instead of creating a custom endpoint, persist it as `provider: "lovable"` (built-in) — this avoids duplicating managed-key plumbing. The card just creates an `endpoint` row that points at the built-in Lovable provider.
-- `category` field is UI-only, safe to add to `CUSTOM_SCHEMA.templates`.
-- Mode toggle state lives in component state (`"simple" | "advanced"`), defaulted based on entry point. Field validation already covers both modes; no schema changes needed.
-- Tests: existing `index_test.ts` for proxy is unaffected. We'll do a quick manual smoke through the dashboard after deploy.
+- No new dependencies. Compression is hand-written TS, easy to audit and ship to Deno.
+- Deterministic + reversible-in-meaning: aggressive level is opt-in because the history recap is lossy.
+- Token counts come from the upstream provider (already parsed in proxy `usage`). `tokens_saved_estimate` is intentionally an estimate (chars/4); we label it as such in the UI tooltip.
+- Audit logging reuses the existing `audit_logs` table and matches the format used by the recent system_prompt work.
 
 ---
 
-## Out of scope
+## Files to change
 
-- Per-template provider logos (we'll use lucide icons + colored initial badge for now).
-- Re-doing the Providers.tsx page (kept as-is; it groups already-saved endpoints).
+- migration: add columns described in §1
+- new `supabase/functions/_shared/compress.ts` + `compress.test.ts`
+- edit `supabase/functions/proxy/index.ts` (apply compression + log fields)
+- edit `supabase/functions/dashboard/index.ts` (stats payload, settings action, key update, audit entries)
+- edit `src/pages/dashboard/Overview.tsx` (KPI tile + token chart)
+- edit `src/pages/dashboard/Policies.tsx` (workspace controls)
+- edit `src/pages/dashboard/Keys.tsx` (per-key control + bulk action)
