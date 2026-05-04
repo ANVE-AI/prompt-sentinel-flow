@@ -28,6 +28,11 @@ const Overview = () => {
     queryFn: () => call<any>("block_spike_alert"),
     refetchInterval: 60_000,
   });
+  const { data: tokenSpike } = useQuery({
+    queryKey: ["token_spike_alert"],
+    queryFn: () => call<any>("token_spike_alert"),
+    refetchInterval: 60_000,
+  });
 
   const total = data?.total ?? 0;
   const blocked = data?.blocked ?? 0;
