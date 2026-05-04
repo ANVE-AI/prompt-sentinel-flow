@@ -116,6 +116,19 @@ export const PROVIDERS: ProviderDef[] = [
     model_suggestions: ["sonar", "sonar-pro", "sonar-reasoning-pro", "sonar-deep-research"],
     key_placeholder: "pplx-...",
     get_key_url: "https://www.perplexity.ai/settings/api",
+    // Perplexity's /v1/models advertises external vendor ids (openai/*,
+    // anthropic/*, nvidia/*, xai/*) that their /chat/completions endpoint
+    // does NOT actually accept. Keep only ids Perplexity itself serves.
+    model_id_filter: (m) => {
+      const id = (m.id || "").toLowerCase();
+      const owner = (m.owned_by || "").toLowerCase();
+      if (owner === "perplexity") return true;
+      if (id.startsWith("perplexity/")) return true;
+      if (/^sonar(\b|[-/])/.test(id)) return true;
+      return false;
+    },
+    // /v1/models returns "perplexity/sonar"; /chat/completions wants "sonar".
+    model_id_normalize: (id) => id.replace(/^perplexity\//, ""),
   },
   {
     id: "kimi",
