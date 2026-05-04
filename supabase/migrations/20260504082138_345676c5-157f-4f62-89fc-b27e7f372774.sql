@@ -1,0 +1,2 @@
+ALTER TABLE public.api_keys DROP CONSTRAINT IF EXISTS api_keys_provider_check;
+ALTER TABLE public.api_keys ADD CONSTRAINT api_keys_provider_check CHECK (provider = ANY (ARRAY['lovable'::text, 'openai'::text, 'openrouter'::text, 'anthropic'::text, 'perplexity'::text, 'kimi'::text, 'qwen'::text, 'custom'::text]));
