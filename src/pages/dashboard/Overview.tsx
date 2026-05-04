@@ -11,6 +11,9 @@ import { SkeletonBlock, SkeletonRows } from "@/components/skeletons";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { HelpPanel } from "@/components/help-panel";
+
+const PROXY_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proxy`;
 
 type Range = "7d" | "14d" | "30d" | "90d";
 const RANGE_LABELS: Record<Range, string> = { "7d": "7d", "14d": "14d", "30d": "30d", "90d": "90d" };
@@ -90,6 +93,73 @@ const Overview = () => {
             </ToggleGroup>
           </div>
         }
+      />
+
+      <HelpPanel
+        storageKey="overview"
+        title="How to use AnveGuard"
+        defaultOpen
+        steps={[
+          {
+            title: "Configure an upstream endpoint",
+            body: (
+              <>
+                Open <Link to="/dashboard/endpoints" className="text-primary hover:underline">Endpoints</Link> and add the provider you want to guard (OpenAI, Anthropic, Perplexity, your own host). This is where you store the upstream API key — clients never see it.
+              </>
+            ),
+          },
+          {
+            title: "Create an AnveGuard API key",
+            body: (
+              <>
+                In <Link to="/dashboard/keys" className="text-primary hover:underline">Keys</Link>, generate an <code className="font-mono text-xs">ag_live_…</code> key bound to that endpoint. Copy it once — only the hash is stored.
+              </>
+            ),
+          },
+          {
+            title: "Send traffic through the proxy",
+            body: (
+              <>
+                Point your app at <code className="font-mono text-xs">{PROXY_URL}</code> using your AnveGuard key as a Bearer token. Try it live in the <Link to="/dashboard/playground" className="text-primary hover:underline">Playground</Link> first.
+              </>
+            ),
+          },
+          {
+            title: "Tune policies and watch verdicts",
+            body: (
+              <>
+                Adjust rules in <Link to="/dashboard/policies" className="text-primary hover:underline">Policies</Link> and inspect every decision in <Link to="/dashboard/logs" className="text-primary hover:underline">Logs</Link> — intent, keywords, behavioral signals, and per-layer verdicts.
+              </>
+            ),
+          },
+        ]}
+        examples={[
+          {
+            label: "curl — send a guarded request",
+            code: `curl -N ${PROXY_URL} \\
+  -H 'Authorization: Bearer ag_live_…' \\
+  -H 'Content-Type: application/json' \\
+  -d '{
+    "model": "google/gemini-2.5-flash",
+    "stream": true,
+    "messages": [{"role": "user", "content": "Hello"}]
+  }'`,
+          },
+          {
+            label: "OpenAI SDK — drop-in replacement",
+            code: `import OpenAI from "openai";
+
+const client = new OpenAI({
+  apiKey: process.env.ANVEGUARD_KEY, // ag_live_…
+  baseURL: "${PROXY_URL.replace(/\/proxy$/, "/proxy/v1")}",
+});
+
+const res = await client.chat.completions.create({
+  model: "google/gemini-2.5-flash",
+  messages: [{ role: "user", content: "Hello" }],
+});`,
+          },
+        ]}
       />
 
       {/* Page-level empty state — shown when the selected range has zero traffic.
