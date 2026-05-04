@@ -1539,7 +1539,6 @@ const Endpoints = () => {
                 </p>
               </div>
             </div>
-            </>)}
 
 
             <div>
