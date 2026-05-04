@@ -356,6 +356,72 @@ Deno.test("benign FP guard: discussing AI safety policies", async () => {
 });
 
 // ============================================================================
+// PII detection (Lasso/Lakera/Cisco parity — closes audit gap #1 from
+// 2026 competitive research). Default OFF in DEFAULT_SETTINGS so these
+// tests need to flip enable_pii_detection: true.
+// ============================================================================
+
+import { detectPII, redactPII } from "./policy_engine.ts";
+
+Deno.test("pii: email detected", () => {
+  const m = detectPII("Send the report to alice@example.com please.");
+  assertEquals(m.length, 1);
+  assertEquals(m[0].kind, "email");
+  assertEquals(m[0].match, "alice@example.com");
+});
+
+Deno.test("pii: US SSN detected, fake-area numbers rejected", () => {
+  const real = detectPII("My SSN is 123-45-6789.");
+  assertEquals(real.length, 1);
+  assertEquals(real[0].kind, "ssn");
+  // SSN with reserved area number 666 should NOT match
+  const fake = detectPII("Test number 666-12-3456 is reserved.");
+  assertEquals(fake.length, 0);
+});
+
+Deno.test("pii: credit card with valid Luhn detected", () => {
+  // 4111-1111-1111-1111 is the standard Visa Luhn-valid test card
+  const m = detectPII("Charge card 4111-1111-1111-1111 today.");
+  const cc = m.find((x) => x.kind === "credit_card");
+  assert(cc, "expected credit_card match");
+});
+
+Deno.test("pii: invalid Luhn rejected", () => {
+  const m = detectPII("Number 1234-5678-9012-3456 is just digits.");
+  // 16 digits but Luhn-invalid — should not be flagged as a credit card
+  const cc = m.find((x) => x.kind === "credit_card");
+  assert(!cc, "Luhn-invalid should not match");
+});
+
+Deno.test("pii: OpenAI / AnveGuard / GitHub / AWS key prefixes detected", () => {
+  const text =
+    "OpenAI=sk-proj-AAAAAAAAAAAAAAAAAAAAAAAA AnveGuard=ag_live_XXXXXXXXXXXXXXXXXXXX " +
+    "GitHub=ghp_PPPPPPPPPPPPPPPPPPPPPPPPPPPP AWS=AKIAIOSFODNN7EXAMPLE";
+  const m = detectPII(text);
+  const kinds = new Set(m.map((x) => x.kind));
+  assert(kinds.has("openai_key"), "openai_key missing");
+  assert(kinds.has("anveguard_key"), "anveguard_key missing");
+  assert(kinds.has("github_token"), "github_token missing");
+  assert(kinds.has("aws_access_key"), "aws_access_key missing");
+});
+
+Deno.test("pii: redaction replaces with typed markers", () => {
+  const text = "Reach me at alice@example.com or 415-555-1234.";
+  const matches = detectPII(text);
+  const redacted = redactPII(text, matches);
+  assertEquals(redacted, "Reach me at [REDACTED:email] or [REDACTED:phone].");
+});
+
+Deno.test("pii: benign text doesn't false-match", () => {
+  // Version number, port number, ordinary date — must NOT match
+  const m = detectPII("Running v1.2.3.4 on port 8080, 2026-01-15. Score: 100-200-300.");
+  // 100-200-300 looks like SSN structure — but our regex requires xxx-xx-xxxx (3-2-4)
+  // 1.2.3.4 → ipv4 regex matches but looksLikeIp() rejects (no octet ≥10)
+  // Should be 0 matches
+  assertEquals(m.length, 0);
+});
+
+// ============================================================================
 // Family 5: Image-generation attack vectors
 // ============================================================================
 // The proxy's /v1/images/generations handler runs the user's `prompt` field

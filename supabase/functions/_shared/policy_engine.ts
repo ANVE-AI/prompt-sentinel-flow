@@ -113,6 +113,14 @@ export interface PolicySettings {
   /** What the injection guard does on a hit. `sanitize` rewrites the offending
    *  spans to `[redacted]` before forwarding upstream. */
   injection_action?: "block" | "sanitize" | "flag";
+  /** PII detection — finds emails, phones, SSN, credit cards, IPs, and
+   *  common API key shapes in the prompt. Default OFF (opt-in) to avoid
+   *  surprising existing workspaces with new false positives. */
+  enable_pii_detection?: boolean;
+  /** What to do on a PII match. `sanitize` rewrites each match with
+   *  `[REDACTED:kind]` so the upstream provider never sees the raw
+   *  value but the prompt's structure stays intact. */
+  pii_action?: "block" | "sanitize" | "flag";
   /** Multi-turn behavioral analysis across the conversation history. */
   enable_behavioral?: boolean;
   /** Action when behavioral heuristics fire. */
@@ -1034,6 +1042,121 @@ export function evaluateInjection(
  * Spans must be in the same coordinate space as `text` (i.e. coming from
  * `evaluateInjection` over the same raw input).
  */
+// ---------- PII detection ---------------------------------------------------
+// Closes the #1 capability gap from competitive research (Lasso, Lakera,
+// Cisco all ship this). Detects common PII + secret patterns; the engine
+// wraps it with action=sanitize|block|flag like injection_guard.
+//
+// Coverage in this MVP — high-confidence patterns only (low FP rate is
+// critical here; over-flagging an email destroys the operator's trust):
+//   - email
+//   - US phone (with optional country code)
+//   - US SSN (xxx-xx-xxxx — strict format only, plain 9-digit is too FP-prone)
+//   - credit card (Luhn-validated; 13-19 digits)
+//   - IPv4 address (excludes obvious version numbers like 1.0.0.1 by length check)
+//   - common API key shapes (OpenAI sk-*, AnveGuard ag_live_*, GitHub ghp_*,
+//     AWS access key AKIA*, JWT eyJ*)
+//
+// Skipped on purpose for next iteration: NER for names (needs a model);
+// passport, driver license (state-varying); EU SSNs (country-varying);
+// IBAN (locale-aware checksum); IPv6 (low FP value, complex regex).
+
+export type PiiKind =
+  | "email" | "phone" | "ssn" | "credit_card" | "ipv4"
+  | "openai_key" | "anveguard_key" | "github_token" | "aws_access_key" | "jwt";
+
+export interface PiiMatch {
+  kind: PiiKind;
+  start: number;
+  end: number;
+  match: string;
+}
+
+const PII_PATTERNS: { kind: PiiKind; re: RegExp; postCheck?: (m: string) => boolean }[] = [
+  // Email — RFC 5322 subset, conservative.
+  { kind: "email", re: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,24}\b/g },
+  // US phone: optional +1, optional parens, hyphens/spaces/dots between groups.
+  // Length checks via the regex itself; we additionally require at least one
+  // separator OR parens to avoid catching plain 10-digit IDs.
+  { kind: "phone", re: /(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b/g },
+  // US SSN — strict xxx-xx-xxxx form. Rejects 000/666/9xx area numbers.
+  { kind: "ssn", re: /\b(?!000|666|9\d{2})\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b/g },
+  // Credit card: 13-19 digit numbers (with optional separators), Luhn-validated below.
+  { kind: "credit_card", re: /\b(?:\d[ -]?){12,18}\d\b/g, postCheck: luhnValid },
+  // IPv4 — 4 octets ≤255. Filter out version-like 1.0.0.1 by requiring at
+  // least one octet ≥10 (heuristic — real IP literals usually have one).
+  { kind: "ipv4", re: /\b(?:\d{1,3}\.){3}\d{1,3}\b/g, postCheck: looksLikeIp },
+  // OpenAI API key: sk-XXXXXXXXXXXXXXXX… (now also `sk-proj-…`, `sk-svcacct-…`).
+  { kind: "openai_key", re: /\bsk-(?:proj-|svcacct-|admin-|None-)?[A-Za-z0-9_-]{20,}\b/g },
+  // AnveGuard live key — the very prefix this product mints.
+  { kind: "anveguard_key", re: /\bag_live_[A-Za-z0-9_-]{20,}\b/g },
+  // GitHub PATs: ghp_ (classic), ghs_ (server), gho_ (oauth), ghu_ (user-server),
+  // ghr_ (refresh), github_pat_ (fine-grained).
+  { kind: "github_token", re: /\b(?:ghp_|ghs_|gho_|ghu_|ghr_|github_pat_)[A-Za-z0-9_]{20,}\b/g },
+  // AWS access key id — strict 20-char AKIA/ASIA prefix.
+  { kind: "aws_access_key", re: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g },
+  // Generic JWT — three base64url segments separated by dots. Header starts
+  // with eyJ which is base64 of {" — a strong narrow signal.
+  { kind: "jwt", re: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g },
+];
+
+function luhnValid(num: string): boolean {
+  const digits = num.replace(/\D/g, "");
+  if (digits.length < 13 || digits.length > 19) return false;
+  let sum = 0;
+  let alt = false;
+  for (let i = digits.length - 1; i >= 0; i--) {
+    let d = digits.charCodeAt(i) - 48;
+    if (alt) { d *= 2; if (d > 9) d -= 9; }
+    sum += d;
+    alt = !alt;
+  }
+  return sum % 10 === 0;
+}
+
+function looksLikeIp(s: string): boolean {
+  const parts = s.split(".").map((p) => Number(p));
+  if (parts.length !== 4 || parts.some((p) => !Number.isInteger(p) || p < 0 || p > 255)) return false;
+  // Filter out obvious version strings (1.0.0.0, 0.0.0.0, 1.2.3.4 with all-low octets).
+  return parts.some((p) => p > 9);
+}
+
+/** Find all PII matches in text. Returns sorted-by-start, non-overlapping. */
+export function detectPII(text: string, kinds?: Set<PiiKind>): PiiMatch[] {
+  const out: PiiMatch[] = [];
+  for (const p of PII_PATTERNS) {
+    if (kinds && !kinds.has(p.kind)) continue;
+    p.re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = p.re.exec(text)) !== null) {
+      if (p.postCheck && !p.postCheck(m[0])) continue;
+      out.push({ kind: p.kind, start: m.index, end: m.index + m[0].length, match: m[0] });
+    }
+  }
+  // Sort by start, deduplicate overlaps (longer match wins).
+  out.sort((a, b) => a.start - b.start || (b.end - b.start) - (a.end - a.start));
+  const merged: PiiMatch[] = [];
+  for (const m of out) {
+    const prev = merged[merged.length - 1];
+    if (prev && m.start < prev.end) continue; // overlap with longer prev — skip
+    merged.push(m);
+  }
+  return merged;
+}
+
+/** Apply PII redaction — replaces each match with `[REDACTED:kind]`. */
+export function redactPII(text: string, matches: PiiMatch[]): string {
+  if (matches.length === 0) return text;
+  let out = "";
+  let cursor = 0;
+  for (const m of matches) {
+    out += text.slice(cursor, m.start) + `[REDACTED:${m.kind}]`;
+    cursor = m.end;
+  }
+  out += text.slice(cursor);
+  return out;
+}
+
 export function applySanitization(
   text: string,
   spans: { start: number; end: number }[],
@@ -1338,6 +1461,38 @@ export async function evaluate(input: EvaluateInput, ctx: { systemPrompt?: strin
       if (effectiveAction === "sanitize" && allSpans.length > 0) {
         sanitized_spans = mergeSpans(allSpans);
         sanitized_text = applySanitization(text, sanitized_spans);
+      }
+    }
+  }
+
+  // PII detection — finds emails, phones, SSN, credit cards, IPs, and
+  // common API key shapes. Opt-in (default off) so existing workspaces
+  // aren't surprised. Action mirrors injection_guard: block/sanitize/flag.
+  if (settings.enable_pii_detection === true) {
+    const matches = detectPII(text);
+    if (matches.length > 0) {
+      const action: "block" | "sanitize" | "flag" = settings.pii_action ?? "sanitize";
+      const kinds = Array.from(new Set(matches.map((m) => m.kind)));
+      const reason = `PII detected: ${kinds.join(", ")} (${matches.length} match${matches.length === 1 ? "" : "es"})`;
+      const piiSpans = matches.map((m) => ({ start: m.start, end: m.end, match: m.match }));
+      layers.push({
+        layer: "patterns",
+        verdict: action,
+        rule: "pii_detection",
+        reason,
+        spans: piiSpans,
+      });
+      // Sanitize: replace with typed redaction markers (better forensics
+      // than the generic [redacted] used by the injection guard). If we
+      // already have a sanitized_text from the injection guard, layer on
+      // top of it; otherwise start from the original.
+      if (action === "sanitize") {
+        const baseText = sanitized_text ?? text;
+        const baseMatches = sanitized_text
+          ? detectPII(baseText)  // re-detect because indices shifted
+          : matches;
+        sanitized_text = redactPII(baseText, baseMatches);
+        sanitized_spans = [...(sanitized_spans ?? []), ...piiSpans];
       }
     }
   }
