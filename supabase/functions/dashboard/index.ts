@@ -2525,6 +2525,56 @@ Deno.serve(async (req) => {
         });
       }
 
+      // GDPR / M5 — workspace log retention. Lets the operator set per-
+      // workspace retention windows for request_logs and audit_logs, plus
+      // trigger an immediate prune. The actual pruning runs via the
+      // SECURITY DEFINER prune_user_logs RPC (migration: log_retention).
+      // pg_cron handles the nightly automatic pass; this action exists so
+      // operators can configure + test on demand from the UI.
+      case "update_log_retention": {
+        const logDays = body?.log_retention_days !== undefined ? Number(body.log_retention_days) : null;
+        const auditDays = body?.audit_log_retention_days !== undefined ? Number(body.audit_log_retention_days) : null;
+        if (logDays !== null && (!Number.isInteger(logDays) || logDays < 1 || logDays > 3650)) {
+          return json({ error: "log_retention_days must be an integer 1-3650" }, 400);
+        }
+        if (auditDays !== null && (!Number.isInteger(auditDays) || auditDays < 30 || auditDays > 3650)) {
+          return json({ error: "audit_log_retention_days must be an integer 30-3650" }, 400);
+        }
+        const patch: Record<string, unknown> = { user_id: userId };
+        if (logDays !== null) patch.log_retention_days = logDays;
+        if (auditDays !== null) patch.audit_log_retention_days = auditDays;
+        if (Object.keys(patch).length === 1) {
+          return json({ error: "no retention fields provided" }, 400);
+        }
+        const { error } = await sb.from("policy_settings").upsert(patch, { onConflict: "user_id" });
+        if (error) return json({ error: error.message }, 400);
+        await auditAction(sb, userId, "data.retention_updated", "policy_settings", userId, {
+          log_retention_days: logDays,
+          audit_log_retention_days: auditDays,
+        });
+        return json({ ok: true, log_retention_days: logDays, audit_log_retention_days: auditDays });
+      }
+
+      case "prune_old_logs": {
+        // Manual trigger — prunes this workspace's logs immediately using
+        // the configured retention. Audit-logged so accidental clicks are
+        // visible. The nightly pg_cron pass calls prune_all_logs() which
+        // covers every workspace.
+        const { data, error } = await sb.rpc("prune_user_logs", { _user_id: userId });
+        if (error) return json({ error: error.message }, 400);
+        const result = Array.isArray(data) ? data[0] : data;
+        await auditAction(sb, userId, "data.logs_pruned", "user", userId, {
+          request_logs_deleted: result?.request_logs_deleted ?? 0,
+          audit_logs_deleted: result?.audit_logs_deleted ?? 0,
+          triggered: "manual",
+        });
+        return json({
+          ok: true,
+          request_logs_deleted: result?.request_logs_deleted ?? 0,
+          audit_logs_deleted: result?.audit_logs_deleted ?? 0,
+        });
+      }
+
       // GDPR Article 17 — right to erasure. This action only RECORDS the
       // request and writes an immutable audit_logs entry; actual deletion
       // is operator-driven (via Supabase admin tools) so accidental clicks
