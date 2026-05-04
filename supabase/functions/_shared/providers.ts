@@ -15,6 +15,19 @@ export interface ProviderDef {
   model_suggestions: string[];
   key_placeholder: string;
   get_key_url: string;
+  /**
+   * Optional predicate to keep only models the provider's chat endpoint can
+   * actually accept. Some providers (notably Perplexity) advertise external
+   * vendor models in their `/v1/models` list that they don't actually serve.
+   * Receives the parsed model object (id + owned_by + display_name).
+   */
+  model_id_filter?: (m: { id: string; owned_by?: string | null }) => boolean;
+  /**
+   * Optional rewriter to translate a model id into the form the chat endpoint
+   * expects. E.g. Perplexity returns `perplexity/sonar` from `/v1/models` but
+   * its `/chat/completions` only accepts the bare `sonar`.
+   */
+  model_id_normalize?: (id: string) => string;
 }
 
 export const PROVIDERS: ProviderDef[] = [
