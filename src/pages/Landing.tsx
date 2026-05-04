@@ -218,11 +218,30 @@ const Landing = () => {
             </Link>
           </Button>
           <Button size="lg" variant="outline" asChild>
-            <a href="#how">See how it works</a>
+            <a
+              href="#how"
+              onClick={(e) => {
+                e.preventDefault();
+                const el = document.getElementById("how");
+                if (!el) return;
+                el.scrollIntoView({ behavior: "smooth", block: "start" });
+                // Flash the section so users see exactly what was replayed.
+                el.classList.add("ring-2", "ring-primary/60", "transition-shadow");
+                window.setTimeout(() => {
+                  el.classList.remove("ring-2", "ring-primary/60");
+                }, 1400);
+              }}
+            >
+              <RotateCcw className="mr-2 h-4 w-4" />
+              Replay quickstart
+            </a>
           </Button>
         </div>
         <p className="mt-4 text-meta text-muted-foreground">
-          Free tier · No credit card · 2-minute setup
+          Free tier · No credit card · 2-minute setup ·{" "}
+          <Link to="/docs" className="underline hover:text-foreground">
+            Need help?
+          </Link>
         </p>
       </div>
 
