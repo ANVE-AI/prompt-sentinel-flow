@@ -2268,6 +2268,7 @@ Deno.serve(async (req) => {
           tokens_out_total: tokensOutTotal,
           tokens_saved_total: tokensSavedTotal,
           compressed_requests: compressedRequests,
+          compression_breakdown,
           chart, top_rules, block_patterns, recent_blocks,
         });
       }
