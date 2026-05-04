@@ -69,21 +69,58 @@ const Overview = () => {
         title="Overview"
         description={`Live signal across every AnveGuard key in the last ${RANGE_DAYS[range]} days.`}
         actions={
-          <ToggleGroup
-            type="single"
-            value={range}
-            onValueChange={(v) => v && setRange(v as Range)}
-            size="sm"
-            variant="outline"
-          >
-            {(Object.keys(RANGE_LABELS) as Range[]).map((r) => (
-              <ToggleGroupItem key={r} value={r} aria-label={`Last ${RANGE_LABELS[r]}`}>
-                {RANGE_LABELS[r]}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
+          <div className="flex items-center gap-2">
+            {isUpdating && (
+              <span className="inline-flex items-center gap-1.5 text-meta text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Updating…
+              </span>
+            )}
+            <ToggleGroup
+              type="single"
+              value={range}
+              onValueChange={(v) => v && setRange(v as Range)}
+              size="sm"
+              variant="outline"
+            >
+              {(Object.keys(RANGE_LABELS) as Range[]).map((r) => (
+                <ToggleGroupItem key={r} value={r} aria-label={`Last ${RANGE_LABELS[r]}`}>
+                  {RANGE_LABELS[r]}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </div>
         }
       />
+
+      {/* Page-level empty state — shown when the selected range has zero traffic.
+          Sits below alerts so spike banners (which use a different baseline window)
+          still show. */}
+      {noData && (
+        <Card className="surface-1 border-border">
+          <CardContent className="p-0">
+            <EmptyState
+              icon={<Inbox className="h-5 w-5" />}
+              title={`No data for the last ${RANGE_DAYS[range]} days`}
+              description="Nothing has been logged in this window yet. Try a wider range, or send a request through one of your keys to start populating the dashboard."
+              action={
+                <div className="flex items-center gap-2">
+                  {range !== "90d" && (
+                    <button
+                      onClick={() => setRange("90d")}
+                      className="text-meta text-primary hover:underline"
+                    >
+                      Switch to last 90 days
+                    </button>
+                  )}
+                  <Link to="/dashboard/keys" className="text-meta text-primary hover:underline">
+                    Manage keys
+                  </Link>
+                </div>
+              }
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {spike?.spike && (
         <Card className="surface-1 border-status-block/40 bg-status-block/5">
