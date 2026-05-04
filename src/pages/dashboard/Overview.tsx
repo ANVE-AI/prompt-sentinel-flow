@@ -99,7 +99,59 @@ const Overview = () => {
                       </li>
                     ))}
                   </ul>
+      )}
+
+      {tokenSpike?.spike && (
+        <Card className="surface-1 border-status-warn/40 bg-status-warn/5">
+          <CardContent className="p-4">
+            <div className="flex items-start gap-3">
+              <Activity className="h-4 w-4 mt-0.5 text-status-warn shrink-0" />
+              <div className="flex-1 min-w-0 space-y-2">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <div className="text-body font-medium">
+                      Token usage spike — last {tokenSpike.window_hours}h above baseline
+                    </div>
+                    <div className="text-meta text-muted-foreground mt-0.5 tabular-nums">
+                      in {fmtTok(tokenSpike.tokens_in)} (≈{fmtTok(tokenSpike.baseline_in)} baseline
+                      {tokenSpike.ratio_in ? ` · ${tokenSpike.ratio_in}×` : ""}) ·
+                      out {fmtTok(tokenSpike.tokens_out)} (≈{fmtTok(tokenSpike.baseline_out)} baseline
+                      {tokenSpike.ratio_out ? ` · ${tokenSpike.ratio_out}×` : ""})
+                    </div>
+                  </div>
+                  <Link
+                    to="/dashboard/policies"
+                    className="text-meta text-primary hover:underline inline-flex items-center gap-1 shrink-0"
+                  >
+                    Tune thresholds <ArrowUpRight className="h-3.5 w-3.5" />
+                  </Link>
+                </div>
+                {(tokenSpike.top_keys ?? []).filter((k: any) => k.spike).length > 0 && (
+                  <ul className="grid gap-1.5 sm:grid-cols-2">
+                    {tokenSpike.top_keys.filter((k: any) => k.spike).map((k: any) => (
+                      <li
+                        key={k.api_key_id}
+                        className="flex items-center justify-between gap-2 rounded border border-border bg-surface-2 px-2.5 py-1.5"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-meta truncate">{k.api_key_name}</div>
+                          {k.api_key_prefix && (
+                            <div className="text-[10px] text-muted-foreground font-mono truncate">{k.api_key_prefix}</div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0 tabular-nums">
+                          <span className="text-meta">{fmtTok(k.tokens_in + k.tokens_out)} tok</span>
+                          <Badge status="warn">spike</Badge>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
                 )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
               </div>
             </div>
           </CardContent>
