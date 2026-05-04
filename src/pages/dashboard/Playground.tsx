@@ -140,7 +140,9 @@ const Playground = () => {
     navigate(`/dashboard/keys?${params.toString()}`);
   };
 
-  const send = async () => {
+  const SAMPLE_TEST_PROMPT = "Reply with the single word: pong.";
+
+  const send = async (opts?: { promptOverride?: string; streamOverride?: boolean; isTest?: boolean }) => {
     if (selection?.kind === "endpoint" && selectedEndpoint) {
       toast.error(
         `"${selectedEndpoint.name}" has no AnveGuard API key bound. Create one to send requests through this endpoint.`,
@@ -162,6 +164,8 @@ const Playground = () => {
       toast.error("Paste an AnveGuard key (starts with ag_live_) — you can only see it once when you create it.");
       return;
     }
+    const effectivePrompt = opts?.promptOverride ?? prompt;
+    const effectiveStream = opts?.streamOverride ?? stream;
     setLoading(true);
     setResult({ blocked: false, text: "" });
     try {
@@ -169,8 +173,8 @@ const Playground = () => {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({
-          messages: [{ role: "user", content: prompt }],
-          stream,
+          messages: [{ role: "user", content: effectivePrompt }],
+          stream: effectiveStream,
           ...(model ? { model } : {}),
         }),
       });
