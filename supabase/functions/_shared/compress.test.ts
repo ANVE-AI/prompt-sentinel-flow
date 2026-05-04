@@ -15,7 +15,7 @@ Deno.test("balanced: dedupes consecutive identical lines", () => {
     [{ role: "user", content: "same\nsame\nsame\ndifferent" }],
     "balanced",
   );
-  assertEquals(r.messages[0].content.split("\n").filter((l) => l === "same").length, 1);
+  assertEquals(r.messages[0].content.split("\n").filter((l: string) => l === "same").length, 1);
 });
 
 Deno.test("never compresses system messages", () => {
