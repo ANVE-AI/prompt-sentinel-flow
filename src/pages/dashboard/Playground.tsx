@@ -337,14 +337,19 @@ const Playground = () => {
                         <SelectLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
                           Configured endpoints (no key yet)
                         </SelectLabel>
-                        {unboundEndpoints.map((e: any) => (
+                    {unboundEndpoints.map((e: any) => (
                           <SelectItem key={`ep:${e.id}`} value={`ep:${e.id}`}>
-                            <span className="flex items-center gap-2">
-                              <Plug className="h-3.5 w-3.5 text-muted-foreground" />
-                              {e.name} — <span className="font-mono text-xs text-muted-foreground">{hostOf(e.base_url)}</span>
-                              {e.default_model && (
-                                <span className="text-xs text-muted-foreground">· {e.default_model}</span>
-                              )}
+                            <span className="flex flex-col items-start gap-0.5">
+                              <span className="flex items-center gap-2">
+                                <Plug className="h-3.5 w-3.5 text-status-warn" />
+                                {e.name} — <span className="font-mono text-xs text-muted-foreground">{hostOf(e.base_url)}</span>
+                                {e.default_model && (
+                                  <span className="text-xs text-muted-foreground">· {e.default_model}</span>
+                                )}
+                              </span>
+                              <span className="text-[11px] text-status-warn pl-5">
+                                No AnveGuard key bound — can't send yet
+                              </span>
                             </span>
                           </SelectItem>
                         ))}
