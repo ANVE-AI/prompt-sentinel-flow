@@ -2415,6 +2415,8 @@ Deno.serve(async (req) => {
         }
         const chart = Object.entries(buckets).map(([day, v]) => ({ day, ...v }));
         return json({
+          range: rangeParam in RANGE_DAYS ? rangeParam : "14d",
+          range_days: days,
           total, blocked, errors, avg_latency_ms: avgLatency,
           blocked_pct: total ? Number(((blocked / total) * 100).toFixed(2)) : 0,
           active_keys: (keys ?? []).filter((k) => k.is_active).length,
