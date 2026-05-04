@@ -128,18 +128,26 @@ async function evaluate(
 }
 
 Deno.serve(async (req) => {
-  // Service-role auth gate — this function MUST NOT be reachable by end-user
-  // Clerk JWTs. We check the header against the configured service role key.
-  const expected = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  // Auth gate — accepts either the Supabase service-role key (operator
+  // calling manually) or the rotating shared secret stored in the
+  // `system_secrets` table (used by pg_cron via vault). MUST NOT be
+  // reachable by end-user Clerk JWTs.
+  const sb = service();
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const auth = req.headers.get("authorization") || "";
   const provided = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-  if (!expected || provided !== expected) {
+
+  let ok = !!serviceKey && provided === serviceKey;
+  if (!ok && provided.length >= 32) {
+    const { data: sec } = await sb.from("system_secrets")
+      .select("value").eq("name", "alerts_fire_secret").maybeSingle();
+    if (sec?.value && provided === sec.value) ok = true;
+  }
+  if (!ok) {
     return new Response(JSON.stringify({ error: "service-role auth required" }), {
       status: 401, headers: { "Content-Type": "application/json" },
     });
   }
-
-  const sb = service();
   const { data: subs, error } = await sb
     .from("alert_subscriptions")
     .select("*")
