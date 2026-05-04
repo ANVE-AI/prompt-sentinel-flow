@@ -309,6 +309,146 @@ async function handleImageGeneration(
   });
 }
 
+// ---- Phase 5: text-to-speech handler -------------------------------------
+// JSON body { model, input, voice, response_format? } → binary audio
+// (mp3/opus/aac/flac). Policy runs on `input` text BEFORE forwarding so
+// harmful prompts can't be turned into audio. Response is passed through
+// as binary bytes with the upstream's Content-Type preserved so the
+// caller's SDK can write the file directly.
+const HANDLEABLE_TTS_PROVIDERS = new Set(["openai", "lovable", "custom"]);
+const MAX_TTS_INPUT_CHARS = 5000;  // OpenAI TTS hard cap
+
+async function handleAudioSpeech(
+  sb: ReturnType<typeof service>,
+  _req: Request,
+  keyRow: any,
+  publicBody: any,
+): Promise<Response> {
+  const start = Date.now();
+
+  if (!HANDLEABLE_TTS_PROVIDERS.has(keyRow.provider)) {
+    return errorResponse("openai", 501,
+      `Text-to-speech is currently supported only for OpenAI-compatible providers. Your key uses provider: ${keyRow.provider}.`,
+      { code: "modality_unsupported_provider" });
+  }
+
+  const input = typeof publicBody?.input === "string" ? publicBody.input : "";
+  if (!input) {
+    return errorResponse("openai", 400, "Missing or invalid `input` (string required).",
+      { code: "missing_input", param: "input" });
+  }
+  if (input.length > MAX_TTS_INPUT_CHARS) {
+    return errorResponse("openai", 400,
+      `input exceeds ${MAX_TTS_INPUT_CHARS} chars (OpenAI TTS hard cap).`,
+      { code: "input_too_long", param: "input" });
+  }
+
+  // Input policy on the text — same engine as chat / image. If the user
+  // tries to TTS a jailbreak/CSAM/persona-bypass payload, block it.
+  const policyState = await loadWorkspacePolicy(sb, keyRow.user_id);
+  let promptVerdict: Awaited<ReturnType<typeof evaluatePolicy>>;
+  try {
+    promptVerdict = await evaluatePolicy({
+      text: input, direction: "input",
+      settings: policyState.settings,
+      legacy: policyState.legacy,
+      rules: policyState.rules,
+      intents: policyState.intents,
+    });
+  } catch (e) {
+    console.error("[tts] policy eval failed:", e);
+    promptVerdict = { verdict: "allow", layers: [], normalized: input, decoded_segments: [] };
+  }
+
+  if (promptVerdict.verdict === "block") {
+    const blockReason = promptVerdict.layers.find((l) => l.verdict === "block")?.reason
+      ?? "Blocked by input policy.";
+    await sb.from("request_logs").insert({
+      user_id: keyRow.user_id, api_key_id: keyRow.id,
+      provider: keyRow.provider, model: publicBody?.model ?? "tts",
+      messages: [{ role: "user", content: input.slice(0, 1000) }],
+      response: null,
+      status: "blocked_input", verdict: "block",
+      verdict_layers: promptVerdict.layers,
+      block_reason: blockReason,
+      latency_ms: Date.now() - start,
+    });
+    await sb.from("api_keys").update({ last_used_at: new Date().toISOString() }).eq("id", keyRow.id);
+    return errorResponse("openai", 400, `${policyState.blockMessage} ${blockReason}`,
+      { code: "content_filter", anveguard: { reason: blockReason, layers: promptVerdict.layers } });
+  }
+
+  // Resolve upstream URL + key.
+  let upstreamKey: string | null = null;
+  if (keyRow.provider_key_encrypted) {
+    try { upstreamKey = await decryptString(keyRow.provider_key_encrypted); }
+    catch (e) {
+      console.error("[tts] key decrypt failed:", e);
+      return errorResponse("openai", 500, "Internal proxy error (key resolution).",
+        { code: "internal_error" });
+    }
+  }
+  let resolved;
+  try { resolved = resolveEndpoint(keyRow, upstreamKey); }
+  catch (e) {
+    return errorResponse("openai", 400, e instanceof Error ? e.message : String(e),
+      { code: "endpoint_resolution_failed" });
+  }
+  const ttsUrl = resolved.url.replace(/\/v1\/chat\/completions(\?.*)?$/, "/v1/audio/speech$1");
+  if (ttsUrl === resolved.url) {
+    return errorResponse("openai", 501,
+      "This endpoint's chat URL doesn't match a recognised pattern; cannot derive a TTS URL automatically.",
+      { code: "modality_url_resolution_failed" });
+  }
+
+  // Forward POST as JSON (TTS is JSON in / binary out).
+  let upstream: Response;
+  try {
+    upstream = await fetch(ttsUrl, {
+      method: "POST",
+      headers: { ...resolved.headers, "Content-Type": "application/json" },
+      body: JSON.stringify(publicBody),
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return errorResponse("openai", 502, "Upstream TTS request failed.",
+      { code: "upstream_error", anveguard: { detail: msg } });
+  }
+
+  // Read the binary response so we can both log size + return bytes. For
+  // very large TTS responses we still buffer; OpenAI TTS at 5000-char input
+  // produces ~few-MB mp3 files, manageable in edge function memory.
+  const audioBuf = await upstream.arrayBuffer();
+
+  await sb.from("request_logs").insert({
+    user_id: keyRow.user_id, api_key_id: keyRow.id,
+    provider: keyRow.provider, model: publicBody?.model ?? "tts",
+    messages: [{ role: "user", content: input.slice(0, 1000) }],
+    // Don't store the audio bytes themselves — they can be MB. Just metadata.
+    response: {
+      audio_bytes: audioBuf.byteLength,
+      voice: publicBody?.voice ?? null,
+      format: upstream.headers.get("content-type") ?? null,
+      response_format: publicBody?.response_format ?? null,
+    },
+    status: upstream.ok ? "allowed" : "error",
+    verdict: "allow",
+    verdict_layers: promptVerdict.layers,
+    block_reason: null,
+    latency_ms: Date.now() - start,
+  });
+  await sb.from("api_keys").update({ last_used_at: new Date().toISOString() }).eq("id", keyRow.id);
+
+  return new Response(audioBuf, {
+    status: upstream.status,
+    headers: {
+      ...corsHeaders,
+      "Content-Type": upstream.headers.get("content-type") ?? "audio/mpeg",
+      "Content-Length": String(audioBuf.byteLength),
+    },
+  });
+}
+
 // ---- Phase 5: audio transcription handler --------------------------------
 // Minimum-viable forwarder for OpenAI Whisper /v1/audio/transcriptions.
 // Differences from the chat / image-gen paths:
@@ -788,6 +928,13 @@ async function handleRequest(req: Request): Promise<Response> {
   // first pass; custom providers fall back to 501.
   if (reqShape === "openai_image") {
     return await handleImageGeneration(sb, req, keyRow, publicBody);
+  }
+
+  // Phase 5 — text-to-speech. JSON body { model, input, voice }; binary
+  // response. Same input-policy + audit pipeline as image-gen, but the
+  // upstream returns audio bytes that we passthrough unchanged.
+  if (reqShape === "openai_audio_speech") {
+    return await handleAudioSpeech(sb, req, keyRow, publicBody);
   }
 
   const body: any = translateRequestToOpenAI(reqShape, publicBody, route.pathModel);

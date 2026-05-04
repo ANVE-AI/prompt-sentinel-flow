@@ -14,7 +14,7 @@
 // evaluation, throttling, alias rewriting and logging only have to be
 // implemented once.
 
-export type RequestShape = "openai" | "anthropic" | "gemini" | "openai_image" | "openai_audio_transcription";
+export type RequestShape = "openai" | "anthropic" | "gemini" | "openai_image" | "openai_audio_transcription" | "openai_audio_speech";
 
 export interface ShapeRoute {
   shape: RequestShape;
@@ -55,6 +55,12 @@ export function detectRequestShape(url: URL): ShapeRoute {
   // body is multipart not JSON), so we route to a dedicated handler.
   if (path.endsWith("/v1/audio/transcriptions") || path === "/v1/audio/transcriptions") {
     return { shape: "openai_audio_transcription" };
+  }
+  // OpenAI TTS — JSON body { model, input, voice }, response is BINARY
+  // audio (mp3/opus/aac/flac). Policy runs on the `input` text before
+  // forwarding so harmful prompts can't be turned into audio.
+  if (path.endsWith("/v1/audio/speech") || path === "/v1/audio/speech") {
+    return { shape: "openai_audio_speech" };
   }
   return { shape: "openai" };
 }
