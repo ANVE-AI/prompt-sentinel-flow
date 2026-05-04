@@ -2259,7 +2259,10 @@ Deno.serve(async (req) => {
       }
 
       case "stats": {
-        const since = new Date(Date.now() - 14 * 86400000).toISOString();
+        const rangeParam = (url.searchParams.get("range") ?? "14d").toLowerCase();
+        const RANGE_DAYS: Record<string, number> = { "7d": 7, "14d": 14, "30d": 30, "90d": 90 };
+        const days = RANGE_DAYS[rangeParam] ?? 14;
+        const since = new Date(Date.now() - days * 86400000).toISOString();
         const { data: logs } = await sb.from("request_logs")
           .select("id,status,latency_ms,created_at,verdict_layers,block_reason,model,api_key_id,messages,tokens_in,tokens_out,tokens_saved_estimate,compression_applied").eq("user_id", userId).gte("created_at", since);
         const { data: keys } = await sb.from("api_keys")
