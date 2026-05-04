@@ -151,6 +151,164 @@ async function handleHealth(): Promise<Response> {
 const AUTH_FAIL_LIMIT_PER_MIN = 5;
 const AUTH_FAIL_LIMIT_PER_HOUR = 50;
 
+// ---- Phase 5: image generation handler -----------------------------------
+// Minimum-viable forwarder for OpenAI-shaped /v1/images/generations.
+// Differences from the chat path:
+//   - Body is `{ prompt: string, model, size, n, ... }` not `{ messages: [...] }`
+//   - No streaming, no output policy (image content moderation is a separate
+//     track requiring an image classifier — not in this first pass)
+//   - No alias / route / compression — all chat-only concepts
+// Same as chat path:
+//   - Auth, rate limit, input policy on the prompt, audit logging
+const HANDLEABLE_IMAGE_PROVIDERS = new Set(["openai", "lovable", "custom"]);
+
+async function handleImageGeneration(
+  sb: ReturnType<typeof service>,
+  _req: Request,
+  keyRow: any,
+  publicBody: any,
+): Promise<Response> {
+  const start = Date.now();
+
+  // --- 1. Validate body shape -----------------------------------------
+  const prompt = typeof publicBody?.prompt === "string" ? publicBody.prompt : "";
+  if (!prompt) {
+    return errorResponse("openai", 400, "Missing or invalid `prompt` (string required).",
+      { code: "missing_prompt", param: "prompt" });
+  }
+  if (!HANDLEABLE_IMAGE_PROVIDERS.has(keyRow.provider)) {
+    return errorResponse("openai", 501,
+      `Image generation is currently supported only for OpenAI-compatible providers. Your key uses provider: ${keyRow.provider}.`,
+      { code: "modality_unsupported_provider" });
+  }
+
+  // --- 2. Input policy on the prompt ----------------------------------
+  const policyState = await loadWorkspacePolicy(sb, keyRow.user_id);
+  let promptVerdict: Awaited<ReturnType<typeof evaluatePolicy>>;
+  try {
+    promptVerdict = await evaluatePolicy({
+      text: prompt, direction: "input",
+      settings: policyState.settings,
+      legacy: policyState.legacy,
+      rules: policyState.rules,
+      intents: policyState.intents,
+    });
+  } catch (e) {
+    console.error("[image-gen] policy eval failed:", e);
+    promptVerdict = { verdict: "allow", layers: [], normalized: prompt, decoded_segments: [] };
+  }
+
+  if (promptVerdict.verdict === "block") {
+    const blockReason = promptVerdict.layers.find((l) => l.verdict === "block")?.reason
+      ?? "Blocked by input policy.";
+    // Log the block so it appears in /dashboard/threats.
+    await sb.from("request_logs").insert({
+      user_id: keyRow.user_id,
+      api_key_id: keyRow.id,
+      provider: keyRow.provider,
+      model: publicBody?.model ?? "image-gen",
+      messages: [{ role: "user", content: prompt }],
+      response: null,
+      status: "blocked_input",
+      verdict: "block",
+      verdict_layers: promptVerdict.layers,
+      block_reason: blockReason,
+      latency_ms: Date.now() - start,
+    });
+    await sb.from("api_keys").update({ last_used_at: new Date().toISOString() }).eq("id", keyRow.id);
+    return errorResponse("openai", 400, `${policyState.blockMessage} ${blockReason}`,
+      { code: "content_filter", anveguard: { reason: blockReason, layers: promptVerdict.layers } });
+  }
+
+  // --- 3. Resolve upstream key + URL ----------------------------------
+  let upstreamKey: string | null = null;
+  if (keyRow.provider_key_encrypted) {
+    try { upstreamKey = await decryptString(keyRow.provider_key_encrypted); }
+    catch (e) {
+      console.error("[image-gen] key decrypt failed:", e);
+      return errorResponse("openai", 500, "Internal proxy error (key resolution).",
+        { code: "internal_error" });
+    }
+  }
+  let resolved;
+  try { resolved = resolveEndpoint(keyRow, upstreamKey); }
+  catch (e) {
+    return errorResponse("openai", 400, e instanceof Error ? e.message : String(e),
+      { code: "endpoint_resolution_failed" });
+  }
+  // resolved.url is the chat completions URL. Derive the image URL by
+  // swapping the path. This works for the OpenAI-compatible providers we
+  // currently allow through HANDLEABLE_IMAGE_PROVIDERS.
+  const imageUrl = resolved.url.replace(/\/v1\/chat\/completions(\?.*)?$/, "/v1/images/generations$1");
+  if (imageUrl === resolved.url) {
+    return errorResponse("openai", 501,
+      "This endpoint's chat URL doesn't match a recognised pattern; cannot derive an image-gen URL automatically.",
+      { code: "modality_url_resolution_failed", anveguard: { resolved_url: resolved.url } });
+  }
+
+  // --- 4. Forward to upstream -----------------------------------------
+  let upstream: Response;
+  try {
+    upstream = await fetch(imageUrl, {
+      method: "POST",
+      headers: { ...resolved.headers, "Content-Type": "application/json" },
+      body: JSON.stringify(publicBody),
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await sb.from("request_logs").insert({
+      user_id: keyRow.user_id, api_key_id: keyRow.id, provider: keyRow.provider,
+      model: publicBody?.model ?? "image-gen",
+      messages: [{ role: "user", content: prompt }],
+      response: { error: msg.slice(0, 500) },
+      status: "error", verdict: "allow", verdict_layers: promptVerdict.layers,
+      block_reason: null, latency_ms: Date.now() - start,
+    });
+    return errorResponse("openai", 502, "Upstream image-gen request failed.",
+      { code: "upstream_error", anveguard: { detail: msg } });
+  }
+
+  const respText = await upstream.text();
+  let respJson: any = null;
+  try { respJson = respText ? JSON.parse(respText) : null; } catch { /* keep raw */ }
+
+  // --- 5. Log + return ------------------------------------------------
+  await sb.from("request_logs").insert({
+    user_id: keyRow.user_id,
+    api_key_id: keyRow.id,
+    provider: keyRow.provider,
+    model: publicBody?.model ?? "image-gen",
+    messages: [{ role: "user", content: prompt }],
+    // Image responses contain b64 or URLs — could be huge. Trim to a
+    // metadata snapshot for log space; preserve count + size + revised_prompt.
+    response: respJson
+      ? {
+          model: respJson?.model ?? null,
+          created: respJson?.created ?? null,
+          image_count: Array.isArray(respJson?.data) ? respJson.data.length : 0,
+          first_revised_prompt: respJson?.data?.[0]?.revised_prompt ?? null,
+          response_format: respJson?.data?.[0]?.url ? "url" : respJson?.data?.[0]?.b64_json ? "b64_json" : null,
+        }
+      : { raw: respText.slice(0, 1000) },
+    status: upstream.ok ? "allowed" : "error",
+    verdict: "allow",
+    verdict_layers: promptVerdict.layers,
+    block_reason: null,
+    latency_ms: Date.now() - start,
+  });
+  await sb.from("api_keys").update({ last_used_at: new Date().toISOString() }).eq("id", keyRow.id);
+
+  // Pass the upstream response through unchanged — clients get the OpenAI
+  // image-gen response shape they expect.
+  return new Response(respText, {
+    status: upstream.status,
+    headers: {
+      ...corsHeaders,
+      "Content-Type": upstream.headers.get("content-type") ?? "application/json",
+    },
+  });
+}
+
 async function rateLimitedAuthFailure(
   sb: ReturnType<typeof service>,
   req: Request,
@@ -424,17 +582,10 @@ async function handleRequest(req: Request): Promise<Response> {
   const route = detectRequestShape(reqUrl);
   const reqShape: RequestShape = route.shape;
 
-  // Phase 5 modality scaffolding — recognised paths whose execution layer
-  // isn't implemented yet (currently /v1/images/generations) return a
-  // stable 501 with a documented message. Doing this BEFORE auth means
-  // SDK probes don't burn rate-limit buckets while we're working on the
-  // actual integration.
-  if (route.notImplemented) {
-    const modality = reqShape === "openai_image" ? "image generation" : reqShape;
-    return errorResponse(reqShape === "openai_image" ? "openai" : reqShape, 501,
-      `${modality} routes are recognised but not yet implemented in this AnveGuard build. Tracking issue: Phase 5 / image-gen modality. Use a chat completions endpoint until then.`,
-      { code: "modality_not_implemented" });
-  }
+  // Phase 5 — recognised modality paths that DON'T have execution support
+  // route to the dedicated handler (currently only image generation). Doing
+  // this AFTER shape detection but BEFORE the chat-only auth/parse pipeline
+  // keeps the handler self-contained.
 
   // ---- Auth: accept the AnveGuard key in whatever header the SDK sends.
   //   - OpenAI / generic:    Authorization: Bearer ag_live_…
@@ -470,6 +621,16 @@ async function handleRequest(req: Request): Promise<Response> {
   let publicBody: any;
   try { publicBody = await req.json(); }
   catch { return errorResponse(reqShape, 400, "Invalid JSON body.", { code: "invalid_json" }); }
+
+  // Phase 5 — image generation. Distinct path/body shape (OpenAI uses
+  // /v1/images/generations with a `prompt` string, not `messages`). Run
+  // input policy on the prompt then forward to upstream. Skips the chat-
+  // specific pipeline (alias/route/streaming/output-policy) — those are
+  // chat-only concepts. Only OpenAI-shaped providers supported in this
+  // first pass; custom providers fall back to 501.
+  if (reqShape === "openai_image") {
+    return await handleImageGeneration(sb, req, keyRow, publicBody);
+  }
 
   const body: any = translateRequestToOpenAI(reqShape, publicBody, route.pathModel);
   if (!Array.isArray(body?.messages) || body.messages.length === 0) {
