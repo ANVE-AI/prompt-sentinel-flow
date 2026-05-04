@@ -894,6 +894,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      _lov_store_service_role_key: { Args: { _key: string }; Returns: string }
       claim_endpoint_shares: {
         Args: { _email: string; _user_id: string }
         Returns: number
