@@ -1,10 +1,78 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Check, Copy, Plug, KeyRound, Sparkles, ChevronDown, BookOpen, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const PROXY_BASE_URL = "https://api.anveguard.dev/v1";
+const AUTH_HEADER_NAME = "Authorization";
+const AUTH_HEADER_VALUE = "Bearer ag_live_…";
+
+/**
+ * Example upstreams the visitor can preview without leaving the panel. The
+ * `path` and `body` differ per provider since Anthropic uses a different
+ * route + payload shape from OpenAI-compatible providers.
+ */
+type ExampleEndpoint = {
+  id: string;
+  label: string;
+  hint: string;
+  path: string; // appended to PROXY_BASE_URL
+  model: string;
+  body: object;
+};
+
+const EXAMPLE_ENDPOINTS: ExampleEndpoint[] = [
+  {
+    id: "openai",
+    label: "OpenAI",
+    hint: "Chat Completions · gpt-4o-mini",
+    path: "/chat/completions",
+    model: "gpt-4o-mini",
+    body: {
+      model: "gpt-4o-mini",
+      stream: true,
+      messages: [{ role: "user", content: "Hello" }],
+    },
+  },
+  {
+    id: "anthropic",
+    label: "Anthropic",
+    hint: "Messages · claude-3-5-sonnet",
+    path: "/messages",
+    model: "claude-3-5-sonnet-latest",
+    body: {
+      model: "claude-3-5-sonnet-latest",
+      max_tokens: 256,
+      stream: true,
+      messages: [{ role: "user", content: "Hello" }],
+    },
+  },
+  {
+    id: "perplexity",
+    label: "Perplexity",
+    hint: "Chat Completions · sonar",
+    path: "/chat/completions",
+    model: "sonar",
+    body: {
+      model: "sonar",
+      stream: true,
+      messages: [{ role: "user", content: "Hello" }],
+    },
+  },
+  {
+    id: "lovable",
+    label: "Lovable AI",
+    hint: "Chat Completions · gemini-2.5-flash",
+    path: "/chat/completions",
+    model: "google/gemini-2.5-flash",
+    body: {
+      model: "google/gemini-2.5-flash",
+      stream: true,
+      messages: [{ role: "user", content: "Hello" }],
+    },
+  },
+];
 
 type Step = {
   icon: typeof Plug;
@@ -12,22 +80,15 @@ type Step = {
   body: ReactNode;
   ctaLabel: string;
   ctaTo: string;
-  snippet?: { label: string; code: string };
+  /** Custom render for the right-hand snippet column. */
+  snippet?: ReactNode;
 };
 
 /**
  * Self-contained quickstart that lives on signed-out surfaces (landing,
- * sign-in, sign-up). Unlike the dashboard's progress-aware NextStepCard,
- * this panel doesn't read user state — it just lays out the 3 setup steps
- * with copyable snippets so a brand-new visitor can read end-to-end and
- * understand what they'll do *before* opening the dashboard.
- *
- * Each step's CTA links into the dashboard route; Clerk's auth gate will
- * route through sign-in if needed and forward the user to the destination.
- *
- * Variants:
- *   - "full"   — landing-page width, side-by-side body + snippet
- *   - "compact" — narrow auth-page column, stacked
+ * sign-in, sign-up). Step 3 includes a provider switcher and three
+ * individually copyable fields (proxy base URL, auth header, sample curl)
+ * so users can test against the example endpoint they actually plan to use.
  */
 export function QuickstartHelpPanel({
   variant = "full",
@@ -37,6 +98,17 @@ export function QuickstartHelpPanel({
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const [exampleId, setExampleId] = useState<string>(EXAMPLE_ENDPOINTS[0].id);
+  const example = useMemo(
+    () => EXAMPLE_ENDPOINTS.find((e) => e.id === exampleId) ?? EXAMPLE_ENDPOINTS[0],
+    [exampleId],
+  );
+
+  const fullUrl = `${PROXY_BASE_URL}${example.path}`;
+  const sampleCurl = `curl -N ${fullUrl} \\
+  -H "${AUTH_HEADER_NAME}: ${AUTH_HEADER_VALUE}" \\
+  -H "Content-Type: application/json" \\
+  -d '${JSON.stringify(example.body, null, 2).replace(/\n/g, "\n    ")}'`;
 
   const steps: Step[] = [
     {
@@ -58,40 +130,66 @@ export function QuickstartHelpPanel({
       body: (
         <>
           On <strong>Keys</strong>, click <em>New key</em>, name it, and bind it
-          to the endpoint you just created. You'll see an <code className="font-mono text-xs">ag_live_…</code>{" "}
-          secret <strong>once</strong> — copy it now, only the hash is stored.
+          to the endpoint you just created. You'll see an{" "}
+          <code className="font-mono text-xs">ag_live_…</code> secret{" "}
+          <strong>once</strong> — copy it now, only the hash is stored.
         </>
       ),
       ctaLabel: "Open Keys",
       ctaTo: "/dashboard/keys",
-      snippet: {
-        label: "Use your AnveGuard key",
-        code: `export ANVEGUARD_KEY="ag_live_…"`,
-      },
+      snippet: (
+        <CopyField
+          label="Set your AnveGuard key"
+          value={`export ANVEGUARD_KEY="ag_live_…"`}
+        />
+      ),
     },
     {
       icon: Sparkles,
       title: "Send a test request",
       body: (
         <>
-          Open the <strong>Playground</strong> and pick your key, or run the curl
-          below from any terminal. The proxy speaks the OpenAI Chat Completions
-          API — no SDK changes needed.
+          Pick the provider you'll guard and copy the proxy URL, the auth
+          header, and a ready-to-run sample. The proxy speaks the OpenAI Chat
+          Completions API (and Anthropic Messages) — no SDK changes needed.
         </>
       ),
       ctaLabel: "Open Playground",
       ctaTo: "/dashboard/playground",
-      snippet: {
-        label: "curl — first guarded request",
-        code: `curl -N ${PROXY_BASE_URL}/chat/completions \\
-  -H "Authorization: Bearer $ANVEGUARD_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "model": "gpt-4o-mini",
-    "stream": true,
-    "messages": [{"role": "user", "content": "Hello"}]
-  }'`,
-      },
+      snippet: (
+        <div className="space-y-2.5">
+          {/* Provider switcher — drives all three fields below */}
+          <div className="flex flex-wrap gap-1.5">
+            {EXAMPLE_ENDPOINTS.map((e) => {
+              const active = e.id === exampleId;
+              return (
+                <button
+                  key={e.id}
+                  type="button"
+                  onClick={() => setExampleId(e.id)}
+                  title={e.hint}
+                  className={cn(
+                    "px-2.5 py-1 rounded-md text-[11px] border transition-colors",
+                    active
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:text-foreground hover:border-border",
+                  )}
+                >
+                  {e.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <CopyField label="Proxy base URL" value={fullUrl} mono />
+          <CopyField
+            label="Auth header"
+            value={`${AUTH_HEADER_NAME}: ${AUTH_HEADER_VALUE}`}
+            mono
+          />
+          <CopyField label={`Sample request — ${example.label}`} value={sampleCurl} block />
+        </div>
+      ),
     },
   ];
 
@@ -158,8 +256,8 @@ function StepRow({ index, step, variant }: { index: number; step: Step; variant:
         </div>
 
         {step.snippet && (
-          <div className={cn("min-w-0", stacked ? "" : "md:w-[42%] md:max-w-[420px]")}>
-            <SnippetBlock label={step.snippet.label} code={step.snippet.code} />
+          <div className={cn("min-w-0", stacked ? "" : "md:w-[46%] md:max-w-[460px]")}>
+            {step.snippet}
           </div>
         )}
       </div>
@@ -167,10 +265,25 @@ function StepRow({ index, step, variant }: { index: number; step: Step; variant:
   );
 }
 
-function SnippetBlock({ label, code }: { label: string; code: string }) {
+/**
+ * Copy-to-clipboard field used for both single-line values (proxy URL,
+ * header) and full code blocks (curl). `block` swaps the inline pill layout
+ * for a multi-line <pre>; `mono` formats single-line text as code.
+ */
+function CopyField({
+  label,
+  value,
+  mono,
+  block,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  block?: boolean;
+}) {
   const [copied, setCopied] = useState(false);
   const handleCopy = () => {
-    navigator.clipboard.writeText(code).then(
+    navigator.clipboard.writeText(value).then(
       () => {
         setCopied(true);
         window.setTimeout(() => setCopied(false), 1400);
@@ -180,20 +293,40 @@ function SnippetBlock({ label, code }: { label: string; code: string }) {
       },
     );
   };
+
   return (
     <div className="rounded-md border border-border bg-muted/20">
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/60">
-        <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+      <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-b border-border/60">
+        <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider truncate">
           {label}
         </span>
-        <Button type="button" size="sm" variant="ghost" onClick={handleCopy} className="h-6 px-2 text-xs">
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          onClick={handleCopy}
+          className="h-6 px-2 text-xs shrink-0"
+          aria-label={`Copy ${label}`}
+        >
           {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
           {copied ? "Copied" : "Copy"}
         </Button>
       </div>
-      <pre className="px-3 py-2 text-[11px] font-mono leading-relaxed overflow-x-auto whitespace-pre">
-        {code}
-      </pre>
+      {block ? (
+        <pre className="px-3 py-2 text-[11px] font-mono leading-relaxed overflow-x-auto whitespace-pre">
+          {value}
+        </pre>
+      ) : (
+        <div
+          className={cn(
+            "px-3 py-1.5 text-[12px] truncate",
+            mono && "font-mono text-foreground/90",
+          )}
+          title={value}
+        >
+          {value}
+        </div>
+      )}
     </div>
   );
 }
