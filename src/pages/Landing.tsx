@@ -28,6 +28,7 @@ import { CodeTabs } from "@/components/landing/CodeTabs";
 
 const NAV = [
   { href: "#product", label: "Product" },
+  { href: "#observability", label: "Observability" },
   { href: "#how", label: "How it works" },
   { href: "#faq", label: "FAQ" },
   { href: "/docs", label: "Docs" },
