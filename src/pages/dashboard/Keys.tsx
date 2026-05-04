@@ -257,6 +257,28 @@ const Keys = () => {
     onError: (e: any) => toast.error(e?.message ?? "Bulk update failed"),
   });
 
+  // ---- Per-key + bulk compression-mode toggles ---------------------------
+  const setKeyCompression = useMutation({
+    mutationFn: ({ id, mode }: { id: string; mode: string }) =>
+      call("set_key_compression", { body: { id, mode } }),
+    onSuccess: () => {
+      toast.success("Compression mode updated");
+      qc.invalidateQueries({ queryKey: ["keys"] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Update failed"),
+  });
+  const bulkSetCompression = useMutation({
+    mutationFn: ({ ids, mode }: { ids: string[]; mode: string }) =>
+      call<{ updated: number; unchanged: number }>("bulk_set_key_compression", { body: { ids, mode } }),
+    onSuccess: (r, vars) => {
+      const skipped = r?.unchanged ? ` · ${r.unchanged} already on ${vars.mode}` : "";
+      toast.success(`${r?.updated ?? 0} key${(r?.updated ?? 0) === 1 ? "" : "s"} → ${vars.mode}${skipped}`);
+      setSelectedKeyIds(new Set());
+      qc.invalidateQueries({ queryKey: ["keys"] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Bulk update failed"),
+  });
+
   // -------- Live API key test ---------------------------------------------
   // Sends a tiny real chat request through the upstream the key is bound to
   // and shows the result in a dialog: ok/fail, latency, reply, tokens, error.
