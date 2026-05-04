@@ -11,6 +11,9 @@ import { SkeletonBlock, SkeletonRows } from "@/components/skeletons";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { HelpPanel } from "@/components/help-panel";
+
+const PROXY_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proxy`;
 
 type Range = "7d" | "14d" | "30d" | "90d";
 const RANGE_LABELS: Record<Range, string> = { "7d": "7d", "14d": "14d", "30d": "30d", "90d": "90d" };
