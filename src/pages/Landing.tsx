@@ -64,21 +64,27 @@ const PILLARS: { eyebrow: string; title: string; body: string; bullets: string[]
   },
 ];
 
-const STEPS: { n: string; title: string; body: string }[] = [
+const STEPS: { n: string; title: string; body: string; cta: string; to: string }[] = [
   {
     n: "01",
-    title: "Issue a key",
-    body: "Create an AnveGuard key in the dashboard. Bind it to OpenAI, Anthropic, Lovable AI, or any OpenAI-compatible endpoint you already use.",
+    title: "Create an endpoint",
+    body: "Add the upstream provider you want to guard (OpenAI, Anthropic, Perplexity, or your own host). Your provider key is stored once here — clients never see it.",
+    cta: "Add endpoint",
+    to: "/dashboard/endpoints",
   },
   {
     n: "02",
-    title: "Swap the URL",
-    body: "Point your existing OpenAI client at the AnveGuard base URL and use the AnveGuard key. Your provider key never leaves the dashboard.",
+    title: "Generate an AnveGuard key",
+    body: "Bind an ag_live_… key to that endpoint. Apps use it as a Bearer token — only the hash is stored, so copy the secret when it's shown.",
+    cta: "Create key",
+    to: "/dashboard/keys",
   },
   {
     n: "03",
-    title: "Watch and govern",
-    body: "Logs stream live. Policies enforce automatically. Rotate, revoke, or change rules from the console — code stays untouched.",
+    title: "Test in the Playground",
+    body: "Send a real prompt through the proxy and watch every policy layer (intent, keywords, behavioral) decide in real time.",
+    cta: "Open Playground",
+    to: "/dashboard/playground",
   },
 ];
 
