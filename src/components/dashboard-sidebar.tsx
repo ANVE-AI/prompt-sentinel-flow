@@ -34,7 +34,16 @@ import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils";
 import { COMMAND_PALETTE_EVENT } from "@/components/command-palette";
 
-type NavItem = { to: string; label: string; icon: typeof LayoutDashboard; end?: boolean };
+type NavItem = {
+  to: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  end?: boolean;
+  /** Hide from the sidebar by default. Power users flip the "Show advanced"
+   *  toggle in the footer to surface these. They're still reachable by URL
+   *  and via the search input / command palette. */
+  advanced?: boolean;
+};
 
 const groups: { id: string; label: string; items: NavItem[] }[] = [
   {
@@ -43,9 +52,11 @@ const groups: { id: string; label: string; items: NavItem[] }[] = [
     items: [
       { to: "/dashboard", label: "Overview", icon: LayoutDashboard, end: true },
       { to: "/dashboard/keys", label: "API Keys", icon: KeyRound },
-      { to: "/dashboard/providers", label: "Providers", icon: Server },
       { to: "/dashboard/endpoints", label: "Endpoints", icon: Plug },
-      { to: "/dashboard/routes", label: "Routes", icon: GitBranch },
+      // Advanced: providers is mostly a read-only catalog; new users use
+      // Endpoints. Routes is multi-endpoint fallback chains — advanced topic.
+      { to: "/dashboard/providers", label: "Providers", icon: Server, advanced: true },
+      { to: "/dashboard/routes", label: "Routes", icon: GitBranch, advanced: true },
     ],
   },
   {
@@ -62,11 +73,27 @@ const groups: { id: string; label: string; items: NavItem[] }[] = [
     label: "Tools",
     items: [
       { to: "/dashboard/playground", label: "Playground", icon: Terminal },
-      { to: "/dashboard/policies/sandbox", label: "Policy sandbox", icon: FlaskConical },
-      { to: "/dashboard/policies/harness", label: "Policy harness", icon: ShieldQuestion },
+      // Advanced: sandbox + harness are policy-engineering tools, not
+      // everyday workflows. They confuse new users who just want to test.
+      { to: "/dashboard/policies/sandbox", label: "Policy sandbox", icon: FlaskConical, advanced: true },
+      { to: "/dashboard/policies/harness", label: "Policy harness", icon: ShieldQuestion, advanced: true },
     ],
   },
 ];
+
+const SHOW_ADVANCED_KEY = "anveguard.sidebar.show_advanced";
+
+function useShowAdvanced(): [boolean, (v: boolean) => void] {
+  const [show, setShow] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try { return localStorage.getItem(SHOW_ADVANCED_KEY) === "1"; } catch { return false; }
+  });
+  const update = (v: boolean) => {
+    setShow(v);
+    try { localStorage.setItem(SHOW_ADVANCED_KEY, v ? "1" : "0"); } catch { /* private mode */ }
+  };
+  return [show, update];
+}
 
 /**
  * Desktop sidebar (lg+) backed by shadcn's collapsible Sidebar.
@@ -81,9 +108,26 @@ export function DashboardSidebar() {
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
   const openPalette = () => window.dispatchEvent(new Event(COMMAND_PALETTE_EVENT));
+  const [showAdvanced, setShowAdvanced] = useShowAdvanced();
+
+  // The on-screen group list — filters out advanced items when the toggle is
+  // off. Search always covers the full set so power-user features stay
+  // discoverable by name; this only controls the default sidebar density.
+  const visibleGroups = useMemo(
+    () => groups.map((g) => ({
+      ...g,
+      items: showAdvanced ? g.items : g.items.filter((i) => !i.advanced),
+    })).filter((g) => g.items.length > 0),
+    [showAdvanced],
+  );
+  const hiddenAdvancedCount = useMemo(
+    () => groups.reduce((n, g) => n + g.items.filter((i) => i.advanced).length, 0),
+    [],
+  );
 
   const filteredItems = useMemo(() => {
     if (!q) return null;
+    // Search across ALL items, advanced included — discoverability matters.
     const all = groups.flatMap((g) => g.items);
     return all.filter(
       (i) => i.label.toLowerCase().includes(q) || i.to.toLowerCase().includes(q),
@@ -199,7 +243,7 @@ export function DashboardSidebar() {
             </SidebarGroupContent>
           </SidebarGroup>
         ) : (
-          groups.map((g) => (
+          visibleGroups.map((g) => (
             <SidebarGroup key={g.id}>
               <SidebarGroupLabel className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/70">
                 {g.label}
@@ -225,6 +269,30 @@ export function DashboardSidebar() {
               All systems operational
             </div>
           </div>
+          {/* Progressive disclosure — new users see a focused 7-item sidebar;
+              power users flip the toggle to surface advanced configuration
+              (Providers, Routes, Policy sandbox, Policy harness). Advanced
+              items are always reachable by direct URL or via search. */}
+          <button
+            type="button"
+            onClick={() => {
+              setShowAdvanced(!showAdvanced);
+              toast.success(showAdvanced ? "Showing essentials only" : `Showing all ${hiddenAdvancedCount} advanced items`);
+            }}
+            aria-pressed={showAdvanced}
+            className="w-full text-[11px] text-muted-foreground hover:text-foreground transition-colors flex items-center justify-between px-1"
+          >
+            <span>{showAdvanced ? "Hide advanced" : `Show advanced (${hiddenAdvancedCount})`}</span>
+            <span className={cn(
+              "ml-2 inline-flex h-3.5 w-6 items-center rounded-full border border-sidebar-border transition-colors",
+              showAdvanced ? "bg-primary/30" : "bg-transparent",
+            )}>
+              <span className={cn(
+                "inline-block h-2.5 w-2.5 rounded-full bg-foreground/60 transition-transform",
+                showAdvanced ? "translate-x-3" : "translate-x-0.5",
+              )} />
+            </span>
+          </button>
           <button
             type="button"
             onClick={() => {
