@@ -1429,6 +1429,10 @@ Deno.serve(async (req) => {
           const { error } = await sb.from("policy_intents").upsert(normalized, { onConflict: "user_id,intent" });
           if (error) return json({ error: error.message }, 400);
         }
+        await auditAction(sb, userId, "policy_intents.bulk_replaced", "policy_intents", userId, {
+          count: normalized.length,
+          intents: keep,
+        });
         return json({ ok: true, count: normalized.length });
       }
 
@@ -1717,6 +1721,7 @@ Deno.serve(async (req) => {
             .update(row).eq("id", id).eq("user_id", userId).select().maybeSingle();
           if (error) return json({ error: error.message }, 400);
           if (!data) return json({ error: "Intent not found" }, 404);
+          await auditAction(sb, userId, "known_intent.updated", "known_intent", id, { name: rawName });
           return json({ intent: data });
         }
         const { data, error } = await sb.from("known_intents")
@@ -1725,6 +1730,7 @@ Deno.serve(async (req) => {
           if (String(error.message).includes("duplicate")) return json({ error: `Intent "${rawName}" already exists` }, 409);
           return json({ error: error.message }, 400);
         }
+        await auditAction(sb, userId, "known_intent.created", "known_intent", data?.id ?? null, { name: rawName });
         return json({ intent: data });
       }
 
@@ -1845,6 +1851,7 @@ Deno.serve(async (req) => {
             .eq("id", id).eq("user_id", userId).select().maybeSingle();
           if (error) return json({ error: error.message }, 400);
           if (data) await sb.from("policy_template_versions").insert(snapshot(data, nextVersion));
+          await auditAction(sb, userId, "policy_template.updated", "policy_template", id, { name, new_version: nextVersion });
           return json({ template: data });
         }
         const { data, error } = await sb.from("policy_templates")
@@ -1852,6 +1859,7 @@ Deno.serve(async (req) => {
           .select().maybeSingle();
         if (error) return json({ error: error.message }, 400);
         if (data) await sb.from("policy_template_versions").insert(snapshot(data, 1));
+        await auditAction(sb, userId, "policy_template.created", "policy_template", data?.id ?? null, { name });
         return json({ template: data });
       }
 
@@ -3175,6 +3183,9 @@ Deno.serve(async (req) => {
         const { error: upErr } = await sb.from("endpoints")
           .update({ default_model: chosen }).eq("id", id).eq("user_id", userId);
         if (upErr) return json({ error: upErr.message }, 400);
+        await auditAction(sb, userId, "endpoint.default_model_set", "endpoint", id, {
+          default_model: chosen, forced: !!force,
+        });
         return json({ ok: true, default_model: chosen, forced: !!force });
       }
 
@@ -3347,6 +3358,12 @@ Deno.serve(async (req) => {
           }
         }
 
+        await auditAction(sb, userId, "endpoints.imported", "endpoint", null, {
+          imported, updated, skipped,
+          error_count: errors.length,
+          strategy,
+          accept_encrypted_keys: acceptEncrypted,
+        });
         return json({ imported, updated, skipped, errors });
       }
 
@@ -3393,11 +3410,13 @@ Deno.serve(async (req) => {
           const { error } = await sb.from("model_aliases").update(row)
             .eq("id", id).eq("user_id", userId);
           if (error) return json({ error: error.message }, 400);
+          await auditAction(sb, userId, "model_alias.updated", "model_alias", id, { alias: aliasNorm, target_model: row.target_model });
           return json({ ok: true, id });
         }
         const { data, error } = await sb.from("model_aliases").insert(row)
           .select("id").single();
         if (error) return json({ error: error.message }, 400);
+        await auditAction(sb, userId, "model_alias.created", "model_alias", data!.id, { alias: aliasNorm, target_model: row.target_model });
         return json({ ok: true, id: data!.id });
       }
 
@@ -3495,6 +3514,10 @@ Deno.serve(async (req) => {
         }));
         const { error: stepErr } = await sb.from("route_steps").insert(stepRows);
         if (stepErr) return json({ error: stepErr.message }, 400);
+        await auditAction(sb, userId, "route.upserted", "route", routeId, {
+          name: nameNorm,
+          steps_count: steps.length,
+        });
         return json({ ok: true, id: routeId });
       }
 
