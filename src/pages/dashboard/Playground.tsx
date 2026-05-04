@@ -258,10 +258,22 @@ const Playground = () => {
         title="Playground"
         description="Send a prompt through your proxy and watch policy decisions live."
         actions={
-          <Button onClick={send} disabled={sendDisabled} size="default">
-            <Send className="h-4 w-4" />
-            {loading ? "Sending…" : "Send through proxy"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => send({ promptOverride: SAMPLE_TEST_PROMPT, streamOverride: false, isTest: true })}
+              disabled={sendDisabled}
+              size="default"
+              title="Send a tiny canned request through the bound endpoint to verify the connection."
+            >
+              <Plug className="h-4 w-4" />
+              {loading ? "Testing…" : "Run test request"}
+            </Button>
+            <Button onClick={() => send()} disabled={sendDisabled} size="default">
+              <Send className="h-4 w-4" />
+              {loading ? "Sending…" : "Send through proxy"}
+            </Button>
+          </div>
         }
       />
 
