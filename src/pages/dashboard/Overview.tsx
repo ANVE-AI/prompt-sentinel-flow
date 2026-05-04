@@ -12,6 +12,9 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { HelpPanel } from "@/components/help-panel";
+import { Button } from "@/components/ui/button";
+import { OPEN_WALKTHROUGH_EVENT } from "@/components/onboarding-walkthrough";
+import { Sparkles } from "lucide-react";
 
 const PROXY_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proxy`;
 
