@@ -6,6 +6,7 @@ import { Logo } from "@/components/Logo";
 import { CodeTabs } from "@/components/landing/CodeTabs";
 import { QuickstartHelpPanel } from "@/components/quickstart-help-panel";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 /**
  * Landing page — YC-style "high-signal, low-decoration" layout.
