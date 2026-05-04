@@ -370,8 +370,9 @@ const Playground = () => {
           <CardContent className="p-5 space-y-4">
             {(activeKeys.length > 0 || unboundEndpoints.length > 0) && (
               <div>
-                <Label className="text-meta uppercase tracking-wider text-muted-foreground">
+                <Label className="text-meta uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1.5">
                   Key or endpoint
+                  <HelpHint>Pick an AnveGuard key to send requests, or pick an unbound endpoint to be guided through creating a key for it.</HelpHint>
                 </Label>
                 <Select
                   value={encodeSel(selection)}
@@ -483,7 +484,10 @@ const Playground = () => {
               </div>
             )}
             <div>
-              <Label htmlFor="ak" className="text-meta uppercase tracking-wider text-muted-foreground">AnveGuard API key</Label>
+              <Label htmlFor="ak" className="text-meta uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1.5">
+                AnveGuard API key
+                <HelpHint>Paste the <code className="font-mono">ag_live_…</code> secret. It's only shown once at creation — Lovable Cloud stores a hash, not the secret.</HelpHint>
+              </Label>
               <Input
                 id="ak" value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
@@ -493,7 +497,10 @@ const Playground = () => {
             </div>
             {selectedKey && (
               <div>
-                <Label htmlFor="model" className="text-meta uppercase tracking-wider text-muted-foreground">Model</Label>
+                <Label htmlFor="model" className="text-meta uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1.5">
+                  Model
+                  <HelpHint>Models are fetched live from the upstream provider for this key. The default is whatever you set on the endpoint.</HelpHint>
+                </Label>
                 <Select value={model} onValueChange={setModel} disabled={modelsLoading || availableModels.length === 0}>
                   <SelectTrigger className="mt-1.5 font-mono text-xs surface-2 border-border">
                     <SelectValue placeholder={modelsLoading ? "Loading models…" : "Pick a model"} />
@@ -517,6 +524,7 @@ const Playground = () => {
             <div className="flex items-center gap-2">
               <Switch id="stream" checked={stream} onCheckedChange={setStream} />
               <Label htmlFor="stream" className="text-body cursor-pointer">Stream tokens</Label>
+              <HelpHint>When on, tokens arrive incrementally. Turn off to see the full response and exact upstream JSON in one shot.</HelpHint>
             </div>
           </CardContent>
         </Card>
