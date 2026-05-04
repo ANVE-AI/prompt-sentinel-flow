@@ -524,6 +524,7 @@ export type Database = {
       policy_settings: {
         Row: {
           allow_client_system_prompt: boolean
+          audit_log_retention_days: number
           behavioral_action: string
           behavioral_churn_threshold: number
           behavioral_encoding_ratio_step: number
@@ -544,6 +545,7 @@ export type Database = {
           guardrail_system_prompt: string | null
           injection_action: string
           intent_shadow_mode: boolean
+          log_retention_days: number
           semantic_threshold: number
           severity_baseline_days: number
           severity_score_cap: number
@@ -563,6 +565,7 @@ export type Database = {
         }
         Insert: {
           allow_client_system_prompt?: boolean
+          audit_log_retention_days?: number
           behavioral_action?: string
           behavioral_churn_threshold?: number
           behavioral_encoding_ratio_step?: number
@@ -583,6 +586,7 @@ export type Database = {
           guardrail_system_prompt?: string | null
           injection_action?: string
           intent_shadow_mode?: boolean
+          log_retention_days?: number
           semantic_threshold?: number
           severity_baseline_days?: number
           severity_score_cap?: number
@@ -602,6 +606,7 @@ export type Database = {
         }
         Update: {
           allow_client_system_prompt?: boolean
+          audit_log_retention_days?: number
           behavioral_action?: string
           behavioral_churn_threshold?: number
           behavioral_encoding_ratio_step?: number
@@ -622,6 +627,7 @@ export type Database = {
           guardrail_system_prompt?: string | null
           injection_action?: string
           intent_shadow_mode?: boolean
+          log_retention_days?: number
           semantic_threshold?: number
           severity_baseline_days?: number
           severity_score_cap?: number
@@ -989,7 +995,15 @@ export type Database = {
           window_start: string
         }[]
       }
+      prune_all_logs: { Args: never; Returns: Json }
       prune_rate_limit_buckets: { Args: never; Returns: number }
+      prune_user_logs: {
+        Args: { _user_id: string }
+        Returns: {
+          audit_logs_deleted: number
+          request_logs_deleted: number
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never
