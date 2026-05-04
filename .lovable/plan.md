@@ -1,135 +1,74 @@
-# Plan: restore dashboard on `guard.citerlabs.com` and expand endpoint presets
+# Make endpoints visible in the Playground
 
-## 1. Fix the production CORS failure
+## The problem
 
-The dashboard function currently has strict CORS. It allows Lovable preview/published domains, but not your custom domain:
+Today the Playground only lists rows from `api_keys`. Your Perplexity **endpoint** exists, but no AnveGuard key is bound to it, so the dropdown looks empty for that provider. There's no signal that the endpoint exists or how to use it.
 
-```text
-https://guard.citerlabs.com
-```
+## What I'll change
 
-That is why all these actions fail before auth/data logic even runs:
+### 1. Show endpoints alongside keys in the Playground picker
 
-- `stats`
-- `stats&range=14d`
-- `list_logs`
-- `token_spike_alert`
-- `block_spike_alert`
-- `list_providers`
-- `list_endpoints`
-- `list_endpoint_models`
-
-I will update `supabase/functions/_shared/anveguard.ts` to allow Citer Labs domains in `DEFAULT_DASHBOARD_ORIGIN_PATTERNS`:
-
-```ts
-/^https:\/\/(?:[a-z0-9-]+\.)*citerlabs\.com$/i,
-```
-
-This covers:
-
-- `https://guard.citerlabs.com`
-- future subdomains like `app.citerlabs.com` or `staging.citerlabs.com`
-- the root `https://citerlabs.com` if used later
-
-I will keep dashboard CORS restricted; I will not switch it back to `*` because dashboard responses are authenticated and should not be exposed to arbitrary origins.
-
-## 2. Redeploy the relevant backend functions
-
-After the CORS patch, I will redeploy:
-
-- `dashboard` — required for the failing dashboard requests
-- `proxy` — if needed because it imports the same shared module bundle
-
-## 3. Verify CORS from the custom domain
-
-I will smoke-test the deployed function with a preflight request using:
+The "Key (for model list)" select becomes an **Endpoint / Key** picker with two grouped sections:
 
 ```text
-Origin: https://guard.citerlabs.com
-Access-Control-Request-Method: GET
-Access-Control-Request-Headers: authorization,content-type,apikey,x-client-info
+─ Your AnveGuard keys ─
+  Adarsh Kant — lovable
+
+─ Configured endpoints (no key yet) ─
+  Perplexity (Sonar) — api.perplexity.ai · sonar           [ Bind a key ]
 ```
 
-Expected response:
+- Endpoints with at least one bound active key only appear in the "keys" group (no duplication).
+- Endpoints with **zero** bound keys appear in the second group with an inline "Bind a key" CTA.
+- Selecting an unbound endpoint disables the **Send through proxy** button and shows a small banner:
+
+  ```text
+  This endpoint has no AnveGuard key yet. Create one to send requests through the proxy.
+  [ Create AnveGuard key for "Perplexity (Sonar)" ]
+  ```
+
+  Clicking navigates to `/dashboard/keys?new=1&endpoint=<id>&name=<endpoint name>` (the existing prefilled-key flow already supports this).
+
+### 2. Empty-state for users with endpoints but zero keys
+
+If `activeKeys.length === 0` but the user has endpoints, replace today's silent "no keys" state with:
 
 ```text
-Access-Control-Allow-Origin: https://guard.citerlabs.com
-Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
+You have 1 endpoint configured but no AnveGuard keys yet.
+Create a key bound to "Perplexity (Sonar)" to start testing.
+[ Create key ]
 ```
 
-Then I will verify `list_providers` is reachable, because that endpoint powers the simple endpoint selection UI.
+### 3. Auto-select after returning from key creation
 
-## 4. Add more simple endpoint presets
+Accept `?key=<id>` on `/dashboard/playground` so after creating a key from the Endpoints/Keys flow, the new key is preselected and the model list loads immediately.
 
-The app already has a template system in `supabase/functions/_shared/providers.ts`. The simple endpoint flow uses these templates so users can pick a provider, enter an API key, test, and save.
+### 4. Better labels in the dropdown
 
-Existing presets already include:
-
-- Lovable AI
-- OpenAI
-- Google Gemini
-- Perplexity
-- Ollama
-- vLLM / LM Studio / TGI
-- Azure OpenAI
-- Groq
-- Anthropic
-- OpenRouter
-- Together AI
-- Fireworks
-- xAI Grok
-- Mistral
-- DeepSeek
-- OpenAI Responses API
-
-I will add additional commonly used OpenAI-compatible providers with base URL/path/auth defaults prefilled:
-
-| Provider | Base URL / Prefix | Auth | Default model |
-|---|---|---|---|
-| Cohere | `https://api.cohere.ai` + `/compatibility/v1` | Bearer | `command-r-plus` |
-| Cerebras | `https://api.cerebras.ai` + `/v1` | Bearer | `llama3.3-70b` |
-| SambaNova | `https://api.sambanova.ai` + `/v1` | Bearer | `Meta-Llama-3.3-70B-Instruct` |
-| Hyperbolic | `https://api.hyperbolic.xyz` + `/v1` | Bearer | `meta-llama/Meta-Llama-3-70B-Instruct` |
-| NVIDIA NIM | `https://integrate.api.nvidia.com` + `/v1` | Bearer | `meta/llama-3.1-70b-instruct` |
-| Hugging Face Inference Providers | `https://router.huggingface.co` + `/v1` | Bearer | `meta-llama/Llama-3.1-8B-Instruct` |
-| Nebius AI Studio | `https://api.studio.nebius.com` + `/v1` | Bearer | `meta-llama/Meta-Llama-3.1-70B-Instruct` |
-| Novita AI | `https://api.novita.ai` + `/v3/openai` | Bearer | `meta-llama/llama-3.1-8b-instruct` |
-| Moonshot Kimi | `https://api.moonshot.ai` + `/v1` | Bearer | `kimi-k2-turbo-preview` |
-| Alibaba Qwen / DashScope | `https://dashscope-intl.aliyuncs.com` + `/compatible-mode/v1` | Bearer | `qwen-plus` |
-
-For each preset I will include:
-
-- provider label
-- short description
-- base URL
-- path prefix
-- `/chat/completions` path
-- `/models` path where supported
-- bearer auth
-- default model
-- model suggestions
-
-## 5. Keep the simple flow easy
-
-The current UI already opens simple mode when a provider card is selected and hides advanced configuration. I will keep that pattern and ensure the summary clearly shows the selected provider’s:
-
-- base URL
-- auth scheme
-- response format
-- default model
-
-So the user flow remains:
+For custom-endpoint-bound keys, show the **endpoint name** instead of just `custom`:
 
 ```text
-Pick provider → paste API key → refresh/test models → save
+my-perplexity-key — Perplexity (Sonar)
 ```
 
-## 6. Validation checklist
+This requires `list_keys` to also return `endpoint_id` and the joined `endpoints.name` so the label is exact rather than reconstructed from `custom_base_url`.
 
-After implementation I will verify:
+## Technical notes
 
-1. Dashboard preflight from `https://guard.citerlabs.com` returns the correct CORS headers.
-2. `list_providers` is reachable from the custom domain.
-3. The new provider presets are returned by the dashboard function.
-4. The endpoint gallery shows the expanded list.
-5. No database migration is required.
+- **No DB migration.** `api_keys.endpoint_id` and the `custom_*` mirror columns already exist; `create_key` already accepts `endpoint_id`.
+- **Edge function `dashboard/index.ts`**:
+  - `list_keys`: extend the select to include `endpoint_id`, then do a second query against `endpoints` for the referenced ids and merge `endpoint_name` into each row. (No JOIN to keep RLS-bypass logic simple — it's the pattern used elsewhere in this file.)
+- **Frontend `src/pages/dashboard/Playground.tsx`**:
+  - Add a `useQuery(["endpoints"], () => call("list_endpoints"))` call.
+  - Compute `unboundEndpoints = endpoints.filter(e => !keys.some(k => k.endpoint_id === e.id))`.
+  - Render the picker as a `<Select>` with two labeled groups (`SelectGroup` + `SelectLabel`) covering bound keys and unbound endpoints.
+  - When the selected value is an unbound endpoint id (prefixed `ep:` to disambiguate from key ids), disable Send and render the inline CTA.
+  - Read `?key=<id>` on mount to auto-select.
+- **No changes** to `proxy/index.ts`, providers, or auth.
+
+## Verification
+
+After implementation I'll:
+1. Confirm the Perplexity endpoint shows up in the picker for your account with the "Bind a key" CTA.
+2. Walk the link → Keys page opens with the endpoint preselected → create a test key → land back in Playground with the new key auto-selected.
+3. Confirm `list_models` returns Perplexity sonar models for the new key.
