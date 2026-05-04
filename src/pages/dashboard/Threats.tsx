@@ -120,7 +120,7 @@ export default function Threats() {
           <Skeleton className="h-64 w-full" />
         ) : !data || data.hourly.every((h) => h.total === 0) ? (
           <EmptyState
-            icon={Activity}
+            icon={<Activity className="h-5 w-5" />}
             title="No traffic in this window"
             description="As soon as the proxy starts logging requests, you'll see hourly activity here."
           />
@@ -173,7 +173,7 @@ export default function Threats() {
             <Skeleton className="h-48 w-full" />
           ) : !data || data.layer_breakdown.length === 0 ? (
             <EmptyState
-              icon={ShieldAlert}
+              icon={<ShieldAlert className="h-5 w-5" />}
               title="No detector hits yet"
               description="The engine hasn't fired on any request in this window."
             />
@@ -209,7 +209,7 @@ export default function Threats() {
             <Skeleton className="h-48 w-full" />
           ) : !data || data.top_block_reasons.length === 0 ? (
             <EmptyState
-              icon={AlertTriangle}
+              icon={<AlertTriangle className="h-5 w-5" />}
               title="No blocks in this window"
               description="Either traffic is clean, or no requests came through."
             />
