@@ -1682,7 +1682,7 @@ const Endpoints = () => {
             </div>
 
             {/* Copyable curl examples — generated from the current form state */}
-            {(() => {
+            {formMode === "advanced" && (() => {
               const ex = buildCurlExamples();
               if (!ex) return null;
               return (
