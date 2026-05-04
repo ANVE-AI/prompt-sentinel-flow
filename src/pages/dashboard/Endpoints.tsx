@@ -991,7 +991,7 @@ const Endpoints = () => {
             <EmptyState
               icon={<Plug className="h-5 w-5" />}
               title="No endpoints yet"
-              description="Add Ollama, vLLM, Azure, Groq, or any custom OpenAI-compatible URL."
+              description="Pick a provider from the gallery above (OpenAI, Claude, Gemini, OpenRouter, Lovable AI, Ollama, …) or build a custom endpoint."
               action={
                 <Button onClick={() => startCreate()} size="sm">
                   <Plus className="h-3.5 w-3.5 mr-1.5" /> New endpoint
