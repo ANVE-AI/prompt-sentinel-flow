@@ -140,7 +140,9 @@ const Playground = () => {
     navigate(`/dashboard/keys?${params.toString()}`);
   };
 
-  const send = async () => {
+  const SAMPLE_TEST_PROMPT = "Reply with the single word: pong.";
+
+  const send = async (opts?: { promptOverride?: string; streamOverride?: boolean; isTest?: boolean }) => {
     if (selection?.kind === "endpoint" && selectedEndpoint) {
       toast.error(
         `"${selectedEndpoint.name}" has no AnveGuard API key bound. Create one to send requests through this endpoint.`,
@@ -162,6 +164,8 @@ const Playground = () => {
       toast.error("Paste an AnveGuard key (starts with ag_live_) — you can only see it once when you create it.");
       return;
     }
+    const effectivePrompt = opts?.promptOverride ?? prompt;
+    const effectiveStream = opts?.streamOverride ?? stream;
     setLoading(true);
     setResult({ blocked: false, text: "" });
     try {
@@ -169,8 +173,8 @@ const Playground = () => {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({
-          messages: [{ role: "user", content: prompt }],
-          stream,
+          messages: [{ role: "user", content: effectivePrompt }],
+          stream: effectiveStream,
           ...(model ? { model } : {}),
         }),
       });
@@ -254,10 +258,22 @@ const Playground = () => {
         title="Playground"
         description="Send a prompt through your proxy and watch policy decisions live."
         actions={
-          <Button onClick={send} disabled={sendDisabled} size="default">
-            <Send className="h-4 w-4" />
-            {loading ? "Sending…" : "Send through proxy"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => send({ promptOverride: SAMPLE_TEST_PROMPT, streamOverride: false, isTest: true })}
+              disabled={sendDisabled}
+              size="default"
+              title="Send a tiny canned request through the bound endpoint to verify the connection."
+            >
+              <Plug className="h-4 w-4" />
+              {loading ? "Testing…" : "Run test request"}
+            </Button>
+            <Button onClick={() => send()} disabled={sendDisabled} size="default">
+              <Send className="h-4 w-4" />
+              {loading ? "Sending…" : "Send through proxy"}
+            </Button>
+          </div>
         }
       />
 
