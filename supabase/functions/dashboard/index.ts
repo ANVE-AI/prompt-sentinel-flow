@@ -2111,7 +2111,12 @@ Deno.serve(async (req) => {
         const { data: logs } = await sb.from("request_logs")
           .select("id,status,latency_ms,created_at,verdict_layers,block_reason,model,api_key_id,messages,tokens_in,tokens_out,tokens_saved_estimate,compression_applied").eq("user_id", userId).gte("created_at", since);
         const { data: keys } = await sb.from("api_keys")
-          .select("id,name,key_prefix,is_active").eq("user_id", userId);
+          .select("id,name,key_prefix,is_active,compression_mode").eq("user_id", userId);
+        const { data: settingsRow } = await sb.from("policy_settings")
+          .select("enable_compression,compression_level").eq("user_id", userId).maybeSingle();
+        const wsEnabled = !!settingsRow?.enable_compression;
+        const wsLevel = (settingsRow?.compression_level ?? "balanced") as
+          "light" | "balanced" | "aggressive";
         const keyMap = new Map((keys ?? []).map((k: any) => [k.id, k]));
         const total = logs?.length ?? 0;
         const blocked = (logs ?? []).filter((l) => l.status?.startsWith("blocked")).length;
@@ -2121,6 +2126,37 @@ Deno.serve(async (req) => {
         const tokensOutTotal = (logs ?? []).reduce((s, l) => s + (l.tokens_out ?? 0), 0);
         const tokensSavedTotal = (logs ?? []).reduce((s, l) => s + (l.tokens_saved_estimate ?? 0), 0);
         const compressedRequests = (logs ?? []).filter((l) => l.compression_applied).length;
+
+        // Compression impact breakdown — group by the key's *current* mode
+        // (resolves `inherit` against workspace defaults). This evaluates the
+        // effectiveness of the active policy; historical mode-at-time is not
+        // stored on request_logs.
+        const MODES = ["off", "light", "balanced", "aggressive", "inherit"] as const;
+        type Mode = typeof MODES[number];
+        const breakdown: Record<Mode, {
+          mode: Mode; effective: string;
+          requests: number; compressed_requests: number;
+          tokens_in: number; tokens_out: number; tokens_saved: number;
+        }> = Object.fromEntries(MODES.map((m) => [m, {
+          mode: m,
+          effective: m === "inherit" ? (wsEnabled ? wsLevel : "off") : m,
+          requests: 0, compressed_requests: 0,
+          tokens_in: 0, tokens_out: 0, tokens_saved: 0,
+        }])) as any;
+        for (const l of (logs ?? []) as any[]) {
+          const k = l.api_key_id ? keyMap.get(l.api_key_id) as any : null;
+          const mode = (k?.compression_mode ?? "inherit") as Mode;
+          const b = breakdown[mode] ?? breakdown.inherit;
+          b.requests += 1;
+          if (l.compression_applied) b.compressed_requests += 1;
+          b.tokens_in += l.tokens_in ?? 0;
+          b.tokens_out += l.tokens_out ?? 0;
+          b.tokens_saved += l.tokens_saved_estimate ?? 0;
+        }
+        const compression_breakdown = MODES
+          .map((m) => breakdown[m])
+          .filter((b) => b.requests > 0)
+          .sort((a, b) => b.tokens_saved - a.tokens_saved);
 
         // Top triggered rules across the window. We aggregate fired layers
         // (verdict !== "allow") from request_logs.verdict_layers JSONB, keyed
