@@ -293,23 +293,33 @@ const Landing = () => {
       </div>
     </section>
 
-    {/* ---------------------------- How it works ---------------------------- */}
+    {/* ---------------------------- Quickstart ----------------------------- */}
     <section id="how" className="border-b border-border">
       <div className="mx-auto max-w-6xl px-4 md:px-6 py-16 lg:py-20">
         <div className="max-w-2xl">
           <div className="text-meta uppercase tracking-[0.18em] text-primary font-mono">
-            How it works
+            Quickstart
           </div>
           <h2 className="mt-2 text-display font-semibold tracking-tight">
             Three steps. No infrastructure to manage.
           </h2>
+          <p className="mt-3 text-body text-muted-foreground leading-relaxed">
+            Each step links straight into the console — sign in once and you'll
+            land exactly where you need to be.
+          </p>
         </div>
         <ol className="mt-10 grid md:grid-cols-3 gap-px bg-border">
           {STEPS.map((s) => (
-            <li key={s.n} className="surface-1 p-6 md:p-7">
+            <li key={s.n} className="surface-1 p-6 md:p-7 flex flex-col">
               <div className="text-meta font-mono text-muted-foreground">{s.n}</div>
               <div className="mt-3 text-h1 font-medium tracking-tight">{s.title}</div>
-              <p className="mt-2 text-body text-muted-foreground leading-relaxed">{s.body}</p>
+              <p className="mt-2 text-body text-muted-foreground leading-relaxed flex-1">{s.body}</p>
+              <Button asChild variant="outline" size="sm" className="mt-5 w-fit">
+                <Link to={s.to}>
+                  {s.cta}
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </Button>
             </li>
           ))}
         </ol>
