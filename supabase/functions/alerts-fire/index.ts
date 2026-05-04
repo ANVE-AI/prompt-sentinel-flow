@@ -148,8 +148,6 @@ Deno.serve(async (req) => {
       status: 401, headers: { "Content-Type": "application/json" },
     });
   }
-
-  const sb = service();
   const { data: subs, error } = await sb
     .from("alert_subscriptions")
     .select("*")
