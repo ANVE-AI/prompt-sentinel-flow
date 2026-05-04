@@ -47,6 +47,7 @@ const statusOf = (s: string): "ok" | "warn" | "block" =>
 const auditActionMeta: Record<string, { label: string; icon: typeof Ban }> = {
   // API keys
   "api_key.revoked":               { label: "API key revoked",              icon: Ban },
+  "api_key.rotated":               { label: "API key rotated",              icon: Sparkles },
   "api_key.admin_granted":         { label: "Key admin granted",            icon: ShieldCheck },
   "api_key.admin_revoked":         { label: "Key admin revoked",            icon: ShieldAlert },
   // Endpoints

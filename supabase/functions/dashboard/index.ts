@@ -499,6 +499,47 @@ Deno.serve(async (req) => {
         return json({ id: data!.id, full_key: plain, key_prefix: insert.key_prefix });
       }
 
+      // Atomic key rotation — generate a new ag_live_* key for the same
+      // api_keys row, returning the plaintext exactly once. Lower-friction
+      // than create+revoke because all per-key config (endpoint, alias,
+      // policies, behavior profile, audit history) stays attached to the
+      // same id. The OLD plaintext is invalidated immediately — there's no
+      // grace window in this MVP. If you need overlap, use create+revoke.
+      case "rotate_api_key": {
+        const id = String(body?.id ?? "");
+        if (!id) return json({ error: "id required" }, 400);
+        const { data: row } = await sb.from("api_keys")
+          .select("id,name,key_prefix,provider,is_active")
+          .eq("id", id).eq("user_id", userId).maybeSingle();
+        if (!row) return json({ error: "Key not found" }, 404);
+        if (row.is_active === false) return json({ error: "Cannot rotate a revoked key — create a new one instead." }, 400);
+
+        const newPlain = generateApiKey();
+        const newHash = await sha256Hex(newPlain);
+        const newPrefix = newPlain.slice(0, 16);
+        const { error: updErr } = await sb.from("api_keys")
+          .update({ key_hash: newHash, key_prefix: newPrefix })
+          .eq("id", id).eq("user_id", userId);
+        if (updErr) return json({ error: updErr.message }, 400);
+
+        await auditAction(sb, userId, "api_key.rotated", "api_key", id, {
+          key_name: row.name,
+          old_prefix: row.key_prefix,
+          new_prefix: newPrefix,
+          provider: row.provider,
+        });
+
+        // Plaintext returned exactly once — UI must show it with the same
+        // "copy this now, you won't see it again" warning the create flow uses.
+        return json({
+          ok: true,
+          id,
+          plaintext: newPlain,
+          key_prefix: newPrefix,
+          old_prefix: row.key_prefix,
+        });
+      }
+
       case "revoke_key": {
         const { id } = body;
         // Read the key first so the audit entry can capture name/prefix even
