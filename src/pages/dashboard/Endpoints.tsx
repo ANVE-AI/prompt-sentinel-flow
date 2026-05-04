@@ -1593,6 +1593,7 @@ const Endpoints = () => {
                 ))}
               </div>
             </div>
+            )}
 
             <div className="space-y-2">
               {/* Validation summary — visible whenever required fields are missing
