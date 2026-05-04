@@ -326,10 +326,12 @@ const Endpoints = () => {
   // overwrite the form. It populates this state instead, which renders a diff
   // panel so the user can review every field before confirming "Apply".
   const [previewTemplateId, setPreviewTemplateId] = useState<string>("");
+  // Form mode: Simple shows just name/key/model; Advanced is the full form.
+  const [formMode, setFormMode] = useState<"simple" | "advanced">("advanced");
 
   const isEdit = !!form.id;
 
-  const startCreate = () => {
+  const startCreate = (templateId?: string) => {
     setForm(emptyForm);
     setTestResult(null);
     setLiveModels(null);
@@ -337,7 +339,12 @@ const Endpoints = () => {
     setLastRefreshOk(false);
     setSavedDefaultModel("");
     setPreviewTemplateId("");
+    setFormMode(templateId ? "simple" : "advanced");
     setOpen(true);
+    if (templateId) {
+      // Defer so emptyForm settles, then apply the template inline.
+      setTimeout(() => applyTemplate(templateId), 0);
+    }
   };
 
   const startEdit = (e: EndpointRow) => {
