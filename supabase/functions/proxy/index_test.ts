@@ -47,6 +47,13 @@ function admin() {
   });
 }
 
+async function clearRateLimitBuckets() {
+  // Reset per-IP auth-failure counters so a previous run can't flip a 401
+  // assertion into a 429. Service-role only — table denies anon.
+  const sb = admin();
+  await sb.from("rate_limit_buckets").delete().neq("scope", "");
+}
+
 async function seedRevokedKey() {
   // Build a unique plaintext token for this test run. The proxy only
   // accepts tokens whose Authorization header matches /^Bearer ag_live_\S+/i,
