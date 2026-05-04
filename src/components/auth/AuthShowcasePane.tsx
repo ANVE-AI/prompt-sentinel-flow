@@ -1,4 +1,4 @@
-import { ShieldCheck } from "lucide-react";
+import { ShieldCheck, Plug, KeyRound, Sparkles } from "lucide-react";
 
 /**
  * Showcase pane shown beside the Clerk auth form on /sign-in and /sign-up.
