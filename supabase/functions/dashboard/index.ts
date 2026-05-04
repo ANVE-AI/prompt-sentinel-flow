@@ -1514,6 +1514,27 @@ Deno.serve(async (req) => {
             patch.token_spike_webhook_url = s;
           }
         }
+        if ("severity_baseline_days" in (body ?? {})) {
+          const n = Number(body.severity_baseline_days);
+          if (!Number.isInteger(n) || n < 1 || n > 30) {
+            return json({ error: "severity_baseline_days must be an integer 1-30" }, 400);
+          }
+          patch.severity_baseline_days = n;
+        }
+        if ("severity_volume_dampening" in (body ?? {})) {
+          const n = Number(body.severity_volume_dampening);
+          if (!Number.isFinite(n) || n < 0 || n > 1) {
+            return json({ error: "severity_volume_dampening must be 0..1" }, 400);
+          }
+          patch.severity_volume_dampening = n;
+        }
+        if ("severity_score_cap" in (body ?? {})) {
+          const n = Number(body.severity_score_cap);
+          if (!Number.isInteger(n) || n < 1 || n > 100) {
+            return json({ error: "severity_score_cap must be an integer 1-100" }, 400);
+          }
+          patch.severity_score_cap = n;
+        }
         await sb.from("policy_settings").upsert(patch, { onConflict: "user_id" });
         return json({ ok: true });
       }
