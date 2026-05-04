@@ -329,7 +329,28 @@ const Endpoints = () => {
   // Form mode: Simple shows just name/key/model; Advanced is the full form.
   const [formMode, setFormMode] = useState<"simple" | "advanced">("advanced");
 
+  // Auto-create AnveGuard key alongside a new endpoint. Defaults ON for
+  // detected providers (Perplexity etc.) so users can hit /v1 immediately.
+  const [autoCreateKey, setAutoCreateKey] = useState(true);
+  const [autoKeyName, setAutoKeyName] = useState("");
+  const [autoKeyIsAdmin, setAutoKeyIsAdmin] = useState(false);
+  // Set after a successful endpoint+key chain so the dialog can reveal the
+  // one-time `ag_live_…` secret with a copy button + Playground deep-link.
+  const [createdKey, setCreatedKey] = useState<{
+    id: string;
+    full_key: string;
+    endpoint_id: string;
+    endpoint_name: string;
+  } | null>(null);
+
   const isEdit = !!form.id;
+
+  const detectedAutoProvider = useMemo(() => {
+    const host = (() => { try { return new URL(form.base_url).host.toLowerCase(); } catch { return ""; } })();
+    if (!host) return null;
+    if (host.includes("perplexity.ai")) return "Perplexity";
+    return null;
+  }, [form.base_url]);
 
   const startCreate = (templateId?: string) => {
     setForm(emptyForm);
