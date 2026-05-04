@@ -358,8 +358,15 @@ const Playground = () => {
                           else meta.push(k.provider);
                           if (k.model_default) meta.push(k.model_default);
                           if (k.custom_kind) meta.push(k.custom_kind);
+                          const fullUrl = k.custom_base_url || "";
+                          const tooltip = [
+                            `Key: ${k.name}`,
+                            k.endpoint_name ? `Endpoint: ${k.endpoint_name}` : null,
+                            fullUrl ? `URL: ${fullUrl}` : `Provider: ${k.provider}`,
+                            k.model_default ? `Default model: ${k.model_default}` : null,
+                          ].filter(Boolean).join("\n");
                           return (
-                            <SelectItem key={`key:${k.id}`} value={`key:${k.id}`}>
+                            <SelectItem key={`key:${k.id}`} value={`key:${k.id}`} title={tooltip}>
                               <span className="flex flex-col items-start gap-0.5 py-0.5">
                                 <span className="flex items-center gap-2">
                                   <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
@@ -369,6 +376,11 @@ const Playground = () => {
                                 <span className="text-[11px] text-muted-foreground pl-5">
                                   {meta.join(" · ")}
                                 </span>
+                                {fullUrl && (
+                                  <span className="text-[10px] text-muted-foreground/70 pl-5 font-mono truncate max-w-[420px]">
+                                    {fullUrl}
+                                  </span>
+                                )}
                               </span>
                             </SelectItem>
                           );
