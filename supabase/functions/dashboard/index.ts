@@ -2127,7 +2127,118 @@ Deno.serve(async (req) => {
         });
       }
 
-      // Audit trail of sensitive account actions (e.g. API key revocations).
+      // Token usage spike detector — compares the most recent N-hour window
+      // against the same-length windows over the prior 7 days. Surfaces both
+      // tokens_in and tokens_out spikes with per-key attribution.
+      case "token_spike_alert": {
+        const { data: settings } = await sb.from("policy_settings")
+          .select("token_spike_alert_enabled,token_spike_window_hours,token_spike_min_tokens,token_spike_ratio,token_spike_webhook_url")
+          .eq("user_id", userId).maybeSingle();
+        const enabled = settings?.token_spike_alert_enabled !== false;
+        const windowH = Math.max(1, Math.min(24, Number(settings?.token_spike_window_hours ?? 1)));
+        const minTokens = Math.max(0, Number(settings?.token_spike_min_tokens ?? 10000));
+        const ratioThreshold = Math.max(1.1, Number(settings?.token_spike_ratio ?? 3));
+
+        const now = Date.now();
+        const windowMs = windowH * 3600 * 1000;
+        const sinceISO = new Date(now - 8 * windowMs).toISOString();
+        const { data: rows, error } = await sb.from("request_logs")
+          .select("api_key_id,created_at,tokens_in,tokens_out")
+          .eq("user_id", userId)
+          .gte("created_at", sinceISO)
+          .limit(10000);
+        if (error) return json({ error: error.message }, 400);
+
+        const cutoff = now - windowMs;
+        let curIn = 0, curOut = 0;
+        let priorIn = 0, priorOut = 0;
+        const perKey = new Map<string, { in: number; out: number; priorIn: number; priorOut: number }>();
+        for (const r of rows ?? []) {
+          const t = new Date(r.created_at).getTime();
+          const ti = r.tokens_in ?? 0;
+          const to = r.tokens_out ?? 0;
+          const k = r.api_key_id ?? "unknown";
+          const v = perKey.get(k) ?? { in: 0, out: 0, priorIn: 0, priorOut: 0 };
+          if (t >= cutoff) { curIn += ti; curOut += to; v.in += ti; v.out += to; }
+          else { priorIn += ti; priorOut += to; v.priorIn += ti; v.priorOut += to; }
+          perKey.set(k, v);
+        }
+        const baselineIn = priorIn / 7;
+        const baselineOut = priorOut / 7;
+        const ratioIn = baselineIn > 0 ? curIn / baselineIn : (curIn >= minTokens ? Infinity : 0);
+        const ratioOut = baselineOut > 0 ? curOut / baselineOut : (curOut >= minTokens ? Infinity : 0);
+        const spikeIn = enabled && curIn >= minTokens && (baselineIn === 0 || ratioIn >= ratioThreshold);
+        const spikeOut = enabled && curOut >= minTokens && (baselineOut === 0 || ratioOut >= ratioThreshold);
+        const spike = spikeIn || spikeOut;
+
+        const { data: keys } = await sb.from("api_keys")
+          .select("id,name,key_prefix").eq("user_id", userId);
+        const keyMeta = new Map((keys ?? []).map((k) => [k.id, k]));
+        const topKeys = Array.from(perKey.entries())
+          .map(([api_key_id, v]) => {
+            const meta = keyMeta.get(api_key_id) as any;
+            const bIn = v.priorIn / 7, bOut = v.priorOut / 7;
+            const rIn = bIn > 0 ? v.in / bIn : (v.in >= Math.max(1000, minTokens / 4) ? Infinity : 0);
+            const rOut = bOut > 0 ? v.out / bOut : (v.out >= Math.max(1000, minTokens / 4) ? Infinity : 0);
+            return {
+              api_key_id,
+              api_key_name: meta?.name ?? "—",
+              api_key_prefix: meta?.key_prefix ?? null,
+              tokens_in: v.in,
+              tokens_out: v.out,
+              baseline_in: Math.round(bIn),
+              baseline_out: Math.round(bOut),
+              ratio_in: Number.isFinite(rIn) ? Number(rIn.toFixed(2)) : null,
+              ratio_out: Number.isFinite(rOut) ? Number(rOut.toFixed(2)) : null,
+              spike: (v.in + v.out) >= Math.max(1000, minTokens / 4) &&
+                ((bIn === 0 && v.in > 0) || rIn >= ratioThreshold ||
+                 (bOut === 0 && v.out > 0) || rOut >= ratioThreshold),
+            };
+          })
+          .filter((k) => (k.tokens_in + k.tokens_out) > 0)
+          .sort((a, b) => (b.tokens_in + b.tokens_out) - (a.tokens_in + a.tokens_out))
+          .slice(0, 5);
+
+        // Fire-and-forget webhook (non-blocking, best-effort).
+        if (spike && settings?.token_spike_webhook_url) {
+          try {
+            // deno-lint-ignore no-explicit-any
+            (globalThis as any).EdgeRuntime?.waitUntil?.(
+              fetch(settings.token_spike_webhook_url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  type: "token_spike",
+                  user_id: userId,
+                  window_hours: windowH,
+                  tokens_in: curIn, tokens_out: curOut,
+                  baseline_in: Math.round(baselineIn), baseline_out: Math.round(baselineOut),
+                  ratio_in: Number.isFinite(ratioIn) ? Number(ratioIn.toFixed(2)) : null,
+                  ratio_out: Number.isFinite(ratioOut) ? Number(ratioOut.toFixed(2)) : null,
+                  top_keys: topKeys,
+                  ts: new Date().toISOString(),
+                }),
+              }).catch(() => {}),
+            );
+          } catch (_) { /* ignore */ }
+        }
+
+        return json({
+          enabled,
+          spike,
+          spike_in: spikeIn,
+          spike_out: spikeOut,
+          window_hours: windowH,
+          tokens_in: curIn,
+          tokens_out: curOut,
+          baseline_in: Math.round(baselineIn),
+          baseline_out: Math.round(baselineOut),
+          ratio_in: Number.isFinite(ratioIn) ? Number(ratioIn.toFixed(2)) : null,
+          ratio_out: Number.isFinite(ratioOut) ? Number(ratioOut.toFixed(2)) : null,
+          threshold: { min_tokens: minTokens, ratio: ratioThreshold },
+          top_keys: topKeys,
+        });
+      }
       // Server-only table; the dashboard function is the sole writer/reader,
       // so this endpoint is the only way the UI surfaces these events.
       case "list_audit_logs": {
