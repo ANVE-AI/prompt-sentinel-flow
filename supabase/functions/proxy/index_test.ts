@@ -238,7 +238,7 @@ Deno.test("proxy does not rate-limit revoked keys: burst still returns 401 for e
     );
     for (const r of results) {
       assertEquals(r.status, 401, "every burst response must be 401, not 429/5xx");
-      assertEquals(r.body?.error?.type, "invalid_request_error");
+      assertEquals(r.body?.error?.type, "authentication_error");
       assertStringIncludes(
         String(r.body?.error?.message),
         "Invalid or revoked API key",
