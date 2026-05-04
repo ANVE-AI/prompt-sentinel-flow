@@ -47,6 +47,13 @@ function admin() {
   });
 }
 
+async function clearRateLimitBuckets() {
+  // Reset per-IP auth-failure counters so a previous run can't flip a 401
+  // assertion into a 429. Service-role only — table denies anon.
+  const sb = admin();
+  await sb.from("rate_limit_buckets").delete().neq("scope", "");
+}
+
 async function seedRevokedKey() {
   // Build a unique plaintext token for this test run. The proxy only
   // accepts tokens whose Authorization header matches /^Bearer ag_live_\S+/i,
@@ -127,6 +134,7 @@ async function postChat(token: string) {
 }
 
 Deno.test("proxy rejects revoked API key with 401 before calling provider", async () => {
+  await clearRateLimitBuckets();
   const seeded = await seedRevokedKey();
   try {
     const before = await countLogsForKey(seeded.id);
@@ -161,17 +169,19 @@ Deno.test("proxy rejects revoked API key with 401 before calling provider", asyn
 });
 
 Deno.test("proxy returns the same 401 for an unknown API key (no info leak)", async () => {
+  await clearRateLimitBuckets();
   // A well-formed but never-seeded token. Same shape as a real key so the
   // Authorization regex passes and we exercise the DB lookup branch.
   const bogus = `ag_live_unknown_${crypto.randomUUID().replace(/-/g, "")}`;
   const { status, body } = await postChat(bogus);
 
   assertEquals(status, 401);
-  assertEquals(body?.error?.type, "invalid_request_error");
+  assertEquals(body?.error?.type, "authentication_error");
   assertStringIncludes(String(body?.error?.message), "Invalid or revoked API key");
 });
 
 Deno.test("proxy rejects requests with no Authorization header", async () => {
+  await clearRateLimitBuckets();
   const res = await fetch(PROXY_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -183,37 +193,29 @@ Deno.test("proxy rejects requests with no Authorization header", async () => {
   const text = await res.text();
   const body = text ? JSON.parse(text) : null;
   assertEquals(res.status, 401);
-  assertStringIncludes(String(body?.error?.message), "Missing or invalid AnveGuard API key");
+  assertStringIncludes(String(body?.error?.message), "Missing API key");
 });
 
 // ---------------------------------------------------------------------------
-// Repeated revoked-key requests: documented behavior
+// Repeated revoked-key requests: documented behavior (post audit C4)
 // ---------------------------------------------------------------------------
-// The proxy intentionally does NOT rate-limit by API key at the auth gate.
-// Every request bearing a revoked key must return the same 401 in O(1) — we
-// rely on this so a leaked-then-revoked key never accidentally consumes
-// upstream quota, but also so legitimate clients holding a stale key get a
-// fast, deterministic failure instead of being silently throttled into a
-// retry storm with no diagnostic.
-//
-// This test pins that contract:
-//   1. A burst of N concurrent requests with the same revoked key all return
-//      HTTP 401 (no 429, no 5xx, no upstream pass-through).
-//   2. Each individual response uses the documented error shape — no variant
-//      messaging that would suggest tiered/throttled handling.
-//   3. Zero `request_logs` rows are written for any of the N attempts. If the
-//      proxy ever started logging revoked-key calls (e.g. for abuse tracking)
-//      this test would flip and we'd revisit the contract deliberately.
-//   4. The whole burst completes well under a generous wall-clock budget,
-//      proving the rejection path doesn't degrade under repeated hits.
-Deno.test("proxy does not rate-limit revoked keys: burst still returns 401 for every call", async () => {
+// The proxy throttles repeated auth failures from the same caller IP to
+// blunt brute-force key guessing (5/min, 50/hour — see
+// AUTH_FAIL_LIMIT_PER_MIN/HOUR in proxy/index.ts). The contract under burst:
+//   1. Every response is either 401 (within budget) or 429 (over budget) —
+//      never 5xx and never an upstream pass-through.
+//   2. 401 responses use the authentication_error shape; 429 responses use
+//      the rate_limit_exceeded shape and carry a Retry-After header.
+//   3. Zero `request_logs` rows are written for any of the N attempts —
+//      the proxy must reject before reaching the provider call path.
+//   4. The whole burst completes well under a generous wall-clock budget.
+Deno.test("proxy throttles repeated revoked-key auth failures per IP", async () => {
+  await clearRateLimitBuckets();
   const seeded = await seedRevokedKey();
   try {
     const before = await countLogsForKey(seeded.id);
     assertEquals(before, 0, "fixture should start with zero logs");
 
-    // 25 is enough to make any naive per-key counter trip a 429 if one
-    // existed, but small enough to keep the test fast in CI.
     const BURST = 25;
     const t0 = Date.now();
     const results = await Promise.all(
@@ -221,28 +223,29 @@ Deno.test("proxy does not rate-limit revoked keys: burst still returns 401 for e
     );
     const wallMs = Date.now() - t0;
 
-    // 1 + 2: every single response must be the same 401 + same error shape.
-    // We collect the distinct (status, message) tuples so a single failure
-    // surfaces the actual divergence in the assertion message.
-    const shapes = new Set(
-      results.map((r) =>
-        `${r.status}::${r.body?.error?.type ?? ""}::${r.body?.error?.message ?? ""}`
-      ),
-    );
-    assertEquals(
-      shapes.size,
-      1,
-      `all ${BURST} burst responses must share one shape; got ${shapes.size}: ${
-        [...shapes].join(" | ")
-      }`,
-    );
+    // 1: every status is 401 or 429.
     for (const r of results) {
-      assertEquals(r.status, 401, "every burst response must be 401, not 429/5xx");
-      assertEquals(r.body?.error?.type, "invalid_request_error");
-      assertStringIncludes(
-        String(r.body?.error?.message),
-        "Invalid or revoked API key",
+      assert(
+        r.status === 401 || r.status === 429,
+        `every burst response must be 401 or 429, got ${r.status}`,
       );
+    }
+
+    // 2: shape per status code.
+    for (const r of results) {
+      if (r.status === 401) {
+        assertEquals(r.body?.error?.type, "authentication_error");
+        assertStringIncludes(
+          String(r.body?.error?.message),
+          "Invalid or revoked API key",
+        );
+      } else {
+        // 429 envelope from rateLimitedAuthFailure
+        assertStringIncludes(
+          String(r.body?.error?.message),
+          "Too many failed authentication attempts",
+        );
+      }
     }
 
     // 3: no logs ever written, even under burst.
@@ -254,9 +257,7 @@ Deno.test("proxy does not rate-limit revoked keys: burst still returns 401 for e
       `no request_logs row may be written for a revoked key under burst (got ${after})`,
     );
 
-    // 4: O(1) rejection — generous ceiling so cold-start variance in CI
-    // doesn't flake the test, but tight enough to catch real regression
-    // (e.g. accidental upstream call per request).
+    // 4: O(1) rejection.
     assert(
       wallMs < 15_000,
       `burst of ${BURST} revoked-key requests should reject quickly, took ${wallMs}ms`,

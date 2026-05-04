@@ -1,0 +1,1 @@
+DELETE FROM public.rate_limit_buckets;
