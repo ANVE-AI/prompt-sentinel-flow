@@ -1514,6 +1514,7 @@ const Endpoints = () => {
                 )}
               </div>
 
+              {formMode === "advanced" && (
               <div>
                 <div className="flex items-center justify-between">
                   <Label className="text-xs">Fallback model suggestions</Label>
@@ -1538,6 +1539,7 @@ const Endpoints = () => {
                   Shown if <code>/models</code> can't be reached at request time.
                 </p>
               </div>
+              )}
             </div>
 
             {formMode === "advanced" && (
