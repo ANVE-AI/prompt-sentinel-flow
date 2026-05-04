@@ -361,9 +361,13 @@ const Overview = () => {
           if (rows.length === 0) {
             return (
               <EmptyState
-                icon={<ShieldAlert className="h-5 w-5" />}
-                title="No compression data yet"
-                description="Once requests flow through, savings by mode will appear here."
+                icon={<Inbox className="h-5 w-5" />}
+                title={noData
+                  ? `No data for the last ${RANGE_DAYS[range]} days`
+                  : "No compression data in this range"}
+                description={noData
+                  ? "Try widening the time range or send a request through one of your keys."
+                  : "Requests in this window didn't trigger compression. Enable a mode in Policies to start saving tokens."}
               />
             );
           }
