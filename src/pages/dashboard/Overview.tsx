@@ -62,7 +62,22 @@ const Overview = () => {
     <div className="px-4 md:px-6 py-5 space-y-6 max-w-[1200px] mx-auto">
       <PageHeader
         title="Overview"
-        description="Live signal across every AnveGuard key in the last 14 days."
+        description={`Live signal across every AnveGuard key in the last ${RANGE_DAYS[range]} days.`}
+        actions={
+          <ToggleGroup
+            type="single"
+            value={range}
+            onValueChange={(v) => v && setRange(v as Range)}
+            size="sm"
+            variant="outline"
+          >
+            {(Object.keys(RANGE_LABELS) as Range[]).map((r) => (
+              <ToggleGroupItem key={r} value={r} aria-label={`Last ${RANGE_LABELS[r]}`}>
+                {RANGE_LABELS[r]}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+        }
       />
 
       {spike?.spike && (
