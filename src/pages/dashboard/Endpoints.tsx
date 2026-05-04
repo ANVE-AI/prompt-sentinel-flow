@@ -1100,7 +1100,7 @@ const Endpoints = () => {
               </div>
             )}
 
-            {customSchema && !isEdit && (
+            {formMode === "advanced" && customSchema && !isEdit && (
               <div className="space-y-2">
                 <Label>Template (optional)</Label>
                 {/* Selecting a template only stages a preview — nothing is written
