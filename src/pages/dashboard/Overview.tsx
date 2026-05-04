@@ -126,16 +126,37 @@ const Overview = () => {
                   </ul>
       )}
 
-      {tokenSpike?.spike && (
-        <Card className="surface-1 border-status-warn/40 bg-status-warn/5">
+      {(tokenSpike?.spike || (tokenSpike?.severity_score ?? 0) >= 35) && (() => {
+        const lvl = (tokenSpike.severity_level ?? "low") as "none" | "low" | "medium" | "high" | "critical";
+        const tone =
+          lvl === "critical" || lvl === "high" ? "block" :
+          lvl === "medium" ? "warn" : "ok";
+        const toneClass =
+          tone === "block" ? "border-status-block/40 bg-status-block/5" :
+          tone === "warn" ? "border-status-warn/40 bg-status-warn/5" :
+          "border-border";
+        const iconClass =
+          tone === "block" ? "text-status-block" :
+          tone === "warn" ? "text-status-warn" : "text-muted-foreground";
+        const barClass =
+          tone === "block" ? "bg-status-block" :
+          tone === "warn" ? "bg-status-warn" : "bg-status-ok";
+        const score = tokenSpike.severity_score ?? 0;
+        return (
+        <Card className={`surface-1 ${toneClass}`}>
           <CardContent className="p-4">
             <div className="flex items-start gap-3">
-              <Activity className="h-4 w-4 mt-0.5 text-status-warn shrink-0" />
+              <Activity className={`h-4 w-4 mt-0.5 shrink-0 ${iconClass}`} />
               <div className="flex-1 min-w-0 space-y-2">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <div>
-                    <div className="text-body font-medium">
-                      Token usage spike — last {tokenSpike.window_hours}h above baseline
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <div className="text-body font-medium">
+                        Token usage anomaly — last {tokenSpike.window_hours}h
+                      </div>
+                      <Badge status={tone as any}>
+                        {lvl} · {score}/100
+                      </Badge>
                     </div>
                     <div className="text-meta text-muted-foreground mt-0.5 tabular-nums">
                       in {fmtTok(tokenSpike.tokens_in)} (≈{fmtTok(tokenSpike.baseline_in)} baseline
@@ -151,32 +172,50 @@ const Overview = () => {
                     Tune thresholds <ArrowUpRight className="h-3.5 w-3.5" />
                   </Link>
                 </div>
-                {(tokenSpike.top_keys ?? []).filter((k: any) => k.spike).length > 0 && (
+                {/* Severity meter */}
+                <div className="flex items-center gap-2">
+                  <div className="h-1.5 flex-1 rounded bg-surface-2 overflow-hidden">
+                    <div className={`h-full ${barClass}`} style={{ width: `${Math.max(2, score)}%` }} />
+                  </div>
+                  <span className="text-[10px] text-muted-foreground tabular-nums w-16 text-right">
+                    score {score}
+                  </span>
+                </div>
+                {(tokenSpike.top_keys ?? []).filter((k: any) => (k.severity_score ?? 0) >= 10).length > 0 && (
                   <ul className="grid gap-1.5 sm:grid-cols-2">
-                    {tokenSpike.top_keys.filter((k: any) => k.spike).map((k: any) => (
-                      <li
-                        key={k.api_key_id}
-                        className="flex items-center justify-between gap-2 rounded border border-border bg-surface-2 px-2.5 py-1.5"
-                      >
-                        <div className="min-w-0">
-                          <div className="text-meta truncate">{k.api_key_name}</div>
-                          {k.api_key_prefix && (
-                            <div className="text-[10px] text-muted-foreground font-mono truncate">{k.api_key_prefix}</div>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1.5 shrink-0 tabular-nums">
-                          <span className="text-meta">{fmtTok(k.tokens_in + k.tokens_out)} tok</span>
-                          <Badge status="warn">spike</Badge>
-                        </div>
-                      </li>
-                    ))}
+                    {tokenSpike.top_keys
+                      .filter((k: any) => (k.severity_score ?? 0) >= 10)
+                      .map((k: any) => {
+                        const kLvl = (k.severity_level ?? "low") as typeof lvl;
+                        const kTone =
+                          kLvl === "critical" || kLvl === "high" ? "block" :
+                          kLvl === "medium" ? "warn" : "ok";
+                        return (
+                          <li
+                            key={k.api_key_id}
+                            className="flex items-center justify-between gap-2 rounded border border-border bg-surface-2 px-2.5 py-1.5"
+                          >
+                            <div className="min-w-0">
+                              <div className="text-meta truncate">{k.api_key_name}</div>
+                              {k.api_key_prefix && (
+                                <div className="text-[10px] text-muted-foreground font-mono truncate">{k.api_key_prefix}</div>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0 tabular-nums">
+                              <span className="text-meta">{fmtTok(k.tokens_in + k.tokens_out)} tok</span>
+                              <Badge status={kTone as any}>{kLvl} {k.severity_score}</Badge>
+                            </div>
+                          </li>
+                        );
+                      })}
                   </ul>
                 )}
               </div>
             </div>
           </CardContent>
         </Card>
-      )}
+        );
+      })()}
               </div>
             </div>
           </CardContent>
