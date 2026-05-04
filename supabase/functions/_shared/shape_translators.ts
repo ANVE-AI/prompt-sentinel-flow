@@ -14,7 +14,7 @@
 // evaluation, throttling, alias rewriting and logging only have to be
 // implemented once.
 
-export type RequestShape = "openai" | "anthropic" | "gemini";
+export type RequestShape = "openai" | "anthropic" | "gemini" | "openai_image";
 
 export interface ShapeRoute {
   shape: RequestShape;
@@ -22,6 +22,11 @@ export interface ShapeRoute {
   pathModel?: string;
   /** True for Gemini's streamGenerateContent — currently downgraded to non-stream. */
   pathStream?: boolean;
+  /** True if the route is recognised but execution isn't implemented yet
+   *  (currently `openai_image`). Proxy returns 501 with a documented message
+   *  so SDK users see a stable error instead of a generic "method not
+   *  allowed". */
+  notImplemented?: boolean;
 }
 
 /**
@@ -37,6 +42,14 @@ export function detectRequestShape(url: URL): ShapeRoute {
   // /v1beta/models/<model>:generateContent or :streamGenerateContent
   const gem = path.match(/\/v1beta\/models\/([^:/]+):(stream)?[gG]enerateContent$/);
   if (gem) return { shape: "gemini", pathModel: gem[1], pathStream: !!gem[2] };
+  // OpenAI image generation — path is recognised but execution is the
+  // Phase 5 work item. Stamping the shape lets the proxy return a stable
+  // 501 with a documented message instead of falling through to the chat
+  // completions handler (which would error confusingly on the missing
+  // `messages` field).
+  if (path.endsWith("/v1/images/generations") || path === "/v1/images/generations") {
+    return { shape: "openai_image", notImplemented: true };
+  }
   return { shape: "openai" };
 }
 

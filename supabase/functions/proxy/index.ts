@@ -424,6 +424,18 @@ async function handleRequest(req: Request): Promise<Response> {
   const route = detectRequestShape(reqUrl);
   const reqShape: RequestShape = route.shape;
 
+  // Phase 5 modality scaffolding — recognised paths whose execution layer
+  // isn't implemented yet (currently /v1/images/generations) return a
+  // stable 501 with a documented message. Doing this BEFORE auth means
+  // SDK probes don't burn rate-limit buckets while we're working on the
+  // actual integration.
+  if (route.notImplemented) {
+    const modality = reqShape === "openai_image" ? "image generation" : reqShape;
+    return errorResponse(reqShape === "openai_image" ? "openai" : reqShape, 501,
+      `${modality} routes are recognised but not yet implemented in this AnveGuard build. Tracking issue: Phase 5 / image-gen modality. Use a chat completions endpoint until then.`,
+      { code: "modality_not_implemented" });
+  }
+
   // ---- Auth: accept the AnveGuard key in whatever header the SDK sends.
   //   - OpenAI / generic:    Authorization: Bearer ag_live_…
   //   - Anthropic SDK:       x-api-key: ag_live_…
