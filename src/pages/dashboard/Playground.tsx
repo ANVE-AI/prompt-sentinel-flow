@@ -81,7 +81,16 @@ const Playground = () => {
     queryFn: () => call<any>("list_endpoints"),
   });
 
-  const activeKeys: any[] = (keysData?.keys ?? []).filter((k: any) => k.is_active);
+  const activeKeys: any[] = useMemo(() => {
+    const list = (keysData?.keys ?? []).filter((k: any) => k.is_active);
+    // Sort by last_used_at desc (never-used sink to bottom) so the most
+    // recently active key is always at the top of the picker.
+    return [...list].sort((a, b) => {
+      const ta = a.last_used_at ? new Date(a.last_used_at).getTime() : 0;
+      const tb = b.last_used_at ? new Date(b.last_used_at).getTime() : 0;
+      return tb - ta;
+    });
+  }, [keysData]);
   const ownedEndpoints: any[] = endpointsData?.endpoints ?? [];
   const sharedEndpoints: any[] = endpointsData?.shared_endpoints ?? [];
   const allEndpoints = [...ownedEndpoints, ...sharedEndpoints];
