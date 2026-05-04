@@ -198,7 +198,7 @@ Deno.serve(async (req) => {
 
       case "list_keys": {
         const { data } = await sb.from("api_keys")
-          .select("id,name,key_prefix,provider,model_default,is_active,is_admin,created_at,last_used_at,custom_base_url,custom_kind")
+          .select("id,name,key_prefix,provider,model_default,is_active,is_admin,compression_mode,created_at,last_used_at,custom_base_url,custom_kind")
           .eq("user_id", userId).order("created_at", { ascending: false });
         return json({ keys: data ?? [] });
       }
@@ -277,6 +277,60 @@ Deno.serve(async (req) => {
           updated: changing.length,
           unchanged: safeRows.length - changing.length,
         });
+      }
+
+      case "set_key_compression": {
+        const { id, mode } = body as { id?: string; mode?: string };
+        const allowed = ["inherit", "off", "light", "balanced", "aggressive"];
+        if (!id || !mode || !allowed.includes(String(mode))) {
+          return json({ error: "id and valid mode required" }, 400);
+        }
+        const { data: prev } = await sb.from("api_keys")
+          .select("compression_mode,name,key_prefix").eq("id", id).eq("user_id", userId).maybeSingle();
+        const { error: updErr } = await sb.from("api_keys")
+          .update({ compression_mode: mode }).eq("id", id).eq("user_id", userId);
+        if (updErr) return json({ error: updErr.message }, 400);
+        await sb.from("audit_logs").insert({
+          user_id: userId, actor_user_id: userId,
+          action: "api_key.compression_changed",
+          target_type: "api_key", target_id: id,
+          metadata: {
+            key_name: prev?.name, key_prefix: prev?.key_prefix,
+            previous_mode: prev?.compression_mode ?? null, new_mode: mode,
+          },
+        });
+        return json({ ok: true });
+      }
+
+      case "bulk_set_key_compression": {
+        const { ids, mode } = body as { ids?: unknown; mode?: unknown };
+        const allowed = ["inherit", "off", "light", "balanced", "aggressive"];
+        if (!Array.isArray(ids) || ids.length === 0) return json({ error: "ids must be non-empty" }, 400);
+        if (typeof mode !== "string" || !allowed.includes(mode)) return json({ error: "invalid mode" }, 400);
+        const idList = (ids as unknown[]).filter((v): v is string => typeof v === "string" && v.length > 0);
+        if (idList.length === 0) return json({ error: "no valid ids" }, 400);
+        if (idList.length > 200) return json({ error: "too many ids (max 200)" }, 400);
+        const { data: rows } = await sb.from("api_keys")
+          .select("id,name,key_prefix,compression_mode")
+          .eq("user_id", userId).in("id", idList);
+        const safeRows = rows ?? [];
+        const changing = safeRows.filter((r: any) => r.compression_mode !== mode);
+        if (changing.length === 0) return json({ ok: true, updated: 0, unchanged: safeRows.length });
+        const { error: updErr } = await sb.from("api_keys")
+          .update({ compression_mode: mode })
+          .eq("user_id", userId).in("id", changing.map((r: any) => r.id));
+        if (updErr) return json({ error: updErr.message }, 400);
+        await sb.from("audit_logs").insert(changing.map((r: any) => ({
+          user_id: userId, actor_user_id: userId,
+          action: "api_key.compression_changed",
+          target_type: "api_key", target_id: r.id,
+          metadata: {
+            key_name: r.name, key_prefix: r.key_prefix,
+            previous_mode: r.compression_mode, new_mode: mode,
+            via: "bulk", batch_size: changing.length,
+          },
+        })));
+        return json({ ok: true, updated: changing.length, unchanged: safeRows.length - changing.length });
       }
 
       case "create_key": {
