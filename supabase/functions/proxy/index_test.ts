@@ -183,7 +183,7 @@ Deno.test("proxy rejects requests with no Authorization header", async () => {
   const text = await res.text();
   const body = text ? JSON.parse(text) : null;
   assertEquals(res.status, 401);
-  assertStringIncludes(String(body?.error?.message), "Missing or invalid AnveGuard API key");
+  assertStringIncludes(String(body?.error?.message), "Missing API key");
 });
 
 // ---------------------------------------------------------------------------
