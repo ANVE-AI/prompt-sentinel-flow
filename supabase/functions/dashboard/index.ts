@@ -2246,7 +2246,7 @@ Deno.serve(async (req) => {
         const topKeys = Array.from(perKey.entries())
           .map(([api_key_id, v]) => {
             const meta = keyMeta.get(api_key_id) as any;
-            const bIn = v.priorIn / 7, bOut = v.priorOut / 7;
+            const bIn = v.priorIn / baselineWindows, bOut = v.priorOut / baselineWindows;
             const rIn = bIn > 0 ? v.in / bIn : (v.in >= Math.max(1000, minTokens / 4) ? Infinity : 0);
             const rOut = bOut > 0 ? v.out / bOut : (v.out >= Math.max(1000, minTokens / 4) ? Infinity : 0);
             const keySeverity = Math.max(
