@@ -99,6 +99,8 @@ const Overview = () => {
         }
       />
 
+      <NextStepCard />
+
       <HelpPanel
         storageKey="overview"
         title="How to use AnveGuard"
