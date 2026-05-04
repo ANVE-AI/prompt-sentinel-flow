@@ -181,6 +181,7 @@ Deno.test("proxy returns the same 401 for an unknown API key (no info leak)", as
 });
 
 Deno.test("proxy rejects requests with no Authorization header", async () => {
+  await clearRateLimitBuckets();
   const res = await fetch(PROXY_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
