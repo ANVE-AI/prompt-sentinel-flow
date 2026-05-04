@@ -236,11 +236,29 @@ export async function decryptString(payload: string): Promise<string> {
 // === Policy engine ===
 
 export const GLOBAL_DEFAULT_BLOCKED = [
+  // English
   "ignore previous instructions",
   "ignore all previous",
   "system prompt",
   "jailbreak",
   "DAN mode",
+  // French — covers "ignorez les instructions précédentes" and variants.
+  // checkPolicy normalizes to lowercase before comparing so accents match.
+  "ignorez les instructions",
+  "oubliez les instructions",
+  "ignorer les instructions",
+  // Spanish
+  "ignora las instrucciones",
+  "ignore las instrucciones",
+  "olvida las instrucciones",
+  // German
+  "ignoriere die anweisungen",
+  "vergiss die anweisungen",
+  // Italian
+  "ignora le istruzioni",
+  // Portuguese
+  "ignore as instruções",
+  "ignore todas as instruções",
 ];
 
 /**
