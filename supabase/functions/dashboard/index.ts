@@ -29,6 +29,39 @@ async function loadKnownIntentNames(
 }
 
 /**
+ * Validate a webhook target URL — SSRF-safe. Rejects:
+ *   - Non-HTTPS schemes (HTTP allowed only on localhost for dev convenience)
+ *   - Hostnames that resolve to private IP space, link-local, loopback,
+ *     or our own Supabase project (so alerts can't loop back)
+ *   - Hostnames with credentials (`user:pass@host`)
+ *
+ * This is the lightweight version — for production-grade SSRF defense the
+ * actual fetch should also pin the resolved IP and reject after DNS lookup
+ * (DNS rebinding). That's a follow-up; this catches the common foot-guns.
+ */
+function validateWebhookUrl(raw: string): { ok: true; url: URL } | { ok: false; reason: string } {
+  let url: URL;
+  try { url = new URL(raw); } catch { return { ok: false, reason: "invalid URL" }; }
+  if (url.username || url.password) return { ok: false, reason: "URL must not contain credentials" };
+  if (!["http:", "https:"].includes(url.protocol)) return { ok: false, reason: "URL must be http(s)" };
+  const host = url.hostname.toLowerCase();
+  // Block obvious internal / loopback / link-local hosts.
+  const PRIVATE_HOSTS = [/^localhost$/, /^127\./, /^0\./, /^169\.254\./, /^10\./, /^192\.168\./, /^172\.(1[6-9]|2[0-9]|3[0-1])\./, /^::1$/, /^fc/i, /^fd/i, /^fe80/i];
+  if (url.protocol === "http:" && host !== "localhost" && !host.startsWith("127.")) {
+    return { ok: false, reason: "HTTP only allowed on localhost — use HTTPS for external receivers" };
+  }
+  if (PRIVATE_HOSTS.some((re) => re.test(host))) {
+    return { ok: false, reason: `webhook target is in a private/loopback range: ${host}` };
+  }
+  // Don't allow alerts to loop back to our own Supabase project — that
+  // creates feedback amplification on bad days.
+  if (host.endsWith(".supabase.co") || host.endsWith(".supabase.com")) {
+    return { ok: false, reason: "webhook target cannot be a Supabase host" };
+  }
+  return { ok: true, url };
+}
+
+/**
  * Centralized audit-log helper. Every mutating dashboard action should call
  * this so the audit trail stays uniform (key/case format, actor stamping)
  * and easy to query. Best-effort — never blocks the response on logging.
@@ -2509,6 +2542,92 @@ Deno.serve(async (req) => {
       }
       // Server-only table; the dashboard function is the sole writer/reader,
       // so this endpoint is the only way the UI surfaces these events.
+      // ===================================================================
+      // Alert subscriptions (audit Sprint 9). Operators register webhooks
+      // that fire on block/token spikes or specific audit verbs. The actual
+      // delivery engine (cron-based) is a separate work item; these actions
+      // land the data model + CRUD so the UI can be built independently.
+      // ===================================================================
+      case "list_alert_subscriptions": {
+        const { data, error } = await sb.from("alert_subscriptions")
+          .select("id,name,kind,target_url,threshold_value,threshold_window_minutes,audit_action_filter,cooldown_minutes,enabled,last_fired_at,fire_count,created_at,updated_at")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false });
+        if (error) return json({ error: error.message }, 400);
+        // Mask webhook_secret in the response — it's set-only via save_*.
+        return json({ subscriptions: (data ?? []).map((r) => ({ ...r, has_secret: false })) });
+      }
+
+      case "save_alert_subscription": {
+        const id = body?.id ? String(body.id) : null;
+        const name = String(body?.name ?? "").trim().slice(0, 100);
+        const kind = String(body?.kind ?? "");
+        const targetUrl = String(body?.target_url ?? "").trim();
+        const thresholdValue = body?.threshold_value !== undefined ? Number(body.threshold_value) : null;
+        const windowMin = Number(body?.threshold_window_minutes ?? 5);
+        const cooldownMin = Number(body?.cooldown_minutes ?? 5);
+        const auditFilter = Array.isArray(body?.audit_action_filter)
+          ? body.audit_action_filter.map((s: unknown) => String(s)).filter(Boolean).slice(0, 50)
+          : null;
+        const enabled = body?.enabled !== false;
+        const webhookSecret = body?.webhook_secret !== undefined ? (body.webhook_secret ? String(body.webhook_secret).slice(0, 200) : null) : undefined;
+
+        if (!name) return json({ error: "name is required" }, 400);
+        if (!["block_spike", "token_spike", "audit_event"].includes(kind)) {
+          return json({ error: "kind must be block_spike, token_spike, or audit_event" }, 400);
+        }
+        if (kind !== "audit_event" && (thresholdValue === null || !Number.isFinite(thresholdValue) || thresholdValue < 1)) {
+          return json({ error: "threshold_value (≥1) is required for spike alerts" }, 400);
+        }
+        if (!Number.isInteger(windowMin) || windowMin < 1 || windowMin > 1440) {
+          return json({ error: "threshold_window_minutes must be 1-1440" }, 400);
+        }
+        if (!Number.isInteger(cooldownMin) || cooldownMin < 0 || cooldownMin > 1440) {
+          return json({ error: "cooldown_minutes must be 0-1440" }, 400);
+        }
+        const validation = validateWebhookUrl(targetUrl);
+        if (!validation.ok) return json({ error: `invalid target_url: ${validation.reason}` }, 400);
+
+        const row: Record<string, unknown> = {
+          user_id: userId, name, kind, target_url: validation.url.toString(),
+          threshold_value: kind === "audit_event" ? null : thresholdValue,
+          threshold_window_minutes: windowMin,
+          audit_action_filter: kind === "audit_event" ? auditFilter : null,
+          cooldown_minutes: cooldownMin,
+          enabled,
+        };
+        // Only update webhook_secret when explicitly provided (so editing
+        // other fields doesn't accidentally clear it).
+        if (webhookSecret !== undefined) row.webhook_secret = webhookSecret;
+
+        if (id) {
+          const { data, error } = await sb.from("alert_subscriptions")
+            .update(row).eq("id", id).eq("user_id", userId)
+            .select("id").maybeSingle();
+          if (error) return json({ error: error.message }, 400);
+          if (!data) return json({ error: "Alert subscription not found" }, 404);
+          await auditAction(sb, userId, "alert_subscription.updated", "alert_subscription", id, { name, kind, target_url: validation.url.host });
+          return json({ ok: true, id });
+        }
+        const { data, error } = await sb.from("alert_subscriptions")
+          .insert(row).select("id").single();
+        if (error) return json({ error: error.message }, 400);
+        await auditAction(sb, userId, "alert_subscription.created", "alert_subscription", data!.id, { name, kind, target_url: validation.url.host });
+        return json({ ok: true, id: data!.id });
+      }
+
+      case "delete_alert_subscription": {
+        const id = String(body?.id ?? "");
+        if (!id) return json({ error: "id required" }, 400);
+        const { data: row } = await sb.from("alert_subscriptions").select("name,kind")
+          .eq("id", id).eq("user_id", userId).maybeSingle();
+        const { error } = await sb.from("alert_subscriptions").delete()
+          .eq("id", id).eq("user_id", userId);
+        if (error) return json({ error: error.message }, 400);
+        await auditAction(sb, userId, "alert_subscription.deleted", "alert_subscription", id, row ?? {});
+        return json({ ok: true });
+      }
+
       // Phase 2 / GDPR — data portability (Article 20). Returns the full
       // user-owned record set as a single JSON archive the operator can
       // download. Sensitive fields (provider_key_encrypted, key_hash) are

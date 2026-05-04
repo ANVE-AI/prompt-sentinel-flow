@@ -84,6 +84,10 @@ const auditActionMeta: Record<string, { label: string; icon: typeof Ban }> = {
   // System prompt + key bulk
   "system_prompt.allowed":         { label: "System prompt allowed",        icon: CheckCircle2 },
   "system_prompt.rejected":        { label: "System prompt rejected",       icon: ShieldAlert },
+  // Alert subscriptions (Sprint 9 webhooks)
+  "alert_subscription.created":    { label: "Alert subscription created",   icon: CheckCircle2 },
+  "alert_subscription.updated":    { label: "Alert subscription updated",   icon: ShieldCheck },
+  "alert_subscription.deleted":    { label: "Alert subscription deleted",   icon: Ban },
   // GDPR / data subject rights (Articles 17, 20, 5(1)(e))
   "data.exported":                 { label: "Data exported (Article 20)",   icon: ShieldCheck },
   "data.deletion_requested":      { label: "Account deletion requested",   icon: ShieldAlert },
