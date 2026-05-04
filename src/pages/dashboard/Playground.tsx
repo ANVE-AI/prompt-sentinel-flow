@@ -141,8 +141,21 @@ const Playground = () => {
   };
 
   const send = async () => {
+    if (selection?.kind === "endpoint" && selectedEndpoint) {
+      toast.error(
+        `"${selectedEndpoint.name}" has no AnveGuard API key bound. Create one to send requests through this endpoint.`,
+        {
+          action: {
+            label: "Create key",
+            onClick: () => goCreateKeyForEndpoint(selectedEndpoint),
+          },
+          duration: 8000,
+        },
+      );
+      return;
+    }
     if (selection?.kind !== "key") {
-      toast.error("Select an AnveGuard key first.");
+      toast.error("Pick an AnveGuard key above to send a request.");
       return;
     }
     if (!apiKey.startsWith("ag_live_")) {
