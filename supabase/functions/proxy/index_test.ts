@@ -134,6 +134,7 @@ async function postChat(token: string) {
 }
 
 Deno.test("proxy rejects revoked API key with 401 before calling provider", async () => {
+  await clearRateLimitBuckets();
   const seeded = await seedRevokedKey();
   try {
     const before = await countLogsForKey(seeded.id);
