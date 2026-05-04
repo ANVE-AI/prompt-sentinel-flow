@@ -14,6 +14,68 @@ export type Database = {
   }
   public: {
     Tables: {
+      alert_subscriptions: {
+        Row: {
+          audit_action_filter: string[] | null
+          cooldown_minutes: number
+          created_at: string
+          enabled: boolean
+          fire_count: number
+          id: string
+          kind: string
+          last_fired_at: string | null
+          name: string
+          target_url: string
+          threshold_value: number | null
+          threshold_window_minutes: number
+          updated_at: string
+          user_id: string
+          webhook_secret: string | null
+        }
+        Insert: {
+          audit_action_filter?: string[] | null
+          cooldown_minutes?: number
+          created_at?: string
+          enabled?: boolean
+          fire_count?: number
+          id?: string
+          kind: string
+          last_fired_at?: string | null
+          name: string
+          target_url: string
+          threshold_value?: number | null
+          threshold_window_minutes?: number
+          updated_at?: string
+          user_id: string
+          webhook_secret?: string | null
+        }
+        Update: {
+          audit_action_filter?: string[] | null
+          cooldown_minutes?: number
+          created_at?: string
+          enabled?: boolean
+          fire_count?: number
+          id?: string
+          kind?: string
+          last_fired_at?: string | null
+          name?: string
+          target_url?: string
+          threshold_value?: number | null
+          threshold_window_minutes?: number
+          updated_at?: string
+          user_id?: string
+          webhook_secret?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "alert_subscriptions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["clerk_user_id"]
+          },
+        ]
+      }
       api_keys: {
         Row: {
           compression_mode: string
