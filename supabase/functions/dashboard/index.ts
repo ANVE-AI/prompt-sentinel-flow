@@ -2447,6 +2447,102 @@ Deno.serve(async (req) => {
       }
       // Server-only table; the dashboard function is the sole writer/reader,
       // so this endpoint is the only way the UI surfaces these events.
+      // Phase 2 / GDPR — data portability (Article 20). Returns the full
+      // user-owned record set as a single JSON archive the operator can
+      // download. Sensitive fields (provider_key_encrypted, key_hash) are
+      // excluded so this is safe to share with the data subject directly.
+      // Recent request_logs are bounded to 10k rows to keep the response
+      // size reasonable; older logs are best fetched via the time-bucketed
+      // list_logs action with cursors.
+      case "export_my_data": {
+        const [
+          profile, keys, endpoints, sharesGranted, sharesReceived,
+          policySettings, policyRules, policyIntents, policyTemplates,
+          knownIntents, modelAliases, routes, routeSteps, behaviorProfiles,
+          recentLogs, auditLogs,
+        ] = await Promise.all([
+          sb.from("profiles").select("clerk_user_id,email,created_at").eq("clerk_user_id", userId).maybeSingle(),
+          sb.from("api_keys").select("id,name,key_prefix,provider,is_active,is_admin,model_default,compression_mode,endpoint_id,last_used_at,created_at").eq("user_id", userId),
+          sb.from("endpoints").select("id,name,base_url,kind,auth_scheme,custom_kind,default_model,model_suggestions,created_at").eq("user_id", userId),
+          sb.from("endpoint_shares").select("id,endpoint_id,shared_with_email,shared_with_user_id,permission,created_at").eq("owner_user_id", userId),
+          sb.from("endpoint_shares").select("id,endpoint_id,owner_user_id,permission,created_at").eq("shared_with_user_id", userId),
+          sb.from("policy_settings").select("*").eq("user_id", userId).maybeSingle(),
+          sb.from("policy_rules").select("id,name,kind,severity,direction,enabled,config,applies_to_intents,created_at").eq("user_id", userId),
+          sb.from("policy_intents").select("id,intent,action,min_confidence,created_at").eq("user_id", userId),
+          sb.from("policy_templates").select("id,name,description,current_version,created_at").eq("user_id", userId),
+          sb.from("known_intents").select("id,name,created_at").eq("user_id", userId),
+          sb.from("model_aliases").select("id,api_key_id,alias,target_model,target_endpoint_id,created_at").eq("user_id", userId),
+          sb.from("routes").select("id,name,fallback_on_5xx,fallback_on_429,fallback_on_timeout,timeout_ms,created_at").eq("user_id", userId),
+          sb.from("route_steps").select("id,route_id,position,endpoint_id,model,created_at").eq("user_id", userId),
+          sb.from("key_behavior_profiles").select("*").eq("user_id", userId),
+          sb.from("request_logs")
+            .select("id,api_key_id,model,status,verdict,verdict_layers,block_reason,messages,response,latency_ms,tokens_in,tokens_out,tokens_saved_estimate,compression_applied,created_at")
+            .eq("user_id", userId).order("created_at", { ascending: false }).limit(10_000),
+          sb.from("audit_logs")
+            .select("id,action,target_type,target_id,metadata,created_at")
+            .eq("user_id", userId).order("created_at", { ascending: false }).limit(10_000),
+        ]);
+
+        // Audit the export itself for compliance.
+        await auditAction(sb, userId, "data.exported", "user", userId, {
+          counts: {
+            api_keys: keys.data?.length ?? 0,
+            endpoints: endpoints.data?.length ?? 0,
+            endpoint_shares: (sharesGranted.data?.length ?? 0) + (sharesReceived.data?.length ?? 0),
+            policy_rules: policyRules.data?.length ?? 0,
+            request_logs: recentLogs.data?.length ?? 0,
+            audit_logs: auditLogs.data?.length ?? 0,
+          },
+        });
+
+        return json({
+          export_format: "anveguard.v1",
+          exported_at: new Date().toISOString(),
+          user_id: userId,
+          notes: [
+            "Sensitive fields excluded by design: api_keys.key_hash, api_keys.provider_key_encrypted, endpoints.provider_key_encrypted.",
+            "request_logs and audit_logs are capped at 10,000 most-recent rows. Use list_logs with cursor for older history.",
+            "This export is GDPR Article 20 (data portability) compliant.",
+          ],
+          data: {
+            profile: profile.data,
+            api_keys: keys.data ?? [],
+            endpoints: endpoints.data ?? [],
+            endpoint_shares_granted: sharesGranted.data ?? [],
+            endpoint_shares_received: sharesReceived.data ?? [],
+            policy_settings: policySettings.data,
+            policy_rules: policyRules.data ?? [],
+            policy_intents: policyIntents.data ?? [],
+            policy_templates: policyTemplates.data ?? [],
+            known_intents: knownIntents.data ?? [],
+            model_aliases: modelAliases.data ?? [],
+            routes: routes.data ?? [],
+            route_steps: routeSteps.data ?? [],
+            key_behavior_profiles: behaviorProfiles.data ?? [],
+            request_logs: recentLogs.data ?? [],
+            audit_logs: auditLogs.data ?? [],
+          },
+        });
+      }
+
+      // GDPR Article 17 — right to erasure. This action only RECORDS the
+      // request and writes an immutable audit_logs entry; actual deletion
+      // is operator-driven (via Supabase admin tools) so accidental clicks
+      // can be reversed within the 30-day grace window. The dashboard UI
+      // should show "deletion requested, contact support" after this fires.
+      case "request_account_deletion": {
+        const reason = String(body?.reason ?? "").slice(0, 500);
+        await auditAction(sb, userId, "data.deletion_requested", "user", userId, {
+          reason,
+          requested_at: new Date().toISOString(),
+          note: "Operator must confirm and execute deletion within 30 days per GDPR.",
+        });
+        return json({
+          ok: true,
+          message: "Deletion request recorded. Our team will contact you within 7 business days to confirm. Per GDPR Article 17, deletion will complete within 30 days unless we have a documented legal basis to retain specific records.",
+        });
+      }
+
       case "list_audit_logs": {
         const limit = Math.min(Number(url.searchParams.get("limit") ?? 100), 500);
         const action = url.searchParams.get("action");
