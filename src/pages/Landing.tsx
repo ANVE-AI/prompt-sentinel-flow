@@ -31,7 +31,7 @@ import { cn } from "@/lib/utils";
 const NAV = [
   { href: "#product", label: "Product" },
   { href: "#observability", label: "Observability" },
-  { href: "#how", label: "How it works" },
+  { href: "#how", label: "Quickstart" },
   { href: "#faq", label: "FAQ" },
   { href: "/docs", label: "Docs" },
 ];
@@ -64,21 +64,27 @@ const PILLARS: { eyebrow: string; title: string; body: string; bullets: string[]
   },
 ];
 
-const STEPS: { n: string; title: string; body: string }[] = [
+const STEPS: { n: string; title: string; body: string; cta: string; to: string }[] = [
   {
     n: "01",
-    title: "Issue a key",
-    body: "Create an AnveGuard key in the dashboard. Bind it to OpenAI, Anthropic, Lovable AI, or any OpenAI-compatible endpoint you already use.",
+    title: "Create an endpoint",
+    body: "Add the upstream provider you want to guard (OpenAI, Anthropic, Perplexity, or your own host). Your provider key is stored once here — clients never see it.",
+    cta: "Add endpoint",
+    to: "/dashboard/endpoints",
   },
   {
     n: "02",
-    title: "Swap the URL",
-    body: "Point your existing OpenAI client at the AnveGuard base URL and use the AnveGuard key. Your provider key never leaves the dashboard.",
+    title: "Generate an AnveGuard key",
+    body: "Bind an ag_live_… key to that endpoint. Apps use it as a Bearer token — only the hash is stored, so copy the secret when it's shown.",
+    cta: "Create key",
+    to: "/dashboard/keys",
   },
   {
     n: "03",
-    title: "Watch and govern",
-    body: "Logs stream live. Policies enforce automatically. Rotate, revoke, or change rules from the console — code stays untouched.",
+    title: "Test in the Playground",
+    body: "Send a real prompt through the proxy and watch every policy layer (intent, keywords, behavioral) decide in real time.",
+    cta: "Open Playground",
+    to: "/dashboard/playground",
   },
 ];
 
@@ -287,23 +293,33 @@ const Landing = () => {
       </div>
     </section>
 
-    {/* ---------------------------- How it works ---------------------------- */}
+    {/* ---------------------------- Quickstart ----------------------------- */}
     <section id="how" className="border-b border-border">
       <div className="mx-auto max-w-6xl px-4 md:px-6 py-16 lg:py-20">
         <div className="max-w-2xl">
           <div className="text-meta uppercase tracking-[0.18em] text-primary font-mono">
-            How it works
+            Quickstart
           </div>
           <h2 className="mt-2 text-display font-semibold tracking-tight">
             Three steps. No infrastructure to manage.
           </h2>
+          <p className="mt-3 text-body text-muted-foreground leading-relaxed">
+            Each step links straight into the console — sign in once and you'll
+            land exactly where you need to be.
+          </p>
         </div>
         <ol className="mt-10 grid md:grid-cols-3 gap-px bg-border">
           {STEPS.map((s) => (
-            <li key={s.n} className="surface-1 p-6 md:p-7">
+            <li key={s.n} className="surface-1 p-6 md:p-7 flex flex-col">
               <div className="text-meta font-mono text-muted-foreground">{s.n}</div>
               <div className="mt-3 text-h1 font-medium tracking-tight">{s.title}</div>
-              <p className="mt-2 text-body text-muted-foreground leading-relaxed">{s.body}</p>
+              <p className="mt-2 text-body text-muted-foreground leading-relaxed flex-1">{s.body}</p>
+              <Button asChild variant="outline" size="sm" className="mt-5 w-fit">
+                <Link to={s.to}>
+                  {s.cta}
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </Button>
             </li>
           ))}
         </ol>

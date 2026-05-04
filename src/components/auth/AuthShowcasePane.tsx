@@ -1,4 +1,4 @@
-import { ShieldCheck } from "lucide-react";
+import { ShieldCheck, Plug, KeyRound, Sparkles } from "lucide-react";
 
 /**
  * Showcase pane shown beside the Clerk auth form on /sign-in and /sign-up.
@@ -63,6 +63,38 @@ export const AuthShowcasePane = () => (
             </li>
           ))}
         </ul>
+      </div>
+
+      {/* Compact 3-step quickstart — gives new users a clear destination
+          immediately after they sign in. Steps mirror the landing page so the
+          flow stays consistent across surfaces. */}
+      <div className="mt-8">
+        <div className="text-meta uppercase tracking-[0.18em] text-muted-foreground font-mono">
+          After you sign in
+        </div>
+        <ol className="mt-3 space-y-2.5">
+          {[
+            { icon: Plug, title: "Create an endpoint", body: "Add the upstream provider to guard." },
+            { icon: KeyRound, title: "Generate a key", body: "Bind an ag_live_… key to that endpoint." },
+            { icon: Sparkles, title: "Test in Playground", body: "Send a real prompt and watch verdicts live." },
+          ].map((s, i) => {
+            const Icon = s.icon;
+            return (
+              <li key={i} className="flex items-start gap-3">
+                <span className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-primary/10 text-primary shrink-0">
+                  <Icon className="h-3.5 w-3.5" />
+                </span>
+                <div className="min-w-0">
+                  <div className="text-body font-medium leading-tight">
+                    <span className="font-mono text-muted-foreground mr-2">0{i + 1}</span>
+                    {s.title}
+                  </div>
+                  <div className="text-meta text-muted-foreground mt-0.5">{s.body}</div>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
       </div>
     </div>
   </div>
