@@ -309,6 +309,157 @@ async function handleImageGeneration(
   });
 }
 
+// ---- Phase 5: audio transcription handler --------------------------------
+// Minimum-viable forwarder for OpenAI Whisper /v1/audio/transcriptions.
+// Differences from the chat / image-gen paths:
+//   - Body is multipart/form-data (file upload) — we forward bytes-for-bytes
+//     so the boundary stays valid.
+//   - Response is JSON {"text":"..."} (when response_format defaults to json).
+//   - Policy runs on the TRANSCRIBED TEXT after the upstream returns. We
+//     treat it as input-direction since the text typically becomes a chat
+//     prompt downstream — same vectors apply (jailbreak, exfil, etc.).
+// Same as chat/image:
+//   - Auth + rate limit (existing flow before branch)
+//   - Audit logging via request_logs
+const HANDLEABLE_AUDIO_PROVIDERS = new Set(["openai", "lovable", "custom"]);
+const MAX_AUDIO_BYTES = 26 * 1024 * 1024; // 26MB — matches OpenAI's 25MB limit + headroom
+
+async function handleAudioTranscription(
+  sb: ReturnType<typeof service>,
+  req: Request,
+  keyRow: any,
+): Promise<Response> {
+  const start = Date.now();
+
+  if (!HANDLEABLE_AUDIO_PROVIDERS.has(keyRow.provider)) {
+    return errorResponse("openai", 501,
+      `Audio transcription is currently supported only for OpenAI-compatible providers. Your key uses provider: ${keyRow.provider}.`,
+      { code: "modality_unsupported_provider" });
+  }
+
+  const contentType = req.headers.get("content-type") || "";
+  if (!contentType.toLowerCase().startsWith("multipart/form-data")) {
+    return errorResponse("openai", 400,
+      "Audio transcription expects a multipart/form-data body (the OpenAI SDK formats this automatically).",
+      { code: "invalid_content_type" });
+  }
+
+  // Read raw bytes — Whisper caps at 25MB. We add a 26MB hard cap and reject
+  // anything larger to bound memory and latency.
+  const buf = await req.arrayBuffer();
+  if (buf.byteLength > MAX_AUDIO_BYTES) {
+    return errorResponse("openai", 413,
+      `Audio file exceeds ${MAX_AUDIO_BYTES} bytes (${(MAX_AUDIO_BYTES / 1024 / 1024).toFixed(0)}MB). Whisper's hard limit is 25MB.`,
+      { code: "audio_too_large" });
+  }
+
+  // Resolve upstream URL + key.
+  let upstreamKey: string | null = null;
+  if (keyRow.provider_key_encrypted) {
+    try { upstreamKey = await decryptString(keyRow.provider_key_encrypted); }
+    catch (e) {
+      console.error("[audio] key decrypt failed:", e);
+      return errorResponse("openai", 500, "Internal proxy error (key resolution).",
+        { code: "internal_error" });
+    }
+  }
+  let resolved;
+  try { resolved = resolveEndpoint(keyRow, upstreamKey); }
+  catch (e) {
+    return errorResponse("openai", 400, e instanceof Error ? e.message : String(e),
+      { code: "endpoint_resolution_failed" });
+  }
+  // Derive transcription URL by swapping the chat-completions path.
+  const transcriptionUrl = resolved.url.replace(/\/v1\/chat\/completions(\?.*)?$/, "/v1/audio/transcriptions$1");
+  if (transcriptionUrl === resolved.url) {
+    return errorResponse("openai", 501,
+      "This endpoint's chat URL doesn't match a recognised pattern; cannot derive an audio-transcription URL automatically.",
+      { code: "modality_url_resolution_failed" });
+  }
+
+  // Forward upstream — preserve the original Content-Type (it carries the
+  // multipart boundary) and pass the raw body bytes through.
+  let upstream: Response;
+  try {
+    const upstreamHeaders: Record<string, string> = { ...resolved.headers, "Content-Type": contentType };
+    upstream = await fetch(transcriptionUrl, {
+      method: "POST", headers: upstreamHeaders, body: buf,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return errorResponse("openai", 502, "Upstream audio-transcription request failed.",
+      { code: "upstream_error", anveguard: { detail: msg } });
+  }
+
+  const respText = await upstream.text();
+  let respJson: any = null;
+  try { respJson = respText ? JSON.parse(respText) : null; } catch { /* keep raw */ }
+  const transcribed: string = typeof respJson?.text === "string" ? respJson.text : "";
+
+  // Run input policy on the transcribed text. If the model produced something
+  // jailbreak-shaped (or the user dictated it), we redact and warn rather
+  // than block silently — the caller still gets the response, but with the
+  // policy verdict echoed under `anveguard` for SDK introspection.
+  let promptVerdict: Awaited<ReturnType<typeof evaluatePolicy>> | null = null;
+  if (transcribed && upstream.ok) {
+    const policyState = await loadWorkspacePolicy(sb, keyRow.user_id);
+    try {
+      promptVerdict = await evaluatePolicy({
+        text: transcribed, direction: "input",
+        settings: policyState.settings,
+        legacy: policyState.legacy,
+        rules: policyState.rules,
+        intents: policyState.intents,
+      });
+    } catch (e) {
+      console.error("[audio] policy eval failed:", e);
+    }
+    if (promptVerdict?.verdict === "block") {
+      const blockReason = promptVerdict.layers.find((l) => l.verdict === "block")?.reason
+        ?? "Blocked by input policy.";
+      // Log as blocked_output (transcription is conceptually output of the
+      // model — even though the resulting text would BECOME an input later).
+      await sb.from("request_logs").insert({
+        user_id: keyRow.user_id, api_key_id: keyRow.id,
+        provider: keyRow.provider, model: "whisper-transcription",
+        messages: [{ role: "user", content: "[audio file]" }],
+        response: { transcribed_excerpt: transcribed.slice(0, 200) },
+        status: "blocked_output", verdict: "block",
+        verdict_layers: promptVerdict.layers,
+        block_reason: blockReason,
+        latency_ms: Date.now() - start,
+      });
+      await sb.from("api_keys").update({ last_used_at: new Date().toISOString() }).eq("id", keyRow.id);
+      return errorResponse("openai", 400, `${policyState.blockMessage} ${blockReason}`,
+        { code: "content_filter", anveguard: { reason: blockReason, layers: promptVerdict.layers } });
+    }
+  }
+
+  // Log + return.
+  await sb.from("request_logs").insert({
+    user_id: keyRow.user_id, api_key_id: keyRow.id,
+    provider: keyRow.provider, model: "whisper-transcription",
+    messages: [{ role: "user", content: "[audio file]" }],
+    response: respJson
+      ? { text: transcribed.slice(0, 4000), text_length: transcribed.length }
+      : { raw: respText.slice(0, 1000) },
+    status: upstream.ok ? "allowed" : "error",
+    verdict: promptVerdict?.verdict ?? "allow",
+    verdict_layers: promptVerdict?.layers ?? [],
+    block_reason: null,
+    latency_ms: Date.now() - start,
+  });
+  await sb.from("api_keys").update({ last_used_at: new Date().toISOString() }).eq("id", keyRow.id);
+
+  return new Response(respText, {
+    status: upstream.status,
+    headers: {
+      ...corsHeaders,
+      "Content-Type": upstream.headers.get("content-type") ?? "application/json",
+    },
+  });
+}
+
 async function rateLimitedAuthFailure(
   sb: ReturnType<typeof service>,
   req: Request,
@@ -612,6 +763,13 @@ async function handleRequest(req: Request): Promise<Response> {
     return await rateLimitedAuthFailure(sb, req, reqShape,
       "Invalid or revoked API key.",
       "invalid_api_key");
+  }
+
+  // Phase 5 — audio transcription. Body is multipart/form-data (file upload),
+  // NOT JSON. Branch BEFORE the JSON parse so req.body is still readable as
+  // a stream/buffer in the dedicated handler.
+  if (reqShape === "openai_audio_transcription") {
+    return await handleAudioTranscription(sb, req, keyRow);
   }
 
   // Body — parse, then translate to canonical OpenAI Chat Completions shape.

@@ -14,7 +14,7 @@
 // evaluation, throttling, alias rewriting and logging only have to be
 // implemented once.
 
-export type RequestShape = "openai" | "anthropic" | "gemini" | "openai_image";
+export type RequestShape = "openai" | "anthropic" | "gemini" | "openai_image" | "openai_audio_transcription";
 
 export interface ShapeRoute {
   shape: RequestShape;
@@ -49,6 +49,12 @@ export function detectRequestShape(url: URL): ShapeRoute {
   // `messages` field).
   if (path.endsWith("/v1/images/generations") || path === "/v1/images/generations") {
     return { shape: "openai_image", notImplemented: true };
+  }
+  // OpenAI Whisper audio transcription — multipart upload, JSON response
+  // with `text` field. Different shape from chat (no messages array,
+  // body is multipart not JSON), so we route to a dedicated handler.
+  if (path.endsWith("/v1/audio/transcriptions") || path === "/v1/audio/transcriptions") {
+    return { shape: "openai_audio_transcription" };
   }
   return { shape: "openai" };
 }
