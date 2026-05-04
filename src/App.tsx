@@ -16,6 +16,7 @@ import Providers from "./pages/dashboard/Providers";
 import Routes_ from "./pages/dashboard/Routes";
 import Policies from "./pages/dashboard/Policies";
 import Logs from "./pages/dashboard/Logs";
+import Threats from "./pages/dashboard/Threats";
 import Playground from "./pages/dashboard/Playground";
 import PolicySandbox from "./pages/dashboard/PolicySandbox";
 import PolicyHarness from "./pages/dashboard/PolicyHarness";
@@ -64,6 +65,7 @@ const App = () => (
               <Route path="policies/sandbox" element={<PolicySandbox />} />
               <Route path="policies/harness" element={<PolicyHarness />} />
               <Route path="logs" element={<Logs />} />
+              <Route path="threats" element={<Threats />} />
               <Route path="playground" element={<Playground />} />
             </Route>
             <Route path="/docs" element={<DocsLayout />}>

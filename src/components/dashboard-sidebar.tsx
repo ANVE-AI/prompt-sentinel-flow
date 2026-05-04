@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   KeyRound,
   ShieldCheck,
+  ShieldAlert,
   ScrollText,
   Terminal,
   Plug,
@@ -52,6 +53,7 @@ const groups: { id: string; label: string; items: NavItem[] }[] = [
     label: "Governance",
     items: [
       { to: "/dashboard/policies", label: "Policies", icon: ShieldCheck },
+      { to: "/dashboard/threats", label: "Threats", icon: ShieldAlert },
       { to: "/dashboard/logs", label: "Logs", icon: ScrollText },
     ],
   },
