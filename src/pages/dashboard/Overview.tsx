@@ -321,7 +321,7 @@ const Overview = () => {
             <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Traffic</div>
             <div className="text-h2 font-medium mt-0.5">Requests over time</div>
           </div>
-          <div className="text-meta text-muted-foreground tabular-nums">last 14 days</div>
+          <div className="text-meta text-muted-foreground tabular-nums">last {RANGE_DAYS[range]} days</div>
         </div>
         <CardContent className="pt-2 pb-4">
           <div className="h-64">
