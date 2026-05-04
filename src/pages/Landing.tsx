@@ -349,6 +349,13 @@ const Landing = () => {
             </li>
           ))}
         </ol>
+
+        {/* Inline, copy-paste-ready quickstart so visitors can finish setup
+            without first opening the dashboard. Lives inside #how so the nav
+            link and "Replay quickstart" CTA still land users on it. */}
+        <div className="mt-10">
+          <QuickstartHelpPanel variant="full" />
+        </div>
       </div>
     </section>
 
