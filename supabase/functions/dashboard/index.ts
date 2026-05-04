@@ -29,6 +29,36 @@ async function loadKnownIntentNames(
 }
 
 /**
+ * Centralized audit-log helper. Every mutating dashboard action should call
+ * this so the audit trail stays uniform (key/case format, actor stamping)
+ * and easy to query. Best-effort — never blocks the response on logging.
+ *
+ * Action format: `<resource>.<verb>` e.g. "endpoint.saved", "policy_rule.deleted",
+ * "endpoint_share.granted", "policy_template.rolled_back".
+ */
+async function auditAction(
+  sb: ReturnType<typeof service>,
+  userId: string,
+  action: string,
+  targetType: string,
+  targetId: string | null,
+  metadata: Record<string, unknown> = {},
+): Promise<void> {
+  try {
+    await sb.from("audit_logs").insert({
+      user_id: userId,
+      actor_user_id: userId,
+      action,
+      target_type: targetType,
+      target_id: targetId,
+      metadata,
+    });
+  } catch (e) {
+    console.error("audit_logs insert failed (non-fatal):", e instanceof Error ? e.message : e);
+  }
+}
+
+/**
  * Look up an endpoint row that the caller is allowed to *read*. The caller is
  * allowed to read a row if either:
  *   1. They own it (`endpoints.user_id = userId`), OR
@@ -796,6 +826,11 @@ Deno.serve(async (req) => {
           .select("id,shared_with_email,shared_with_user_id,permission,created_at")
           .single();
         if (error) return json({ error: error.message }, 400);
+        await auditAction(sb, userId, "endpoint_share.granted", "endpoint", String(body?.endpoint_id ?? ""), {
+          recipient_email: inserted?.shared_with_email,
+          recipient_known: !!recipient?.clerk_user_id,
+          permission: inserted?.permission,
+        });
         return json({
           share: inserted,
           // Tell the UI whether the recipient already has access today vs. will pick it
@@ -816,6 +851,7 @@ Deno.serve(async (req) => {
           .eq("id", share_id).eq("owner_user_id", userId);
         if (error) return json({ error: error.message }, 400);
         if ((count ?? 0) === 0) return json({ error: "Share not found" }, 404);
+        await auditAction(sb, userId, "endpoint_share.revoked", "endpoint_share", share_id);
         return json({ ok: true });
       }
 
@@ -876,6 +912,9 @@ Deno.serve(async (req) => {
             .update(row).eq("id", id).eq("user_id", userId).select("id").maybeSingle();
           if (error) return json({ error: error.message }, 400);
           if (!data) return json({ error: "Endpoint not found" }, 404);
+          await auditAction(sb, userId, "endpoint.updated", "endpoint", data.id, {
+            name, base_url: row.base_url, kind: row.kind,
+          });
           return json({ id: data.id });
         } else {
           if (resolved.auth_scheme !== "none" && !provider_key) {
@@ -884,6 +923,9 @@ Deno.serve(async (req) => {
           const { data, error } = await sb.from("endpoints")
             .insert(row).select("id").single();
           if (error) return json({ error: error.message }, 400);
+          await auditAction(sb, userId, "endpoint.created", "endpoint", data.id, {
+            name, base_url: row.base_url, kind: row.kind,
+          });
           return json({ id: data.id });
         }
       }
@@ -898,9 +940,13 @@ Deno.serve(async (req) => {
         if ((count ?? 0) > 0) {
           return json({ error: `Cannot delete: ${count} API key(s) still use this endpoint. Revoke or migrate them first.` }, 400);
         }
+        // Snapshot the row so the audit trail keeps the name even after delete.
+        const { data: row } = await sb.from("endpoints")
+          .select("name,base_url,kind").eq("id", id).eq("user_id", userId).maybeSingle();
         const { error } = await sb.from("endpoints").delete()
           .eq("id", id).eq("user_id", userId);
         if (error) return json({ error: error.message }, 400);
+        await auditAction(sb, userId, "endpoint.deleted", "endpoint", id, row ?? {});
         return json({ ok: true });
       }
 
@@ -1337,10 +1383,12 @@ Deno.serve(async (req) => {
         if (id) {
           const { error } = await sb.from("policy_rules").update(row).eq("id", id).eq("user_id", userId);
           if (error) return json({ error: error.message }, 400);
+          await auditAction(sb, userId, "policy_rule.updated", "policy_rule", id, { name, kind, severity, direction, enabled });
           return json({ ok: true, id });
         }
         const { data, error } = await sb.from("policy_rules").insert(row).select("id").single();
         if (error) return json({ error: error.message }, 400);
+        await auditAction(sb, userId, "policy_rule.created", "policy_rule", data?.id ?? null, { name, kind, severity, direction, enabled });
         return json({ ok: true, id: data?.id });
       }
 
@@ -1589,6 +1637,11 @@ Deno.serve(async (req) => {
           patch.severity_score_cap = n;
         }
         await sb.from("policy_settings").upsert(patch, { onConflict: "user_id" });
+        // Audit: don't log the full patch to avoid noise — just the keys
+        // changed, so we can see WHAT got tweaked without value spam.
+        await auditAction(sb, userId, "policy_settings.updated", "policy_settings", userId, {
+          changed_fields: Object.keys(patch).filter((k) => k !== "user_id"),
+        });
         return json({ ok: true });
       }
 
@@ -1686,8 +1739,11 @@ Deno.serve(async (req) => {
       case "delete_policy_rule": {
         const id = String(body?.id ?? "");
         if (!id) return json({ error: "id required" }, 400);
+        const { data: row } = await sb.from("policy_rules")
+          .select("name,kind,severity").eq("id", id).eq("user_id", userId).maybeSingle();
         const { error } = await sb.from("policy_rules").delete().eq("id", id).eq("user_id", userId);
         if (error) return json({ error: error.message }, 400);
+        await auditAction(sb, userId, "policy_rule.deleted", "policy_rule", id, row ?? {});
         return json({ ok: true });
       }
 
@@ -1856,6 +1912,11 @@ Deno.serve(async (req) => {
             created_by: userId,
           });
         }
+        await auditAction(sb, userId, "policy_template.rolled_back", "policy_template", templateId, {
+          rolled_back_to_version: version,
+          new_current_version: nextVersion,
+          template_name: snap.name,
+        });
         return json({ template: data });
       }
 
