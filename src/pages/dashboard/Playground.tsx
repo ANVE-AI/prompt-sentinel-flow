@@ -248,18 +248,28 @@ const Playground = () => {
         }
       />
 
-      {showEndpointOnlyEmpty && (
-        <Card className="surface-1 border-border">
+      {showUnboundEndpointsBanner && (
+        <Card className="surface-1 border-status-warn/40 bg-status-warn/5">
           <div className="p-5 flex items-start gap-4">
-            <div className="rounded-md bg-primary/10 text-primary p-2 shrink-0">
-              <Plug className="h-5 w-5" />
+            <div className="rounded-md bg-status-warn/15 text-status-warn p-2 shrink-0">
+              <ShieldAlert className="h-5 w-5" />
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-body font-medium">
-                You have {unboundEndpoints.length} endpoint{unboundEndpoints.length === 1 ? "" : "s"} configured but no AnveGuard keys yet.
+                {unboundEndpoints.length} configured endpoint{unboundEndpoints.length === 1 ? "" : "s"} can't be used yet
               </div>
               <div className="text-meta text-muted-foreground mt-1">
-                An endpoint is just upstream config. To send a request through the proxy you need an AnveGuard key bound to it.
+                {unboundEndpoints.length === 1 ? (
+                  <>
+                    <span className="font-medium text-foreground">"{unboundEndpoints[0].name}"</span> has no AnveGuard API key bound to it.
+                    An endpoint by itself is just upstream config — the Playground sends requests using an AnveGuard key, so you need to create one bound to this endpoint before it shows up as a sendable option.
+                  </>
+                ) : (
+                  <>
+                    These endpoints have no AnveGuard API key bound to them yet.
+                    An endpoint by itself is just upstream config — the Playground sends requests using an AnveGuard key, so you need to create one bound to each endpoint before it shows up as a sendable option.
+                  </>
+                )}
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 {unboundEndpoints.slice(0, 3).map((ep) => (
@@ -272,6 +282,11 @@ const Playground = () => {
                     Create key for "{ep.name}"
                   </Button>
                 ))}
+                {unboundEndpoints.length > 3 && (
+                  <span className="text-meta text-muted-foreground self-center">
+                    +{unboundEndpoints.length - 3} more in the picker below
+                  </span>
+                )}
               </div>
             </div>
           </div>
