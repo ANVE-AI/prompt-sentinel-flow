@@ -32,6 +32,8 @@ import { useDashboardApi } from "@/lib/api";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
+import { HelpPanel } from "@/components/help-panel";
+import { HelpHint } from "@/components/help-hint";
 
 // -------- Endpoint form validation -----------------------------------------
 // Validates the fields a template prefills (and that the upstream actually
@@ -950,6 +952,34 @@ const Endpoints = () => {
           </Button>
         </div>
       </div>
+
+      <HelpPanel
+        storageKey="endpoints"
+        title="How endpoints work"
+        steps={[
+          {
+            title: "Save the upstream provider once",
+            body: "An endpoint stores the base URL, auth scheme, and provider key for any OpenAI-compatible or Anthropic-style API (Perplexity, Together, your own Ollama, etc.).",
+          },
+          {
+            title: "Bind an AnveGuard key to it",
+            body: <>Tick <strong>Also create an AnveGuard API key</strong> when adding an endpoint, or use <strong>Bind existing key</strong> on the Keys page. The endpoint config is mirrored onto the key so the proxy reads everything from one row.</>,
+          },
+          {
+            title: "Send through the proxy",
+            body: <>Point your client at <code className="font-mono">/proxy/v1/chat/completions</code> with the <code className="font-mono">ag_live_…</code> key — your real provider key never leaves Lovable Cloud.</>,
+          },
+        ]}
+        examples={[
+          {
+            label: "Perplexity endpoint config",
+            code: `Base URL:        https://api.perplexity.ai
+Auth scheme:     bearer
+Response format: chat_completions
+Default model:   sonar-pro`,
+          },
+        ]}
+      />
 
       {/* Provider gallery — pre-built templates grouped by category. */}
       {customSchema && customSchema.templates.length > 0 && (
