@@ -18,6 +18,7 @@ const labelByPath: Record<string, string> = {
   "/dashboard/policies/sandbox": "Policy sandbox",
   "/dashboard/policies/harness": "Policy harness",
   "/dashboard/threats": "Threats",
+  "/dashboard/alerts": "Alerts",
   "/dashboard/logs": "Logs",
   "/dashboard/playground": "Playground",
 };

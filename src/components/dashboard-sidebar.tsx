@@ -6,6 +6,7 @@ import {
   KeyRound,
   ShieldCheck,
   ShieldAlert,
+  BellRing,
   ScrollText,
   Terminal,
   Plug,
@@ -65,6 +66,7 @@ const groups: { id: string; label: string; items: NavItem[] }[] = [
     items: [
       { to: "/dashboard/policies", label: "Policies", icon: ShieldCheck },
       { to: "/dashboard/threats", label: "Threats", icon: ShieldAlert },
+      { to: "/dashboard/alerts", label: "Alerts", icon: BellRing },
       { to: "/dashboard/logs", label: "Logs", icon: ScrollText },
     ],
   },
