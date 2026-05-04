@@ -2176,6 +2176,40 @@ Deno.serve(async (req) => {
         const spikeOut = enabled && curOut >= minTokens && (baselineOut === 0 || ratioOut >= ratioThreshold);
         const spike = spikeIn || spikeOut;
 
+        // Severity model: 0..100 based on how far above the configured spike
+        // threshold the worst of (ratio_in, ratio_out) lands, on a log scale
+        // so 1× threshold ≈ 25, 2× ≈ ~58, 4× ≈ ~92, 8×+ saturates at 100.
+        // Below threshold we still give a small score (0..24) proportional to
+        // how close it is so operators can see things "trending up".
+        // Volume gate: anything well below `min_tokens` is capped low to
+        // avoid scary scores on near-zero traffic.
+        const scoreFromRatio = (ratio: number, volume: number): number => {
+          if (!Number.isFinite(ratio) && ratio > 0) return 100;
+          if (ratio <= 0) return 0;
+          const t = ratioThreshold;
+          let s: number;
+          if (ratio < t) {
+            s = Math.max(0, Math.min(24, Math.round((ratio / t) * 24)));
+          } else {
+            // 25 + 25 * log2(ratio / t), clamped to 100
+            const over = Math.log2(Math.max(1, ratio / t));
+            s = Math.min(100, Math.round(25 + over * 25));
+          }
+          // Volume dampening — half-credit until we cross the floor.
+          const floor = Math.max(1, minTokens);
+          if (volume < floor) s = Math.round(s * (volume / floor) * 0.6);
+          return Math.max(0, Math.min(100, s));
+        };
+        const severityScore = Math.max(
+          scoreFromRatio(ratioIn, curIn),
+          scoreFromRatio(ratioOut, curOut),
+        );
+        const severityLevel: "none" | "low" | "medium" | "high" | "critical" =
+          severityScore >= 85 ? "critical" :
+          severityScore >= 60 ? "high" :
+          severityScore >= 35 ? "medium" :
+          severityScore >= 10 ? "low" : "none";
+
         const { data: keys } = await sb.from("api_keys")
           .select("id,name,key_prefix").eq("user_id", userId);
         const keyMeta = new Map((keys ?? []).map((k) => [k.id, k]));
@@ -2185,6 +2219,10 @@ Deno.serve(async (req) => {
             const bIn = v.priorIn / 7, bOut = v.priorOut / 7;
             const rIn = bIn > 0 ? v.in / bIn : (v.in >= Math.max(1000, minTokens / 4) ? Infinity : 0);
             const rOut = bOut > 0 ? v.out / bOut : (v.out >= Math.max(1000, minTokens / 4) ? Infinity : 0);
+            const keySeverity = Math.max(
+              scoreFromRatio(rIn, v.in),
+              scoreFromRatio(rOut, v.out),
+            );
             return {
               api_key_id,
               api_key_name: meta?.name ?? "—",
@@ -2195,13 +2233,22 @@ Deno.serve(async (req) => {
               baseline_out: Math.round(bOut),
               ratio_in: Number.isFinite(rIn) ? Number(rIn.toFixed(2)) : null,
               ratio_out: Number.isFinite(rOut) ? Number(rOut.toFixed(2)) : null,
+              severity_score: keySeverity,
+              severity_level:
+                keySeverity >= 85 ? "critical" :
+                keySeverity >= 60 ? "high" :
+                keySeverity >= 35 ? "medium" :
+                keySeverity >= 10 ? "low" : "none",
               spike: (v.in + v.out) >= Math.max(1000, minTokens / 4) &&
                 ((bIn === 0 && v.in > 0) || rIn >= ratioThreshold ||
                  (bOut === 0 && v.out > 0) || rOut >= ratioThreshold),
             };
           })
           .filter((k) => (k.tokens_in + k.tokens_out) > 0)
-          .sort((a, b) => (b.tokens_in + b.tokens_out) - (a.tokens_in + a.tokens_out))
+          .sort((a, b) =>
+            (b.severity_score - a.severity_score) ||
+            ((b.tokens_in + b.tokens_out) - (a.tokens_in + a.tokens_out))
+          )
           .slice(0, 5);
 
         // Fire-and-forget webhook (non-blocking, best-effort).
@@ -2220,6 +2267,8 @@ Deno.serve(async (req) => {
                   baseline_in: Math.round(baselineIn), baseline_out: Math.round(baselineOut),
                   ratio_in: Number.isFinite(ratioIn) ? Number(ratioIn.toFixed(2)) : null,
                   ratio_out: Number.isFinite(ratioOut) ? Number(ratioOut.toFixed(2)) : null,
+                  severity_score: severityScore,
+                  severity_level: severityLevel,
                   top_keys: topKeys,
                   ts: new Date().toISOString(),
                 }),
@@ -2240,6 +2289,8 @@ Deno.serve(async (req) => {
           baseline_out: Math.round(baselineOut),
           ratio_in: Number.isFinite(ratioIn) ? Number(ratioIn.toFixed(2)) : null,
           ratio_out: Number.isFinite(ratioOut) ? Number(ratioOut.toFixed(2)) : null,
+          severity_score: severityScore,
+          severity_level: severityLevel,
           threshold: { min_tokens: minTokens, ratio: ratioThreshold },
           top_keys: topKeys,
         });
