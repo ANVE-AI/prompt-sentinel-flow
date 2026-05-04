@@ -1,74 +1,50 @@
-# Make endpoints visible in the Playground
+# One-click bind: attach an existing AnveGuard key to an endpoint
 
-## The problem
+Today an endpoint only shows up in the Playground if at least one `api_keys` row has its `endpoint_id` set to that endpoint. The only way to fix an "unbound" endpoint is to create a brand-new key. We'll add a fast path: pick an existing key you already own and bind it to the endpoint in one click.
 
-Today the Playground only lists rows from `api_keys`. Your Perplexity **endpoint** exists, but no AnveGuard key is bound to it, so the dropdown looks empty for that provider. There's no signal that the endpoint exists or how to use it.
+## Backend — new dashboard action
 
-## What I'll change
+File: `supabase/functions/dashboard/index.ts`
 
-### 1. Show endpoints alongside keys in the Playground picker
+Add `bind_key_to_endpoint` action. Body: `{ key_id: string, endpoint_id: string }`.
 
-The "Key (for model list)" select becomes an **Endpoint / Key** picker with two grouped sections:
+Behavior:
+- Verify both rows belong to `userId` (`api_keys.id` + `endpoints.id`).
+- Reject if the key already has a different `endpoint_id` set unless `force: true` (avoid silently re-pointing a production key).
+- Update the `api_keys` row, mirroring the same fields `create_key` already copies from an endpoint (so the proxy keeps reading from a single row):
+  - `endpoint_id`, `provider = "custom"`, `custom_base_url`, `custom_models_url`, `custom_kind`, `custom_auth_scheme`, `custom_auth_header`, `custom_extra_headers`, `custom_model_suggestions`, `custom_path_prefix`, `custom_chat_path`, `custom_models_path`, `custom_response_format`, `provider_key_encrypted` (from the endpoint), and `model_default` if currently empty and the endpoint has a `default_model`.
+- Write an `audit_logs` row (`action = "bind_key_to_endpoint"`, metadata: key name/prefix, endpoint name).
+- Return `{ ok: true, key: { id, name, key_prefix, endpoint_id } }`.
 
-```text
-─ Your AnveGuard keys ─
-  Adarsh Kant — lovable
+Also add a small helper action `list_bindable_keys` taking `{ endpoint_id }` that returns this user's `api_keys` where `is_active = true` AND (`endpoint_id IS NULL` OR `endpoint_id = <that one>`), ordered by `created_at desc`. Used to populate the picker without overfetching.
 
-─ Configured endpoints (no key yet) ─
-  Perplexity (Sonar) — api.perplexity.ai · sonar           [ Bind a key ]
-```
+## Playground — bind flow on unbound endpoints
 
-- Endpoints with at least one bound active key only appear in the "keys" group (no duplication).
-- Endpoints with **zero** bound keys appear in the second group with an inline "Bind a key" CTA.
-- Selecting an unbound endpoint disables the **Send through proxy** button and shows a small banner:
+File: `src/pages/dashboard/Playground.tsx`
 
-  ```text
-  This endpoint has no AnveGuard key yet. Create one to send requests through the proxy.
-  [ Create AnveGuard key for "Perplexity (Sonar)" ]
-  ```
+Where today we show the warning surface and the "Create AnveGuard key for ..." button (lines ~322–342) and the empty-state cards (lines ~232–260), add a secondary action: **"Bind existing key"**.
 
-  Clicking navigates to `/dashboard/keys?new=1&endpoint=<id>&name=<endpoint name>` (the existing prefilled-key flow already supports this).
+Clicking it opens a small dialog:
+- Title: `Bind a key to "{endpoint.name}"`
+- Loads `list_bindable_keys` for that endpoint.
+- If the list is empty: short message + the existing "Create new key" CTA.
+- Otherwise: a single `Select` listing keys (`{name} · {key_prefix}…`) plus a confirm button.
+- On success: invalidate the `keys` and `endpoints` queries, toast `"{key.name}" is now bound to "{endpoint.name}"`, and auto-select that key (`setSelection({ kind: "key", id })`) so the user can immediately Send.
 
-### 2. Empty-state for users with endpoints but zero keys
+## Endpoints page — bind action per endpoint
 
-If `activeKeys.length === 0` but the user has endpoints, replace today's silent "no keys" state with:
+File: `src/pages/dashboard/Endpoints.tsx`
 
-```text
-You have 1 endpoint configured but no AnveGuard keys yet.
-Create a key bound to "Perplexity (Sonar)" to start testing.
-[ Create key ]
-```
+In the endpoint row (around line 1030, next to the Activity / Edit / Delete icon buttons), when `e.key_count === 0` and the row is owned (not shared), add a `Bind key` button. It opens the same dialog as the Playground flow. After success, refresh the endpoints list so the `key_count` badge updates.
 
-### 3. Auto-select after returning from key creation
+## Out of scope
 
-Accept `?key=<id>` on `/dashboard/playground` so after creating a key from the Endpoints/Keys flow, the new key is preselected and the model list loads immediately.
+- No DB migrations — `api_keys.endpoint_id` already exists.
+- Shared endpoints stay read-only (you can only bind keys you own to endpoints you own), matching the current `unboundEndpoints` rule in Playground.
+- No bulk bind. One key at a time keeps the audit log honest.
 
-### 4. Better labels in the dropdown
+## Files touched
 
-For custom-endpoint-bound keys, show the **endpoint name** instead of just `custom`:
-
-```text
-my-perplexity-key — Perplexity (Sonar)
-```
-
-This requires `list_keys` to also return `endpoint_id` and the joined `endpoints.name` so the label is exact rather than reconstructed from `custom_base_url`.
-
-## Technical notes
-
-- **No DB migration.** `api_keys.endpoint_id` and the `custom_*` mirror columns already exist; `create_key` already accepts `endpoint_id`.
-- **Edge function `dashboard/index.ts`**:
-  - `list_keys`: extend the select to include `endpoint_id`, then do a second query against `endpoints` for the referenced ids and merge `endpoint_name` into each row. (No JOIN to keep RLS-bypass logic simple — it's the pattern used elsewhere in this file.)
-- **Frontend `src/pages/dashboard/Playground.tsx`**:
-  - Add a `useQuery(["endpoints"], () => call("list_endpoints"))` call.
-  - Compute `unboundEndpoints = endpoints.filter(e => !keys.some(k => k.endpoint_id === e.id))`.
-  - Render the picker as a `<Select>` with two labeled groups (`SelectGroup` + `SelectLabel`) covering bound keys and unbound endpoints.
-  - When the selected value is an unbound endpoint id (prefixed `ep:` to disambiguate from key ids), disable Send and render the inline CTA.
-  - Read `?key=<id>` on mount to auto-select.
-- **No changes** to `proxy/index.ts`, providers, or auth.
-
-## Verification
-
-After implementation I'll:
-1. Confirm the Perplexity endpoint shows up in the picker for your account with the "Bind a key" CTA.
-2. Walk the link → Keys page opens with the endpoint preselected → create a test key → land back in Playground with the new key auto-selected.
-3. Confirm `list_models` returns Perplexity sonar models for the new key.
+- `supabase/functions/dashboard/index.ts` — two new action cases.
+- `src/pages/dashboard/Playground.tsx` — bind dialog + secondary CTA.
+- `src/pages/dashboard/Endpoints.tsx` — per-row Bind button reusing the dialog (extracted into `src/components/dashboard/BindKeyDialog.tsx`).
