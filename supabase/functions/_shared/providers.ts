@@ -291,6 +291,7 @@ export const CUSTOM_SCHEMA = {
       id: "vllm",
       label: "vLLM / LM Studio / TGI",
       description: "Self-hosted OpenAI-compatible server. Bearer token (often any string). Tip: run `curl http://localhost:8000/v1/models` to discover the served model id.",
+      category: "self_hosted",
       values: {
         kind: "openai_compatible",
         base_url: "http://localhost:8000",
@@ -307,6 +308,7 @@ export const CUSTOM_SCHEMA = {
       id: "azure_openai",
       label: "Azure OpenAI",
       description: "Replace YOUR-RESOURCE with your Azure resource name. Default model must be your Azure deployment name (not the underlying model name). Uses api-key header + api-version.",
+      category: "hosted",
       values: {
         kind: "openai_compatible",
         base_url: "https://YOUR-RESOURCE.openai.azure.com",
@@ -325,6 +327,7 @@ export const CUSTOM_SCHEMA = {
       id: "groq",
       label: "Groq",
       description: "Fast inference for Llama, GPT-OSS, Gemma, DeepSeek. Bearer token.",
+      category: "hosted",
       values: {
         kind: "openai_compatible",
         base_url: "https://api.groq.com",
@@ -341,6 +344,7 @@ export const CUSTOM_SCHEMA = {
       id: "anthropic",
       label: "Anthropic (Claude)",
       description: "Direct Anthropic Messages API. Uses x-api-key + anthropic-version.",
+      category: "hosted",
       values: {
         kind: "anthropic",
         base_url: "https://api.anthropic.com",
@@ -358,6 +362,7 @@ export const CUSTOM_SCHEMA = {
       id: "openrouter",
       label: "OpenRouter",
       description: "One API for many providers. Bearer token.",
+      category: "hosted",
       values: {
         kind: "openai_compatible",
         base_url: "https://openrouter.ai",
@@ -374,6 +379,7 @@ export const CUSTOM_SCHEMA = {
       id: "together",
       label: "Together AI",
       description: "Open-source models. Bearer token.",
+      category: "hosted",
       values: {
         kind: "openai_compatible",
         base_url: "https://api.together.xyz",
@@ -390,6 +396,7 @@ export const CUSTOM_SCHEMA = {
       id: "fireworks",
       label: "Fireworks",
       description: "Fast hosted open-source models. Bearer token.",
+      category: "hosted",
       values: {
         kind: "openai_compatible",
         base_url: "https://api.fireworks.ai",
@@ -406,6 +413,7 @@ export const CUSTOM_SCHEMA = {
       id: "xai",
       label: "xAI Grok",
       description: "Grok 4 models. Bearer token.",
+      category: "hosted",
       values: {
         kind: "openai_compatible",
         base_url: "https://api.x.ai",
@@ -422,6 +430,7 @@ export const CUSTOM_SCHEMA = {
       id: "mistral",
       label: "Mistral",
       description: "Mistral La Plateforme. Bearer token.",
+      category: "hosted",
       values: {
         kind: "openai_compatible",
         base_url: "https://api.mistral.ai",
@@ -438,6 +447,7 @@ export const CUSTOM_SCHEMA = {
       id: "deepseek",
       label: "DeepSeek",
       description: "DeepSeek chat + reasoner. Bearer token.",
+      category: "hosted",
       values: {
         kind: "openai_compatible",
         base_url: "https://api.deepseek.com",
@@ -454,6 +464,7 @@ export const CUSTOM_SCHEMA = {
       id: "openai_responses",
       label: "OpenAI (Responses API)",
       description: "Hits /v1/responses instead of /v1/chat/completions. We translate request/response shapes.",
+      category: "hosted",
       values: {
         kind: "openai_compatible",
         base_url: "https://api.openai.com",
