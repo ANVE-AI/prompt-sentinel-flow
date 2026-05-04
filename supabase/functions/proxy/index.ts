@@ -369,7 +369,7 @@ async function handleRequest(req: Request): Promise<Response> {
   const key_hash = await sha256Hex(apiKeyPlain);
 
   const { data: keyRow } = await sb.from("api_keys")
-    .select("id,user_id,provider,provider_key_encrypted,model_default,is_active,is_admin,custom_base_url,custom_models_url,custom_kind,custom_auth_scheme,custom_auth_header,custom_extra_headers,custom_path_prefix,custom_chat_path,custom_models_path,custom_response_format")
+    .select("id,user_id,provider,provider_key_encrypted,model_default,is_active,is_admin,compression_mode,custom_base_url,custom_models_url,custom_kind,custom_auth_scheme,custom_auth_header,custom_extra_headers,custom_path_prefix,custom_chat_path,custom_models_path,custom_response_format")
     .eq("key_hash", key_hash).maybeSingle();
   if (!keyRow || !keyRow.is_active) {
     return errorResponse(reqShape, 401, "Invalid or revoked API key.", { code: "invalid_api_key" });
@@ -791,6 +791,37 @@ async function handleRequest(req: Request): Promise<Response> {
       }
     }
     logBase.messages = body.messages; // log the sanitized version
+  }
+
+  // ---- Token compression --------------------------------------------------
+  // Reduce upstream prompt size (and cost) without an extra LLM call.
+  // Workspace toggle + per-key override (`inherit | off | light | balanced | aggressive`).
+  // System and tool messages are never touched.
+  try {
+    const { compressMessages } = await import("../_shared/compress.ts");
+    const wsEnabled = (settings as any)?.enable_compression === true;
+    const wsLevel = ((settings as any)?.compression_level ?? "balanced") as
+      "light" | "balanced" | "aggressive";
+    const minChars = Number((settings as any)?.compression_min_chars ?? 400);
+    const keyMode = String(keyRow.compression_mode ?? "inherit");
+    const effective: "off" | "light" | "balanced" | "aggressive" =
+      keyMode === "off" ? "off" :
+      keyMode === "inherit" ? (wsEnabled ? wsLevel : "off") :
+      (keyMode as any);
+    const totalChars = body.messages.reduce(
+      (n: number, m: any) => n + (typeof m?.content === "string" ? m.content.length : 0), 0,
+    );
+    if (effective !== "off" && totalChars >= minChars) {
+      const r = compressMessages(body.messages, effective);
+      if (r.estimatedTokensSaved > 0) {
+        body.messages = r.messages;
+        logBase.messages = body.messages;
+        logBase.compression_applied = true;
+        logBase.tokens_saved_estimate = r.estimatedTokensSaved;
+      }
+    }
+  } catch (e) {
+    console.error("compression failed (non-fatal):", e);
   }
 
   // ---- Build attempt list -------------------------------------------------

@@ -198,7 +198,7 @@ Deno.serve(async (req) => {
 
       case "list_keys": {
         const { data } = await sb.from("api_keys")
-          .select("id,name,key_prefix,provider,model_default,is_active,is_admin,created_at,last_used_at,custom_base_url,custom_kind")
+          .select("id,name,key_prefix,provider,model_default,is_active,is_admin,compression_mode,created_at,last_used_at,custom_base_url,custom_kind")
           .eq("user_id", userId).order("created_at", { ascending: false });
         return json({ keys: data ?? [] });
       }
@@ -277,6 +277,60 @@ Deno.serve(async (req) => {
           updated: changing.length,
           unchanged: safeRows.length - changing.length,
         });
+      }
+
+      case "set_key_compression": {
+        const { id, mode } = body as { id?: string; mode?: string };
+        const allowed = ["inherit", "off", "light", "balanced", "aggressive"];
+        if (!id || !mode || !allowed.includes(String(mode))) {
+          return json({ error: "id and valid mode required" }, 400);
+        }
+        const { data: prev } = await sb.from("api_keys")
+          .select("compression_mode,name,key_prefix").eq("id", id).eq("user_id", userId).maybeSingle();
+        const { error: updErr } = await sb.from("api_keys")
+          .update({ compression_mode: mode }).eq("id", id).eq("user_id", userId);
+        if (updErr) return json({ error: updErr.message }, 400);
+        await sb.from("audit_logs").insert({
+          user_id: userId, actor_user_id: userId,
+          action: "api_key.compression_changed",
+          target_type: "api_key", target_id: id,
+          metadata: {
+            key_name: prev?.name, key_prefix: prev?.key_prefix,
+            previous_mode: prev?.compression_mode ?? null, new_mode: mode,
+          },
+        });
+        return json({ ok: true });
+      }
+
+      case "bulk_set_key_compression": {
+        const { ids, mode } = body as { ids?: unknown; mode?: unknown };
+        const allowed = ["inherit", "off", "light", "balanced", "aggressive"];
+        if (!Array.isArray(ids) || ids.length === 0) return json({ error: "ids must be non-empty" }, 400);
+        if (typeof mode !== "string" || !allowed.includes(mode)) return json({ error: "invalid mode" }, 400);
+        const idList = (ids as unknown[]).filter((v): v is string => typeof v === "string" && v.length > 0);
+        if (idList.length === 0) return json({ error: "no valid ids" }, 400);
+        if (idList.length > 200) return json({ error: "too many ids (max 200)" }, 400);
+        const { data: rows } = await sb.from("api_keys")
+          .select("id,name,key_prefix,compression_mode")
+          .eq("user_id", userId).in("id", idList);
+        const safeRows = rows ?? [];
+        const changing = safeRows.filter((r: any) => r.compression_mode !== mode);
+        if (changing.length === 0) return json({ ok: true, updated: 0, unchanged: safeRows.length });
+        const { error: updErr } = await sb.from("api_keys")
+          .update({ compression_mode: mode })
+          .eq("user_id", userId).in("id", changing.map((r: any) => r.id));
+        if (updErr) return json({ error: updErr.message }, 400);
+        await sb.from("audit_logs").insert(changing.map((r: any) => ({
+          user_id: userId, actor_user_id: userId,
+          action: "api_key.compression_changed",
+          target_type: "api_key", target_id: r.id,
+          metadata: {
+            key_name: r.name, key_prefix: r.key_prefix,
+            previous_mode: r.compression_mode, new_mode: mode,
+            via: "bulk", batch_size: changing.length,
+          },
+        })));
+        return json({ ok: true, updated: changing.length, unchanged: safeRows.length - changing.length });
       }
 
       case "create_key": {
@@ -1316,6 +1370,7 @@ Deno.serve(async (req) => {
           "enable_injection_guard", "enable_behavioral",
           "enable_fuzzy_keywords", "enable_semantic_keywords",
           "allow_client_system_prompt",
+          "enable_compression",
         ] as const;
         const patch: Record<string, unknown> = { user_id: userId };
         for (const k of allowedKeys) {
@@ -1400,6 +1455,20 @@ Deno.serve(async (req) => {
             return json({ error: "system_prompt_max_length must be an integer 100-64000" }, 400);
           }
           patch.system_prompt_max_length = n;
+        }
+        if ("compression_level" in (body ?? {})) {
+          const v = String(body.compression_level);
+          if (!["light", "balanced", "aggressive"].includes(v)) {
+            return json({ error: "compression_level must be light, balanced, or aggressive" }, 400);
+          }
+          patch.compression_level = v;
+        }
+        if ("compression_min_chars" in (body ?? {})) {
+          const n = Number(body.compression_min_chars);
+          if (!Number.isInteger(n) || n < 0 || n > 100000) {
+            return json({ error: "compression_min_chars must be an integer 0-100000" }, 400);
+          }
+          patch.compression_min_chars = n;
         }
         await sb.from("policy_settings").upsert(patch, { onConflict: "user_id" });
         return json({ ok: true });
@@ -2040,7 +2109,7 @@ Deno.serve(async (req) => {
       case "stats": {
         const since = new Date(Date.now() - 14 * 86400000).toISOString();
         const { data: logs } = await sb.from("request_logs")
-          .select("id,status,latency_ms,created_at,verdict_layers,block_reason,model,api_key_id,messages").eq("user_id", userId).gte("created_at", since);
+          .select("id,status,latency_ms,created_at,verdict_layers,block_reason,model,api_key_id,messages,tokens_in,tokens_out,tokens_saved_estimate,compression_applied").eq("user_id", userId).gte("created_at", since);
         const { data: keys } = await sb.from("api_keys")
           .select("id,name,key_prefix,is_active").eq("user_id", userId);
         const keyMap = new Map((keys ?? []).map((k: any) => [k.id, k]));
@@ -2048,6 +2117,10 @@ Deno.serve(async (req) => {
         const blocked = (logs ?? []).filter((l) => l.status?.startsWith("blocked")).length;
         const errors = (logs ?? []).filter((l) => l.status === "error").length;
         const avgLatency = total ? Math.round((logs!.reduce((s, l) => s + (l.latency_ms ?? 0), 0)) / total) : 0;
+        const tokensInTotal = (logs ?? []).reduce((s, l) => s + (l.tokens_in ?? 0), 0);
+        const tokensOutTotal = (logs ?? []).reduce((s, l) => s + (l.tokens_out ?? 0), 0);
+        const tokensSavedTotal = (logs ?? []).reduce((s, l) => s + (l.tokens_saved_estimate ?? 0), 0);
+        const compressedRequests = (logs ?? []).filter((l) => l.compression_applied).length;
 
         // Top triggered rules across the window. We aggregate fired layers
         // (verdict !== "allow") from request_logs.verdict_layers JSONB, keyed
@@ -2134,16 +2207,19 @@ Deno.serve(async (req) => {
           });
 
         // Bucket by day
-        const buckets: Record<string, { requests: number; blocked: number }> = {};
+        const buckets: Record<string, { requests: number; blocked: number; tokens_in: number; tokens_out: number; tokens_saved: number }> = {};
         for (let i = 13; i >= 0; i--) {
           const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
-          buckets[d] = { requests: 0, blocked: 0 };
+          buckets[d] = { requests: 0, blocked: 0, tokens_in: 0, tokens_out: 0, tokens_saved: 0 };
         }
         for (const l of logs ?? []) {
           const d = l.created_at.slice(0, 10);
           if (buckets[d]) {
             buckets[d].requests++;
             if (l.status?.startsWith("blocked")) buckets[d].blocked++;
+            buckets[d].tokens_in += l.tokens_in ?? 0;
+            buckets[d].tokens_out += l.tokens_out ?? 0;
+            buckets[d].tokens_saved += l.tokens_saved_estimate ?? 0;
           }
         }
         const chart = Object.entries(buckets).map(([day, v]) => ({ day, ...v }));
@@ -2152,6 +2228,10 @@ Deno.serve(async (req) => {
           blocked_pct: total ? Number(((blocked / total) * 100).toFixed(2)) : 0,
           active_keys: (keys ?? []).filter((k) => k.is_active).length,
           total_keys: keys?.length ?? 0,
+          tokens_in_total: tokensInTotal,
+          tokens_out_total: tokensOutTotal,
+          tokens_saved_total: tokensSavedTotal,
+          compressed_requests: compressedRequests,
           chart, top_rules, block_patterns, recent_blocks,
         });
       }

@@ -257,6 +257,28 @@ const Keys = () => {
     onError: (e: any) => toast.error(e?.message ?? "Bulk update failed"),
   });
 
+  // ---- Per-key + bulk compression-mode toggles ---------------------------
+  const setKeyCompression = useMutation({
+    mutationFn: ({ id, mode }: { id: string; mode: string }) =>
+      call("set_key_compression", { body: { id, mode } }),
+    onSuccess: () => {
+      toast.success("Compression mode updated");
+      qc.invalidateQueries({ queryKey: ["keys"] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Update failed"),
+  });
+  const bulkSetCompression = useMutation({
+    mutationFn: ({ ids, mode }: { ids: string[]; mode: string }) =>
+      call<{ updated: number; unchanged: number }>("bulk_set_key_compression", { body: { ids, mode } }),
+    onSuccess: (r, vars) => {
+      const skipped = r?.unchanged ? ` · ${r.unchanged} already on ${vars.mode}` : "";
+      toast.success(`${r?.updated ?? 0} key${(r?.updated ?? 0) === 1 ? "" : "s"} → ${vars.mode}${skipped}`);
+      setSelectedKeyIds(new Set());
+      qc.invalidateQueries({ queryKey: ["keys"] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Bulk update failed"),
+  });
+
   // -------- Live API key test ---------------------------------------------
   // Sends a tiny real chat request through the upstream the key is bound to
   // and shows the result in a dialog: ok/fail, latency, reply, tokens, error.
@@ -600,6 +622,20 @@ const Keys = () => {
               <ShieldAlert className="h-3.5 w-3.5 mr-1.5" />
               Revoke system_prompt
             </Button>
+            <Select
+              onValueChange={(mode) =>
+                bulkSetCompression.mutate({ ids: Array.from(selectedKeyIds), mode })
+              }
+            >
+              <SelectTrigger className="h-8 w-[160px] text-xs"><SelectValue placeholder="Set compression…" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="inherit">Inherit workspace</SelectItem>
+                <SelectItem value="off">Off</SelectItem>
+                <SelectItem value="light">Light</SelectItem>
+                <SelectItem value="balanced">Balanced</SelectItem>
+                <SelectItem value="aggressive">Aggressive</SelectItem>
+              </SelectContent>
+            </Select>
             <Button size="sm" variant="ghost" onClick={() => setSelectedKeyIds(new Set())}>
               Clear
             </Button>
@@ -722,6 +758,24 @@ const Keys = () => {
                           ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           : <Beaker className="h-3.5 w-3.5" />}
                       </Button>
+                      <Select
+                        value={k.compression_mode ?? "inherit"}
+                        onValueChange={(mode) => setKeyCompression.mutate({ id: k.id, mode })}
+                      >
+                        <SelectTrigger
+                          className="h-7 w-[110px] text-[11px] px-2"
+                          title="Token compression for this key (overrides workspace default)"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="inherit">Inherit</SelectItem>
+                          <SelectItem value="off">Off</SelectItem>
+                          <SelectItem value="light">Light</SelectItem>
+                          <SelectItem value="balanced">Balanced</SelectItem>
+                          <SelectItem value="aggressive">Aggressive</SelectItem>
+                        </SelectContent>
+                      </Select>
                       <Button
                         variant="ghost" size="sm"
                         onClick={() => setKeyAdmin.mutate({ id: k.id, is_admin: !k.is_admin })}

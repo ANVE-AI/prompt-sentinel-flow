@@ -16,6 +16,7 @@ export type Database = {
     Tables: {
       api_keys: {
         Row: {
+          compression_mode: string
           created_at: string
           custom_auth_header: string | null
           custom_auth_scheme: string | null
@@ -42,6 +43,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          compression_mode?: string
           created_at?: string
           custom_auth_header?: string | null
           custom_auth_scheme?: string | null
@@ -68,6 +70,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          compression_mode?: string
           created_at?: string
           custom_auth_header?: string | null
           custom_auth_scheme?: string | null
@@ -464,8 +467,11 @@ export type Database = {
           behavioral_encoding_ratio_step: number
           behavioral_length_multiplier: number
           behavioral_persona_threshold: number
+          compression_level: string
+          compression_min_chars: number
           created_at: string
           enable_behavioral: boolean
+          enable_compression: boolean
           enable_fuzzy_keywords: boolean
           enable_heuristics: boolean
           enable_injection_guard: boolean
@@ -492,8 +498,11 @@ export type Database = {
           behavioral_encoding_ratio_step?: number
           behavioral_length_multiplier?: number
           behavioral_persona_threshold?: number
+          compression_level?: string
+          compression_min_chars?: number
           created_at?: string
           enable_behavioral?: boolean
+          enable_compression?: boolean
           enable_fuzzy_keywords?: boolean
           enable_heuristics?: boolean
           enable_injection_guard?: boolean
@@ -520,8 +529,11 @@ export type Database = {
           behavioral_encoding_ratio_step?: number
           behavioral_length_multiplier?: number
           behavioral_persona_threshold?: number
+          compression_level?: string
+          compression_min_chars?: number
           created_at?: string
           enable_behavioral?: boolean
+          enable_compression?: boolean
           enable_fuzzy_keywords?: boolean
           enable_heuristics?: boolean
           enable_injection_guard?: boolean
@@ -673,6 +685,7 @@ export type Database = {
           api_key_id: string | null
           block_reason: string | null
           client_system_prompt: string | null
+          compression_applied: boolean
           created_at: string
           detected_intent: string | null
           guardrail_prompt: string | null
@@ -686,6 +699,7 @@ export type Database = {
           status: string
           tokens_in: number | null
           tokens_out: number | null
+          tokens_saved_estimate: number | null
           user_id: string
           verdict: string | null
           verdict_layers: Json | null
@@ -694,6 +708,7 @@ export type Database = {
           api_key_id?: string | null
           block_reason?: string | null
           client_system_prompt?: string | null
+          compression_applied?: boolean
           created_at?: string
           detected_intent?: string | null
           guardrail_prompt?: string | null
@@ -707,6 +722,7 @@ export type Database = {
           status: string
           tokens_in?: number | null
           tokens_out?: number | null
+          tokens_saved_estimate?: number | null
           user_id: string
           verdict?: string | null
           verdict_layers?: Json | null
@@ -715,6 +731,7 @@ export type Database = {
           api_key_id?: string | null
           block_reason?: string | null
           client_system_prompt?: string | null
+          compression_applied?: boolean
           created_at?: string
           detected_intent?: string | null
           guardrail_prompt?: string | null
@@ -728,6 +745,7 @@ export type Database = {
           status?: string
           tokens_in?: number | null
           tokens_out?: number | null
+          tokens_saved_estimate?: number | null
           user_id?: string
           verdict?: string | null
           verdict_layers?: Json | null

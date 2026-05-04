@@ -35,6 +35,13 @@ const Overview = () => {
   const avgLatency = data?.avg_latency_ms ?? 0;
   const activeKeys = data?.active_keys ?? 0;
   const totalKeys = data?.total_keys ?? 0;
+  const tokensIn = data?.tokens_in_total ?? 0;
+  const tokensOut = data?.tokens_out_total ?? 0;
+  const tokensSaved = data?.tokens_saved_total ?? 0;
+  const tokensTotal = tokensIn + tokensOut;
+  const fmtTok = (n: number) =>
+    n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` :
+    n >= 1_000 ? `${(n / 1_000).toFixed(1)}k` : String(n);
 
   return (
     <div className="px-4 md:px-6 py-5 space-y-6 max-w-[1200px] mx-auto">
@@ -100,7 +107,7 @@ const Overview = () => {
       ) : (
         <Card className="surface-1 border-border shadow-pop overflow-hidden">
           <CardContent className="p-0">
-            <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr_1fr_1fr] divide-y lg:divide-y-0 lg:divide-x divide-border">
+            <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr_1fr_1fr_1fr] divide-y lg:divide-y-0 lg:divide-x divide-border">
               <div className="p-5">
                 <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Total requests</div>
                 <div className="mt-1 flex items-baseline gap-2.5">
@@ -114,10 +121,54 @@ const Overview = () => {
               <Satellite label="Blocked" value={blocked.toLocaleString()} sub={`${blockedPct}% of traffic`} tone="block" />
               <Satellite label="Avg. latency" value={`${avgLatency}ms`} sub="All providers" tone="info" />
               <Satellite label="Active keys" value={`${activeKeys}`} sub={`${totalKeys} total`} tone="ok" />
+              <Satellite
+                label="Tokens used"
+                value={fmtTok(tokensTotal)}
+                sub={tokensSaved > 0 ? `~${fmtTok(tokensSaved)} saved by compression` : "compression off"}
+                tone="info"
+              />
             </div>
           </CardContent>
         </Card>
       )}
+
+      {/* Token usage chart — separate card to keep the requests chart clean. */}
+      <Card className="surface-1 border-border">
+        <div className="px-5 pt-4 pb-2 flex items-center justify-between">
+          <div>
+            <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Cost</div>
+            <div className="text-h2 font-medium mt-0.5">Token usage</div>
+          </div>
+          <div className="text-meta text-muted-foreground tabular-nums">
+            in {fmtTok(tokensIn)} · out {fmtTok(tokensOut)} · saved ~{fmtTok(tokensSaved)}
+          </div>
+        </div>
+        <CardContent className="pt-2 pb-4">
+          <div className="h-48">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={data?.chart ?? []} margin={{ top: 6, right: 12, bottom: 0, left: -16 }}>
+                <defs>
+                  <linearGradient id="tk-in" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
+                    <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="tk-out" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="hsl(var(--status-ok))" stopOpacity={0.3} />
+                    <stop offset="100%" stopColor="hsl(var(--status-ok))" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="2 4" stroke="hsl(var(--border))" vertical={false} />
+                <XAxis dataKey="day" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} width={32} />
+                <Tooltip contentStyle={{ background: "hsl(var(--popover))", border: "1px solid hsl(var(--border-strong))", borderRadius: 8, fontSize: 12, padding: "8px 10px" }} />
+                <Area type="monotone" dataKey="tokens_in" stroke="hsl(var(--primary))" fill="url(#tk-in)" strokeWidth={1.5} />
+                <Area type="monotone" dataKey="tokens_out" stroke="hsl(var(--status-ok))" fill="url(#tk-out)" strokeWidth={1.5} />
+                <Area type="monotone" dataKey="tokens_saved" stroke="hsl(var(--muted-foreground))" fill="transparent" strokeDasharray="3 3" strokeWidth={1.25} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Chart */}
       <Card className="surface-1 border-border">
