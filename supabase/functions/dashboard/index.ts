@@ -236,7 +236,7 @@ Deno.serve(async (req) => {
         // Enrich custom-endpoint-bound keys with the endpoint name so the UI
         // can show "my-key — Perplexity (Sonar)" instead of just "custom".
         const epIds = Array.from(new Set(keys.map((k: any) => k.endpoint_id).filter(Boolean)));
-        let epMap: Record<string, string> = {};
+        const epMap: Record<string, string> = {};
         if (epIds.length > 0) {
           const { data: eps } = await sb.from("endpoints")
             .select("id,name").in("id", epIds);
@@ -3116,7 +3116,7 @@ Deno.serve(async (req) => {
           .order("created_at", { ascending: false });
         if (error) return json({ error: error.message }, 400);
         const ids = (routes ?? []).map((r: any) => r.id);
-        let stepsByRoute: Record<string, any[]> = {};
+        const stepsByRoute: Record<string, any[]> = {};
         if (ids.length > 0) {
           const { data: steps } = await sb.from("route_steps")
             .select("*").in("route_id", ids)

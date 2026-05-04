@@ -25,6 +25,10 @@ export const test = base.extend<{ signedInPage: Page }>({
       page.getByRole("heading", { name: /overview/i }),
     ).toBeVisible({ timeout: 20_000 });
 
+    // `use` here is Playwright's fixture-injection callback, not React's
+    // `use` hook. The eslint react-hooks rule sees the lowercase function
+    // name `signedInPage` and assumes it's a React hook context.
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     await use(page);
   },
 });

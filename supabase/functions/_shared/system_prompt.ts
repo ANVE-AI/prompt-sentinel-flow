@@ -27,6 +27,7 @@ export function resolveSystemPromptMax(raw: unknown): number {
 /** Disallowed control characters: NUL + C0 controls except \t (\u0009),
  *  \n (\u000A), and \r (\u000D), which are commonly present in prompts. */
 // deno-lint-ignore no-control-regex
+// eslint-disable-next-line no-control-regex
 export const SYSTEM_PROMPT_CONTROL_RE = /[\u0000\u0001-\u0008\u000B\u000C\u000E-\u001F]/;
 
 /** Stable machine codes for every failure mode. Safe to branch on from
