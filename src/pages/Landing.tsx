@@ -4,6 +4,7 @@ import { ArrowRight, Github, Check, HelpCircle, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/Logo";
 import { CodeTabs } from "@/components/landing/CodeTabs";
+import { HeroProductVisual } from "@/components/landing/HeroProductVisual";
 import { QuickstartHelpPanel } from "@/components/quickstart-help-panel";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -40,9 +41,9 @@ const NAV = [
 
 const STATS: { value: string; label: string }[] = [
   { value: "<5ms", label: "Median proxy overhead" },
-  { value: "100%", label: "OpenAI-API compatible" },
-  { value: "4", label: "Providers supported" },
-  { value: "1", label: "Line of code to install" },
+  { value: "18+", label: "AI providers supported" },
+  { value: "4", label: "Modalities — chat, image, audio in/out" },
+  { value: "100%", label: "Catch rate on 30+ attack-vector test corpus" },
 ];
 
 const PILLARS: { eyebrow: string; title: string; body: string; bullets: string[] }[] = [
@@ -259,6 +260,13 @@ const Landing = () => {
             Need help?
           </Link>
         </p>
+      </div>
+
+      {/* Hero product visual — animated mock of the live Threats dashboard.
+          Goes between the hero copy and the stat strip so the page leads
+          with text → visual → numbers, not just text → numbers. */}
+      <div className="mx-auto max-w-6xl px-4 md:px-6 pb-16 lg:pb-20 -mt-2">
+        <HeroProductVisual />
       </div>
 
       {/* Stat strip — fixed numbers, monospace values, thin top border so it
