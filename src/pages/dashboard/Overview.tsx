@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ShieldAlert, ArrowUpRight, Ban, Search, Activity } from "lucide-react";
+import { ShieldAlert, ArrowUpRight, Ban, Search, Activity, Loader2, Inbox } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts";
 import { Link } from "react-router-dom";
 import { useDashboardApi } from "@/lib/api";
@@ -25,7 +25,7 @@ const RANGE_DAYS: Record<Range, number> = { "7d": 7, "14d": 14, "30d": 30, "90d"
 const Overview = () => {
   const { call } = useDashboardApi();
   const [range, setRange] = useState<Range>("14d");
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isFetching } = useQuery({
     queryKey: ["stats", range],
     queryFn: () => call<any>("stats", { query: { range } }),
   });
@@ -58,27 +58,69 @@ const Overview = () => {
     n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` :
     n >= 1_000 ? `${(n / 1_000).toFixed(1)}k` : String(n);
 
+  // True only after the first fetch settles — drives empty-state messaging
+  // for the selected window without flashing during initial loads or refetches.
+  const noData = !isLoading && data ? (data.total ?? 0) === 0 : false;
+  const isUpdating = isFetching && !isLoading;
+
   return (
     <div className="px-4 md:px-6 py-5 space-y-6 max-w-[1200px] mx-auto">
       <PageHeader
         title="Overview"
         description={`Live signal across every AnveGuard key in the last ${RANGE_DAYS[range]} days.`}
         actions={
-          <ToggleGroup
-            type="single"
-            value={range}
-            onValueChange={(v) => v && setRange(v as Range)}
-            size="sm"
-            variant="outline"
-          >
-            {(Object.keys(RANGE_LABELS) as Range[]).map((r) => (
-              <ToggleGroupItem key={r} value={r} aria-label={`Last ${RANGE_LABELS[r]}`}>
-                {RANGE_LABELS[r]}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
+          <div className="flex items-center gap-2">
+            {isUpdating && (
+              <span className="inline-flex items-center gap-1.5 text-meta text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Updating…
+              </span>
+            )}
+            <ToggleGroup
+              type="single"
+              value={range}
+              onValueChange={(v) => v && setRange(v as Range)}
+              size="sm"
+              variant="outline"
+            >
+              {(Object.keys(RANGE_LABELS) as Range[]).map((r) => (
+                <ToggleGroupItem key={r} value={r} aria-label={`Last ${RANGE_LABELS[r]}`}>
+                  {RANGE_LABELS[r]}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </div>
         }
       />
+
+      {/* Page-level empty state — shown when the selected range has zero traffic.
+          Sits below alerts so spike banners (which use a different baseline window)
+          still show. */}
+      {noData && (
+        <Card className="surface-1 border-border">
+          <CardContent className="p-0">
+            <EmptyState
+              icon={<Inbox className="h-5 w-5" />}
+              title={`No data for the last ${RANGE_DAYS[range]} days`}
+              description="Nothing has been logged in this window yet. Try a wider range, or send a request through one of your keys to start populating the dashboard."
+              action={
+                <div className="flex items-center gap-2">
+                  {range !== "90d" && (
+                    <button
+                      onClick={() => setRange("90d")}
+                      className="text-meta text-primary hover:underline"
+                    >
+                      Switch to last 90 days
+                    </button>
+                  )}
+                  <Link to="/dashboard/keys" className="text-meta text-primary hover:underline">
+                    Manage keys
+                  </Link>
+                </div>
+              }
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {spike?.spike && (
         <Card className="surface-1 border-status-block/40 bg-status-block/5">
@@ -254,6 +296,7 @@ const Overview = () => {
       )}
 
       {/* Token usage chart — separate card to keep the requests chart clean. */}
+      {!noData && (
       <Card className="surface-1 border-border">
         <div className="px-5 pt-4 pb-2 flex items-center justify-between">
           <div>
@@ -266,6 +309,13 @@ const Overview = () => {
         </div>
         <CardContent className="pt-2 pb-4">
           <div className="h-48">
+            {isLoading ? (
+              <div className="h-full grid place-items-center text-meta text-muted-foreground">
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading token usage…
+                </span>
+              </div>
+            ) : (
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={data?.chart ?? []} margin={{ top: 6, right: 12, bottom: 0, left: -16 }}>
                 <defs>
@@ -287,10 +337,11 @@ const Overview = () => {
                 <Area type="monotone" dataKey="tokens_saved" stroke="hsl(var(--muted-foreground))" fill="transparent" strokeDasharray="3 3" strokeWidth={1.25} />
               </AreaChart>
             </ResponsiveContainer>
+            )}
           </div>
         </CardContent>
       </Card>
-
+      )}
       {/* Compression impact — saved tokens grouped by per-key compression mode. */}
       <Card className="surface-1 border-border">
         <div className="px-5 pt-4 pb-3 flex items-center justify-between border-b border-border">
@@ -310,9 +361,13 @@ const Overview = () => {
           if (rows.length === 0) {
             return (
               <EmptyState
-                icon={<ShieldAlert className="h-5 w-5" />}
-                title="No compression data yet"
-                description="Once requests flow through, savings by mode will appear here."
+                icon={<Inbox className="h-5 w-5" />}
+                title={noData
+                  ? `No data for the last ${RANGE_DAYS[range]} days`
+                  : "No compression data in this range"}
+                description={noData
+                  ? "Try widening the time range or send a request through one of your keys."
+                  : "Requests in this window didn't trigger compression. Enable a mode in Policies to start saving tokens."}
               />
             );
           }
@@ -354,6 +409,7 @@ const Overview = () => {
       </Card>
 
       {/* Chart */}
+      {!noData && (
       <Card className="surface-1 border-border">
         <div className="px-5 pt-4 pb-2 flex items-center justify-between">
           <div>
@@ -364,6 +420,13 @@ const Overview = () => {
         </div>
         <CardContent className="pt-2 pb-4">
           <div className="h-64">
+            {isLoading ? (
+              <div className="h-full grid place-items-center text-meta text-muted-foreground">
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading traffic…
+                </span>
+              </div>
+            ) : (
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={data?.chart ?? []} margin={{ top: 6, right: 12, bottom: 0, left: -16 }}>
                 <defs>
@@ -393,10 +456,11 @@ const Overview = () => {
                 <Area type="monotone" dataKey="blocked" stroke="hsl(var(--status-block))" fill="url(#g2)" strokeWidth={1.5} />
               </AreaChart>
             </ResponsiveContainer>
+            )}
           </div>
         </CardContent>
       </Card>
-
+      )}
       {/* Top triggered rules — quick view of which policies are catching the most traffic */}
       <Card className="surface-1 border-border">
         <div className="px-5 pt-4 pb-3 flex items-center justify-between border-b border-border">
