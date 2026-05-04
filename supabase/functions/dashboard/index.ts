@@ -2616,6 +2616,39 @@ Deno.serve(async (req) => {
         return json({ ok: true, id: data!.id });
       }
 
+      // Test fire — POSTs a synthetic probe payload to the configured
+      // webhook regardless of threshold. Lets operators verify their
+      // receiver works before relying on real alerts.
+      case "test_alert_subscription": {
+        const id = String(body?.id ?? "");
+        if (!id) return json({ error: "id required" }, 400);
+        const { data: sub } = await sb.from("alert_subscriptions")
+          .select("id,name,kind,target_url,webhook_secret")
+          .eq("id", id).eq("user_id", userId).maybeSingle();
+        if (!sub) return json({ error: "Alert subscription not found" }, 404);
+
+        const { postWebhook } = await import("../_shared/webhook.ts");
+        const result = await postWebhook(sub.target_url, {
+          service: "anveguard",
+          subscription_id: sub.id,
+          subscription_name: sub.name,
+          fired_at: new Date().toISOString(),
+          kind: sub.kind,
+          test: true,
+          message: "This is a test payload from the AnveGuard dashboard. If you see this, your webhook is wired correctly.",
+        }, { secret: sub.webhook_secret, timeoutMs: 8_000 });
+
+        await auditAction(sb, userId, "alert_subscription.test_fired", "alert_subscription", id, {
+          delivery_status: result.status, delivery_ms: result.duration_ms, error: result.error ?? null,
+        });
+        return json({
+          ok: result.ok,
+          status: result.status,
+          duration_ms: result.duration_ms,
+          error: result.error,
+        });
+      }
+
       case "delete_alert_subscription": {
         const id = String(body?.id ?? "");
         if (!id) return json({ error: "id required" }, 400);

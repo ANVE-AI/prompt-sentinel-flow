@@ -88,6 +88,9 @@ const auditActionMeta: Record<string, { label: string; icon: typeof Ban }> = {
   "alert_subscription.created":    { label: "Alert subscription created",   icon: CheckCircle2 },
   "alert_subscription.updated":    { label: "Alert subscription updated",   icon: ShieldCheck },
   "alert_subscription.deleted":    { label: "Alert subscription deleted",   icon: Ban },
+  "alert_subscription.fired":      { label: "Alert webhook fired",          icon: Sparkles },
+  "alert_subscription.fire_failed":{ label: "Alert webhook failed",         icon: AlertTriangle },
+  "alert_subscription.test_fired": { label: "Alert test sent",              icon: Sparkles },
   // GDPR / data subject rights (Articles 17, 20, 5(1)(e))
   "data.exported":                 { label: "Data exported (Article 20)",   icon: ShieldCheck },
   "data.deletion_requested":      { label: "Account deletion requested",   icon: ShieldAlert },
