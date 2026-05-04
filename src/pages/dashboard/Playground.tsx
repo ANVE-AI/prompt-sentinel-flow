@@ -17,9 +17,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Send, ShieldAlert, ShieldCheck, Terminal, KeyRound, Plug, Plus } from "lucide-react";
+import { Send, ShieldAlert, ShieldCheck, Terminal, KeyRound, Plug, Plus, Clock } from "lucide-react";
 import { useDashboardApi } from "@/lib/api";
 import { toast } from "sonner";
+import { formatDistanceToNowStrict } from "date-fns";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { HelpPanel } from "@/components/help-panel";
@@ -49,6 +50,20 @@ function hostOf(url: string | null | undefined): string {
   try { return new URL(url).host; } catch { return url; }
 }
 
+// Compact "last used" label for keys/endpoints. Returns null when never used.
+function formatLastUsed(ts: string | null | undefined): string | null {
+  if (!ts) return null;
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${formatDistanceToNowStrict(d, { addSuffix: false })} ago`;
+}
+function lastUsedTitle(ts: string | null | undefined): string {
+  if (!ts) return "Never used";
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return "Never used";
+  return `Last used: ${d.toLocaleString()}`;
+}
+
 /**
  * REPL-style two-pane Playground: request on the left, live response on
  * the right. Now also lists configured endpoints that have no AnveGuard key
@@ -66,7 +81,16 @@ const Playground = () => {
     queryFn: () => call<any>("list_endpoints"),
   });
 
-  const activeKeys: any[] = (keysData?.keys ?? []).filter((k: any) => k.is_active);
+  const activeKeys: any[] = useMemo(() => {
+    const list = (keysData?.keys ?? []).filter((k: any) => k.is_active);
+    // Sort by last_used_at desc (never-used sink to bottom) so the most
+    // recently active key is always at the top of the picker.
+    return [...list].sort((a, b) => {
+      const ta = a.last_used_at ? new Date(a.last_used_at).getTime() : 0;
+      const tb = b.last_used_at ? new Date(b.last_used_at).getTime() : 0;
+      return tb - ta;
+    });
+  }, [keysData]);
   const ownedEndpoints: any[] = endpointsData?.endpoints ?? [];
   const sharedEndpoints: any[] = endpointsData?.shared_endpoints ?? [];
   const allEndpoints = [...ownedEndpoints, ...sharedEndpoints];
@@ -398,19 +422,28 @@ const Playground = () => {
                           if (k.model_default) meta.push(k.model_default);
                           if (k.custom_kind) meta.push(k.custom_kind);
                           const fullUrl = k.custom_base_url || "";
+                          const lastUsedLabel = formatLastUsed(k.last_used_at);
                           const tooltip = [
                             `Key: ${k.name}`,
                             k.endpoint_name ? `Endpoint: ${k.endpoint_name}` : null,
                             fullUrl ? `URL: ${fullUrl}` : `Provider: ${k.provider}`,
                             k.model_default ? `Default model: ${k.model_default}` : null,
+                            lastUsedTitle(k.last_used_at),
                           ].filter(Boolean).join("\n");
                           return (
                             <SelectItem key={`key:${k.id}`} value={`key:${k.id}`} title={tooltip}>
                               <span className="flex flex-col items-start gap-0.5 py-0.5">
-                                <span className="flex items-center gap-2">
+                                <span className="flex items-center gap-2 flex-wrap">
                                   <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
                                   <span className="font-medium">{k.name}</span>
                                   <span className="font-mono text-[10px] text-muted-foreground">{k.key_prefix}…</span>
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[10px] py-0 px-1.5 h-4 font-normal gap-1 border-border/60 text-muted-foreground"
+                                  >
+                                    <Clock className="h-2.5 w-2.5" />
+                                    {lastUsedLabel ?? "Never used"}
+                                  </Badge>
                                 </span>
                                 <span className="text-[11px] text-muted-foreground pl-5">
                                   {meta.join(" · ")}
