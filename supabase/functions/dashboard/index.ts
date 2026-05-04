@@ -2459,6 +2459,89 @@ Deno.serve(async (req) => {
         return json({ entries: data ?? [] });
       }
 
+      // Phase 4 — attack-focused overview for the new /dashboard/threats page.
+      // Aggregates the last N hours of request_logs into KPIs the security
+      // operator cares about: block/flag counts, top block reasons, layer
+      // breakdown, hourly time-series. No new tables; pure SQL → JS reduce.
+      // Optional `?range=24h|7d|30d` query param (defaults 24h).
+      case "attack_overview": {
+        const rangeParam = (url.searchParams.get("range") ?? "24h").toLowerCase();
+        const RANGE_HOURS: Record<string, number> = { "24h": 24, "7d": 168, "30d": 720 };
+        const hours = RANGE_HOURS[rangeParam] ?? 24;
+        const since = new Date(Date.now() - hours * 3600_000).toISOString();
+        const { data: logs } = await sb.from("request_logs")
+          .select("id,status,verdict,verdict_layers,block_reason,created_at,model,api_key_id")
+          .eq("user_id", userId).gte("created_at", since)
+          .order("created_at", { ascending: true });
+
+        const total = logs?.length ?? 0;
+        const blocked = (logs ?? []).filter((l) => String(l.status ?? "").startsWith("blocked")).length;
+        const flagged = (logs ?? []).filter((l) => l.verdict === "flag" && !String(l.status ?? "").startsWith("blocked")).length;
+        const allowed = Math.max(0, total - blocked - flagged);
+        const block_rate_pct = total > 0 ? Math.round((blocked / total) * 1000) / 10 : 0;
+
+        // Top block reasons — bucketed on `block_reason` text.
+        const reasonCounts = new Map<string, number>();
+        for (const l of logs ?? []) {
+          if (!String(l.status ?? "").startsWith("blocked")) continue;
+          const r = (l.block_reason ?? "unknown").toString().slice(0, 200);
+          reasonCounts.set(r, (reasonCounts.get(r) ?? 0) + 1);
+        }
+        const top_block_reasons = Array.from(reasonCounts.entries())
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 10)
+          .map(([reason, count]) => ({ reason, count }));
+
+        // Layer breakdown — which detector layer produced each verdict.
+        // Each verdict_layers entry has shape {layer, verdict, ...}.
+        const layerStats = new Map<string, { blocks: number; flags: number }>();
+        for (const l of logs ?? []) {
+          for (const lv of (l.verdict_layers ?? []) as { layer?: string; verdict?: string }[]) {
+            if (!lv?.layer) continue;
+            const cur = layerStats.get(lv.layer) ?? { blocks: 0, flags: 0 };
+            if (lv.verdict === "block") cur.blocks += 1;
+            else if (lv.verdict === "flag") cur.flags += 1;
+            layerStats.set(lv.layer, cur);
+          }
+        }
+        const layer_breakdown = Array.from(layerStats.entries())
+          .map(([layer, s]) => ({ layer, blocks: s.blocks, flags: s.flags }))
+          .sort((a, b) => (b.blocks + b.flags) - (a.blocks + a.flags));
+
+        // Hourly time-series. Bucket key is ISO hour ("2026-05-04T07:00:00Z").
+        const buckets = new Map<string, { hour: string; total: number; blocked: number; flagged: number }>();
+        for (let i = hours - 1; i >= 0; i--) {
+          const h = new Date(Date.now() - i * 3600_000);
+          h.setMinutes(0, 0, 0);
+          const k = h.toISOString();
+          buckets.set(k, { hour: k, total: 0, blocked: 0, flagged: 0 });
+        }
+        for (const l of logs ?? []) {
+          const t = new Date(l.created_at as string);
+          t.setMinutes(0, 0, 0);
+          const k = t.toISOString();
+          const b = buckets.get(k);
+          if (!b) continue;
+          b.total += 1;
+          if (String(l.status ?? "").startsWith("blocked")) b.blocked += 1;
+          else if (l.verdict === "flag") b.flagged += 1;
+        }
+        const hourly = Array.from(buckets.values());
+
+        return json({
+          range: rangeParam,
+          range_hours: hours,
+          total_requests: total,
+          allowed_count: allowed,
+          blocked_count: blocked,
+          flagged_count: flagged,
+          block_rate_pct,
+          top_block_reasons,
+          layer_breakdown,
+          hourly,
+        });
+      }
+
       case "stats": {
         const rangeParam = (url.searchParams.get("range") ?? "14d").toLowerCase();
         const RANGE_DAYS: Record<string, number> = { "7d": 7, "14d": 14, "30d": 30, "90d": 90 };
