@@ -1358,6 +1358,11 @@ Deno.serve(async (req) => {
             enable_fuzzy_keywords: true,
             enable_semantic_keywords: false,
             semantic_threshold: 0.78,
+            token_spike_alert_enabled: true,
+            token_spike_window_hours: 1,
+            token_spike_min_tokens: 10000,
+            token_spike_ratio: 3.0,
+            token_spike_webhook_url: null,
           },
           known_intents: await loadKnownIntentNames(sb, userId),
         });
