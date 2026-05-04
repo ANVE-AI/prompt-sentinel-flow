@@ -54,6 +54,40 @@ allowed:  []
       authorization or content classifiers. Layer them with whatever else fits your risk
       profile.
     </Callout>
+
+    <H2 id="token-spike-alerts">Token spike alerts</H2>
+    <Lead>
+      AnveGuard watches <code>tokens_in</code> and <code>tokens_out</code> per workspace
+      and surfaces an alert banner on the Overview dashboard when the current window
+      deviates sharply from baseline. Use it to catch runaway prompts, prompt-injection
+      loops, or unexpected batch jobs before they hit your bill.
+    </Lead>
+    <UL>
+      <li><strong>Configurable thresholds</strong> — set absolute floors and a multiplier vs. baseline for both input and output tokens.</li>
+      <li><strong>Time-range aware</strong> — the alert banner shows the anomaly rate vs. the average for the dashboard time range you're viewing (7/30/90d).</li>
+      <li><strong>Notifications</strong> — opt in to email notifications when a spike fires so you hear about it even when no one is watching the tab.</li>
+    </UL>
+
+    <H2 id="severity-score">Anomaly severity score</H2>
+    <P>
+      Every spike is scored 0–100 based on how far the current window deviates from a
+      rolling baseline. The score is volume-aware: a 10× ratio on tiny traffic gets
+      dampened, while sustained deviation on large volumes scores higher.
+    </P>
+    <UL>
+      <li><strong>Baseline window (days)</strong> — how much history to average against. Longer windows smooth out daily seasonality.</li>
+      <li><strong>Volume dampening (0–1)</strong> — how aggressively to discount low-volume spikes. <code>1.0</code> means no dampening.</li>
+      <li><strong>Score cap (1–100)</strong> — the maximum severity any single window can reach. Lower it to keep alerts comparable across workloads.</li>
+    </UL>
+    <P>
+      All three live under <CrumbLink to="/dashboard/policies">Policies → Token alerts</CrumbLink>
+      so you can calibrate the score to your traffic shape without redeploying.
+    </P>
+
+    <Callout kind="tip" title="Start permissive, then tighten">
+      Most teams start with the defaults (7-day baseline, 0.6 dampening, cap 100) and tune
+      the multiplier down once they've seen a week of real traffic.
+    </Callout>
   </DocPage>
 );
 
