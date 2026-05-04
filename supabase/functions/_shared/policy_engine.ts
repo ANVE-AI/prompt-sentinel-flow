@@ -474,6 +474,89 @@ const DETECTORS: Record<string, Detector> = {
     }
     return { matched: false };
   },
+  // OUTPUT-DIRECTION ONLY — closes the "outbound stream" gap from competitive
+  // research #2. Detects token-repetition entropy collapse, the signature of
+  // training-data extraction attacks ("repeat the word 'poem' forever" →
+  // ChatGPT regurgitated emails/phones from training data — Carlini et al.
+  // 2024, extended in 2025).
+  output_repetition: ({ rawText, direction }) => {
+    if (direction !== "output") return { matched: false };
+    if (rawText.length < 200) return { matched: false };
+    // Token-frequency entropy collapse — when a single token dominates the
+    // response, the model has lost coherence. Strong divergence-extraction
+    // signal in conjunction with high response length.
+    const tokens = rawText.toLowerCase().split(/\s+/).filter((t) => t.length > 0);
+    if (tokens.length < 80) return { matched: false };
+    const counts = new Map<string, number>();
+    for (const t of tokens) counts.set(t, (counts.get(t) ?? 0) + 1);
+    let top = "";
+    let topCount = 0;
+    for (const [k, v] of counts) {
+      if (v > topCount) { top = k; topCount = v; }
+    }
+    const topRatio = topCount / tokens.length;
+    if (topCount >= 50 && topRatio >= 0.3) {
+      return {
+        matched: true,
+        verdict: "flag",
+        reason: `Output repetition collapse: token "${top.slice(0, 40)}" repeats ${topCount} times (${(topRatio * 100).toFixed(0)}% of output). Possible training-data extraction.`,
+      };
+    }
+    // Also: long runs of identical consecutive tokens (the literal "the the
+    // the…" pattern that signals divergence). 30+ in a row is decisive.
+    let runStart = 0;
+    let runLen = 1;
+    for (let i = 1; i < tokens.length; i++) {
+      if (tokens[i] === tokens[runStart]) {
+        runLen += 1;
+        if (runLen >= 30) {
+          return {
+            matched: true,
+            verdict: "flag",
+            reason: `Output contains a run of ${runLen}+ identical tokens ("${tokens[runStart].slice(0, 40)}") — divergence pattern.`,
+          };
+        }
+      } else {
+        runStart = i;
+        runLen = 1;
+      }
+    }
+    return { matched: false };
+  },
+  // OUTPUT-DIRECTION ONLY — surfaces PII the model returned (training-data
+  // leak, RAG-context bleedthrough, system-prompt secret echo). Different
+  // from the input-side pii_detection layer which flags what the user sent.
+  // Always-on at the heuristics layer (no opt-in), but only flags — block
+  // would be too aggressive for an output-direction default.
+  output_pii_leak: ({ rawText, direction }) => {
+    if (direction !== "output") return { matched: false };
+    if (rawText.length < 20) return { matched: false };
+    const matches = detectPII(rawText);
+    // Filter the obvious low-signal cases — legitimate model responses often
+    // include emails (e.g. example@example.com in code samples). We only fire
+    // when a *credential-shaped* PII (key prefixes, JWT) is present, OR when
+    // the response carries 3+ PII items (suggests a data dump, not a single
+    // mention).
+    const sensitiveKinds: PiiKind[] = ["openai_key", "anveguard_key", "github_token", "aws_access_key", "jwt", "ssn", "credit_card"];
+    const sensitive = matches.filter((m) => sensitiveKinds.includes(m.kind));
+    if (sensitive.length > 0) {
+      const kinds = Array.from(new Set(sensitive.map((m) => m.kind)));
+      return {
+        matched: true,
+        verdict: "block",
+        reason: `Sensitive credential-shape leaked in output: ${kinds.join(", ")}.`,
+      };
+    }
+    if (matches.length >= 3) {
+      const kinds = Array.from(new Set(matches.map((m) => m.kind)));
+      return {
+        matched: true,
+        verdict: "flag",
+        reason: `Output contains ${matches.length} PII items (${kinds.join(", ")}) — possible bulk data leak.`,
+      };
+    }
+    return { matched: false };
+  },
   unicode_smuggling: ({ rawText, direction }) => {
     if (direction !== "input") return { matched: false };
     // Tier 0 — Unicode tag chars (U+E0000-U+E007F) have NO legitimate use
@@ -657,7 +740,7 @@ export function evaluateHeuristics(
   // returning `verdict` in its result (used by narrative_misdirection's
   // persona-bypass tier which is a high-confidence jailbreak signal).
   const out: LayerVerdict[] = [];
-  for (const name of ["role_impersonation", "pseudo_system_block", "encoded_density", "narrative_misdirection", "deepfake_intent", "unicode_smuggling"] as const) {
+  for (const name of ["role_impersonation", "pseudo_system_block", "encoded_density", "narrative_misdirection", "deepfake_intent", "unicode_smuggling", "output_repetition", "output_pii_leak"] as const) {
     const r = DETECTORS[name]({ rawText, normalizedText, direction });
     if (r.matched) {
       out.push({ layer: "heuristics", verdict: r.verdict ?? "flag", reason: r.reason, rule: name });
@@ -1227,6 +1310,58 @@ export function applySanitization(
   return out;
 }
 
+// ---------- Risk-trio rule -------------------------------------------------
+//
+// Co-occurrence detector for the "agentic exfiltration shape" no commercial
+// LLM-security vendor explicitly ships today. Pattern from research #2:
+// the 2025 Supabase/Cursor and GitHub MCP breaches all matched
+//   (untrusted input source) × (outbound channel signal) × (privileged execution)
+//
+// Each component:
+//   - untrusted input    → injection guard fired OR pseudo_system_block fired
+//                          (layers from input-direction evaluation)
+//   - outbound channel   → url_exfil fired in output OR ctx.toolsRequested true
+//                          (output exits the trust boundary)
+//   - privileged context → ctx.systemPrompt non-empty (the assistant has a
+//                          configured role / capability set above defaults)
+//                          OR tool_injection fired
+//
+// When 2+ components co-occur we emit a `risk_trio` flag; when all 3 do, we
+// emit it as block. Pure inspection of existing layers — no extra detector
+// passes, no new model calls.
+
+function applyRiskTrio(
+  layers: LayerVerdict[],
+  ctx: { systemPrompt?: string; toolsRequested?: boolean },
+): LayerVerdict | null {
+  const ruleNames = new Set(layers.map((l) => l.rule).filter(Boolean));
+  // Component A — untrusted-input signal.
+  const untrusted =
+    layers.some((l) => l.layer === "injection") ||
+    ruleNames.has("pseudo_system_block");
+  // Component B — outbound channel signal.
+  const outbound =
+    ruleNames.has("url_exfil") ||
+    ruleNames.has("tool_injection") ||
+    !!ctx.toolsRequested;
+  // Component C — privileged execution context.
+  const privileged =
+    !!(ctx.systemPrompt && ctx.systemPrompt.length >= 40) ||
+    ruleNames.has("system_prompt_leak");
+  const components = [untrusted && "untrusted_input", outbound && "outbound_channel", privileged && "privileged_context"]
+    .filter(Boolean) as string[];
+  if (components.length < 2) return null;
+  const allThree = components.length === 3;
+  return {
+    layer: "behavioral",
+    verdict: allThree ? "block" : "flag",
+    rule: "risk_trio",
+    reason: allThree
+      ? `Risk trio fired: ${components.join(" + ")}. Agentic exfiltration shape — each part on its own is benign, together they match the 2025 Supabase/Cursor/MCP-breach pattern.`
+      : `Risk pair fired: ${components.join(" + ")}. One component away from the agentic-exfiltration shape — operator review recommended.`,
+  };
+}
+
 // ---------- Aggregator -----------------------------------------------------
 
 /**
@@ -1587,6 +1722,20 @@ export async function evaluate(input: EvaluateInput, ctx: { systemPrompt?: strin
       layers.push(intentVerdict);
     }
   }
+
+  // ---- Risk-trio rule (audit research #2 — agentic exfil pattern) -------
+  // Real-world incidents in 2025 (Supabase/Cursor, GitHub MCP) all matched the
+  // shape: untrusted input × outbound channel × privileged execution path.
+  // Each component on its own is benign; together they're the agentic
+  // exfiltration shape no commercial vendor explicitly catches today.
+  //
+  // The engine already produces the component signals in `layers`; this pass
+  // detects co-occurrence and adds a synthetic `risk_trio` flag layer so
+  // operators see WHY the verdict escalated. We don't change the underlying
+  // layer verdicts — just stack a new one — so the audit trail keeps full
+  // forensic detail.
+  const riskTrioLayer = applyRiskTrio(layers, ctx);
+  if (riskTrioLayer) layers.push(riskTrioLayer);
 
   return {
     verdict: aggregate(layers, settings),
