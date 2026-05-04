@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -73,6 +73,8 @@ const Keys = () => {
 
   const [open, setOpen] = useState(false);
   const [newKey, setNewKey] = useState<string | null>(null);
+  const [newKeyId, setNewKeyId] = useState<string | null>(null);
+  const navigate = useNavigate();
   const [name, setName] = useState("");
   const [providerId, setProviderId] = useState<string>("lovable");
   const [model, setModel] = useState("");
@@ -210,7 +212,7 @@ const Keys = () => {
         endpoint_id: prefilledEndpointId ?? undefined,
       },
     }),
-    onSuccess: (res) => { setNewKey(res.full_key); qc.invalidateQueries({ queryKey: ["keys"] }); },
+    onSuccess: (res) => { setNewKey(res.full_key); setNewKeyId(res.id ?? null); qc.invalidateQueries({ queryKey: ["keys"] }); },
     onError: (e: any) => toast.error(e.message),
   });
   const revoke = useMutation({
