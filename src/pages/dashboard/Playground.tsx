@@ -351,14 +351,28 @@ const Playground = () => {
                         <SelectLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
                           Your AnveGuard keys
                         </SelectLabel>
-                        {activeKeys.map((k: any) => (
-                          <SelectItem key={`key:${k.id}`} value={`key:${k.id}`}>
-                            <span className="flex items-center gap-2">
-                              <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
-                              {renderKeyLabel(k)}
-                            </span>
-                          </SelectItem>
-                        ))}
+                        {activeKeys.map((k: any) => {
+                          const meta: string[] = [];
+                          if (k.endpoint_name) meta.push(k.endpoint_name);
+                          else if (k.provider === "custom") meta.push(hostOf(k.custom_base_url));
+                          else meta.push(k.provider);
+                          if (k.model_default) meta.push(k.model_default);
+                          if (k.custom_kind) meta.push(k.custom_kind);
+                          return (
+                            <SelectItem key={`key:${k.id}`} value={`key:${k.id}`}>
+                              <span className="flex flex-col items-start gap-0.5 py-0.5">
+                                <span className="flex items-center gap-2">
+                                  <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
+                                  <span className="font-medium">{k.name}</span>
+                                  <span className="font-mono text-[10px] text-muted-foreground">{k.key_prefix}…</span>
+                                </span>
+                                <span className="text-[11px] text-muted-foreground pl-5">
+                                  {meta.join(" · ")}
+                                </span>
+                              </span>
+                            </SelectItem>
+                          );
+                        })}
                       </SelectGroup>
                     )}
                     {unboundEndpoints.length > 0 && (
@@ -366,22 +380,28 @@ const Playground = () => {
                         <SelectLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
                           Configured endpoints (no key yet)
                         </SelectLabel>
-                    {unboundEndpoints.map((e: any) => (
-                          <SelectItem key={`ep:${e.id}`} value={`ep:${e.id}`}>
-                            <span className="flex flex-col items-start gap-0.5">
-                              <span className="flex items-center gap-2">
-                                <Plug className="h-3.5 w-3.5 text-status-warn" />
-                                {e.name} — <span className="font-mono text-xs text-muted-foreground">{hostOf(e.base_url)}</span>
-                                {e.default_model && (
-                                  <span className="text-xs text-muted-foreground">· {e.default_model}</span>
-                                )}
+                    {unboundEndpoints.map((e: any) => {
+                          const meta: string[] = [hostOf(e.base_url)];
+                          if (e.kind) meta.push(e.kind === "anthropic" ? "anthropic" : "openai-compat");
+                          if (e.default_model) meta.push(e.default_model);
+                          return (
+                            <SelectItem key={`ep:${e.id}`} value={`ep:${e.id}`}>
+                              <span className="flex flex-col items-start gap-0.5 py-0.5">
+                                <span className="flex items-center gap-2">
+                                  <Plug className="h-3.5 w-3.5 text-status-warn" />
+                                  <span className="font-medium">{e.name}</span>
+                                  <span className="font-mono text-[10px] text-muted-foreground">{meta[0]}</span>
+                                </span>
+                                <span className="text-[11px] text-muted-foreground pl-5">
+                                  {meta.slice(1).join(" · ") || "no model set"}
+                                </span>
+                                <span className="text-[11px] text-status-warn pl-5">
+                                  No AnveGuard key bound — can't send yet
+                                </span>
                               </span>
-                              <span className="text-[11px] text-status-warn pl-5">
-                                No AnveGuard key bound — can't send yet
-                              </span>
-                            </span>
-                          </SelectItem>
-                        ))}
+                            </SelectItem>
+                          );
+                        })}
                       </SelectGroup>
                     )}
                   </SelectContent>
