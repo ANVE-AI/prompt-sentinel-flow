@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ShieldAlert, ArrowUpRight, Ban, Search } from "lucide-react";
+import { ShieldAlert, ArrowUpRight, Ban, Search, Activity } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts";
 import { Link } from "react-router-dom";
 import { useDashboardApi } from "@/lib/api";
