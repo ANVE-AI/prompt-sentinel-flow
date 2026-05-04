@@ -758,6 +758,24 @@ const Keys = () => {
                           ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           : <Beaker className="h-3.5 w-3.5" />}
                       </Button>
+                      <Select
+                        value={k.compression_mode ?? "inherit"}
+                        onValueChange={(mode) => setKeyCompression.mutate({ id: k.id, mode })}
+                      >
+                        <SelectTrigger
+                          className="h-7 w-[110px] text-[11px] px-2"
+                          title="Token compression for this key (overrides workspace default)"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="inherit">Inherit</SelectItem>
+                          <SelectItem value="off">Off</SelectItem>
+                          <SelectItem value="light">Light</SelectItem>
+                          <SelectItem value="balanced">Balanced</SelectItem>
+                          <SelectItem value="aggressive">Aggressive</SelectItem>
+                        </SelectContent>
+                      </Select>
                       <Button
                         variant="ghost" size="sm"
                         onClick={() => setKeyAdmin.mutate({ id: k.id, is_admin: !k.is_admin })}
