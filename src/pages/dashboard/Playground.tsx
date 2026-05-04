@@ -22,6 +22,8 @@ import { useDashboardApi } from "@/lib/api";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
+import { HelpPanel } from "@/components/help-panel";
+import { HelpHint } from "@/components/help-hint";
 import { readProxyResponse } from "@/lib/proxy-response";
 
 const PROXY_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proxy`;
@@ -275,6 +277,42 @@ const Playground = () => {
             </Button>
           </div>
         }
+      />
+
+      <HelpPanel
+        storageKey="playground"
+        title="How to use the Playground"
+        steps={[
+          {
+            title: "Pick an AnveGuard key",
+            body: "Use the dropdown below. Configured endpoints with no key bound show up too — you'll be prompted to create one in a single click.",
+          },
+          {
+            title: "Paste the key secret",
+            body: <>Paste the <code className="font-mono text-xs">ag_live_…</code> value in the AnveGuard API key field. You only see it once at creation, so keep it handy.</>,
+          },
+          {
+            title: "Send or run a quick test",
+            body: <><strong>Run test request</strong> fires a tiny canned prompt to verify the upstream connection. <strong>Send through proxy</strong> uses your prompt with full streaming.</>,
+          },
+          {
+            title: "Inspect the verdict",
+            body: "The right pane shows the model output plus every policy layer that fired (intent, keywords, behavioral, etc.) so you can debug rules in real time.",
+          },
+        ]}
+        examples={[
+          {
+            label: "curl example",
+            code: `curl -N ${PROXY_URL} \\
+  -H 'Authorization: Bearer ag_live_…' \\
+  -H 'Content-Type: application/json' \\
+  -d '{
+    "model": "google/gemini-2.5-flash",
+    "stream": true,
+    "messages": [{"role": "user", "content": "Hello"}]
+  }'`,
+          },
+        ]}
       />
 
       {showUnboundEndpointsBanner && (
