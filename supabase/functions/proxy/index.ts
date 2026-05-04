@@ -793,6 +793,37 @@ async function handleRequest(req: Request): Promise<Response> {
     logBase.messages = body.messages; // log the sanitized version
   }
 
+  // ---- Token compression --------------------------------------------------
+  // Reduce upstream prompt size (and cost) without an extra LLM call.
+  // Workspace toggle + per-key override (`inherit | off | light | balanced | aggressive`).
+  // System and tool messages are never touched.
+  try {
+    const { compressMessages } = await import("../_shared/compress.ts");
+    const wsEnabled = (settings as any)?.enable_compression === true;
+    const wsLevel = ((settings as any)?.compression_level ?? "balanced") as
+      "light" | "balanced" | "aggressive";
+    const minChars = Number((settings as any)?.compression_min_chars ?? 400);
+    const keyMode = String(keyRow.compression_mode ?? "inherit");
+    const effective: "off" | "light" | "balanced" | "aggressive" =
+      keyMode === "off" ? "off" :
+      keyMode === "inherit" ? (wsEnabled ? wsLevel : "off") :
+      (keyMode as any);
+    const totalChars = body.messages.reduce(
+      (n: number, m: any) => n + (typeof m?.content === "string" ? m.content.length : 0), 0,
+    );
+    if (effective !== "off" && totalChars >= minChars) {
+      const r = compressMessages(body.messages, effective);
+      if (r.estimatedTokensSaved > 0) {
+        body.messages = r.messages;
+        logBase.messages = body.messages;
+        logBase.compression_applied = true;
+        logBase.tokens_saved_estimate = r.estimatedTokensSaved;
+      }
+    }
+  } catch (e) {
+    console.error("compression failed (non-fatal):", e);
+  }
+
   // ---- Build attempt list -------------------------------------------------
   // Each attempt is (synthetic keyRow shape, model, upstreamKey). For routes
   // we get N attempts in priority order; for the non-route path it's exactly
