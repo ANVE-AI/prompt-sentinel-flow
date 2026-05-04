@@ -348,8 +348,10 @@ const NARRATIVE_FRAME_RE = /\b(?:write (?:a |an )?(?:story|fictional (?:account|
 //   https://thehgtech.com/guides/unicode-llm-attacks-advanced.html
 //   https://embracethered.com/blog/posts/2024/hiding-and-finding-text-with-unicode-tags/
 const TAG_CHARS_RE = /[\u{E0000}-\u{E007F}]/gu;
-const ZERO_WIDTH_RE = /[​-‏⁠-⁯﻿]/g;
-const VARIATION_SELECTORS_RE = /[︀-️]|[\u{E0100}-\u{E01EF}]/gu;
+// Using escapes (not literal characters) so ESLint no-irregular-whitespace
+// stays happy and grep doesn't show empty regex bodies.
+const ZERO_WIDTH_RE = /[\u200b-\u200f\u2060-\u206f\ufeff]/g;
+const VARIATION_SELECTORS_RE = /[\ufe00-\ufe0f]|[\u{E0100}-\u{E01EF}]/gu;
 
 // Deepfake / non-consensual likeness intent. Catches direct mentions
 // (deepfake, fake video, etc.) and the "photorealistic + named figure" /
