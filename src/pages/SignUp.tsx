@@ -1,6 +1,7 @@
 import { SignUp } from "@clerk/clerk-react";
 import { Logo } from "@/components/Logo";
 import { AuthShowcasePane } from "@/components/auth/AuthShowcasePane";
+import { QuickstartHelpPanel } from "@/components/quickstart-help-panel";
 
 const SignUpPage = () => (
   <div className="min-h-screen grid lg:grid-cols-[480px_1fr] bg-background">
@@ -16,6 +17,11 @@ const SignUpPage = () => (
           forceRedirectUrl="/dashboard"
           appearance={{ elements: { rootBox: "w-full", card: "shadow-none border-none bg-transparent" } }}
         />
+        {/* Inline quickstart so new sign-ups see exactly what they'll do
+            after creating the account, plus a copy-paste curl. */}
+        <div className="mt-8">
+          <QuickstartHelpPanel variant="compact" defaultOpen={false} />
+        </div>
       </div>
     </div>
     <AuthShowcasePane />
