@@ -1,50 +1,58 @@
-# One-click bind: attach an existing AnveGuard key to an endpoint
+## Problem
 
-Today an endpoint only shows up in the Playground if at least one `api_keys` row has its `endpoint_id` set to that endpoint. The only way to fix an "unbound" endpoint is to create a brand-new key. We'll add a fast path: pick an existing key you already own and bind it to the endpoint in one click.
+When the user picks a **Perplexity (Sonar)** endpoint in the Playground, the model dropdown lists every model Perplexity advertises in `/v1/models` — including `openai/gpt-5*`, `anthropic/claude-*`, `nvidia/nemotron-*`, `xai/grok-*`. None of those work via Perplexity's chat API, so picking them returns an `Invalid model` error.
 
-## Backend — new dashboard action
+Even the only "valid" entry, `perplexity/sonar`, fails because Perplexity's chat API expects the bare name `sonar` (not the namespaced `perplexity/sonar` returned by their models list).
 
-File: `supabase/functions/dashboard/index.ts`
+Root cause is in `supabase/functions/dashboard/index.ts → list_models`: it forwards the upstream models response verbatim through `parseModelsResponse` without provider-specific filtering.
 
-Add `bind_key_to_endpoint` action. Body: `{ key_id: string, endpoint_id: string }`.
+## Fix
 
-Behavior:
-- Verify both rows belong to `userId` (`api_keys.id` + `endpoints.id`).
-- Reject if the key already has a different `endpoint_id` set unless `force: true` (avoid silently re-pointing a production key).
-- Update the `api_keys` row, mirroring the same fields `create_key` already copies from an endpoint (so the proxy keeps reading from a single row):
-  - `endpoint_id`, `provider = "custom"`, `custom_base_url`, `custom_models_url`, `custom_kind`, `custom_auth_scheme`, `custom_auth_header`, `custom_extra_headers`, `custom_model_suggestions`, `custom_path_prefix`, `custom_chat_path`, `custom_models_path`, `custom_response_format`, `provider_key_encrypted` (from the endpoint), and `model_default` if currently empty and the endpoint has a `default_model`.
-- Write an `audit_logs` row (`action = "bind_key_to_endpoint"`, metadata: key name/prefix, endpoint name).
-- Return `{ ok: true, key: { id, name, key_prefix, endpoint_id } }`.
+### 1. Add per-provider model filtering in `_shared/providers.ts`
 
-Also add a small helper action `list_bindable_keys` taking `{ endpoint_id }` that returns this user's `api_keys` where `is_active = true` AND (`endpoint_id IS NULL` OR `endpoint_id = <that one>`), ordered by `created_at desc`. Used to populate the picker without overfetching.
+Extend `ProviderDef` with two optional fields:
+- `model_id_filter?: (id: string) => boolean` — predicate to keep only models the provider's chat endpoint actually accepts
+- `model_id_normalize?: (id: string) => string` — rewrite the id to what the chat endpoint expects
 
-## Playground — bind flow on unbound endpoints
+For the built-in **Perplexity** provider:
+- `model_id_filter`: keep ids where `owned_by === "perplexity"` OR `id` starts with `perplexity/` OR `id` matches `^sonar` (covers any future bare-name response)
+- `model_id_normalize`: strip a leading `perplexity/` prefix so `perplexity/sonar` becomes `sonar` before being sent to `/chat/completions`
 
-File: `src/pages/dashboard/Playground.tsx`
+(Other providers can opt in later — this PR only wires Perplexity since that's the broken one. OpenRouter intentionally returns a multi-vendor list, which is correct for OpenRouter.)
 
-Where today we show the warning surface and the "Create AnveGuard key for ..." button (lines ~322–342) and the empty-state cards (lines ~232–260), add a secondary action: **"Bind existing key"**.
+### 2. Apply filter + normalize in `dashboard/index.ts → list_models`
 
-Clicking it opens a small dialog:
-- Title: `Bind a key to "{endpoint.name}"`
-- Loads `list_bindable_keys` for that endpoint.
-- If the list is empty: short message + the existing "Create new key" CTA.
-- Otherwise: a single `Select` listing keys (`{name} · {key_prefix}…`) plus a confirm button.
-- On success: invalidate the `keys` and `endpoints` queries, toast `"{key.name}" is now bound to "{endpoint.name}"`, and auto-select that key (`setSelection({ kind: "key", id })`) so the user can immediately Send.
+After `parseModelsResponse(j, hint)`:
+- If the provider has a `model_id_filter`, run `parsed.models.filter(m => filter(m))` first
+- Map through `model_id_normalize` if present
+- Dedupe and use the normalized ids as the dropdown options
+- If the filter empties the list, fall back to `model_suggestions` (defensive)
 
-## Endpoints page — bind action per endpoint
+### 3. Apply normalization on the proxy path in `_shared/providers.ts → resolveEndpoint`
 
-File: `src/pages/dashboard/Endpoints.tsx`
+Return an optional `normalize_model?: (id: string) => string` from `resolveEndpoint` so the proxy can apply it to the incoming `model` field before forwarding. This guarantees correctness even for clients that hardcode `perplexity/sonar` or paste a value from the old dropdown.
 
-In the endpoint row (around line 1030, next to the Activity / Edit / Delete icon buttons), when `e.key_count === 0` and the row is owned (not shared), add a `Bind key` button. It opens the same dialog as the Playground flow. After success, refresh the endpoints list so the `key_count` badge updates.
+### 4. Wire normalization into the proxy
+
+In `supabase/functions/proxy/index.ts`, find the spot where the upstream request body is built (where `model` is read from the incoming request) and apply `normalize_model(model)` if defined. No behavior change for any provider that doesn't define one.
+
+### 5. Tests
+
+Add a small Deno test at `supabase/functions/_shared/providers_test.ts` (or extend an existing one) covering:
+- `perplexity` filter: keeps `perplexity/sonar`, drops `openai/gpt-5`, `nvidia/...`, `anthropic/...`
+- `perplexity` normalize: `perplexity/sonar` → `sonar`, `sonar-pro` → `sonar-pro` (idempotent)
 
 ## Out of scope
 
-- No DB migrations — `api_keys.endpoint_id` already exists.
-- Shared endpoints stay read-only (you can only bind keys you own to endpoints you own), matching the current `unboundEndpoints` rule in Playground.
-- No bulk bind. One key at a time keeps the audit log honest.
+- No DB changes
+- No UI changes (the existing Playground `<Select>` keeps working; it just receives a clean list)
+- Other providers (OpenAI, Anthropic, OpenRouter, Kimi, Qwen) keep current behavior — their `/v1/models` already returns ids that work directly
 
 ## Files touched
 
-- `supabase/functions/dashboard/index.ts` — two new action cases.
-- `src/pages/dashboard/Playground.tsx` — bind dialog + secondary CTA.
-- `src/pages/dashboard/Endpoints.tsx` — per-row Bind button reusing the dialog (extracted into `src/components/dashboard/BindKeyDialog.tsx`).
+- `supabase/functions/_shared/providers.ts` (filter + normalize hooks, Perplexity wiring, `resolveEndpoint` returns normalize_model)
+- `supabase/functions/dashboard/index.ts` (apply filter+normalize in `list_models`)
+- `supabase/functions/proxy/index.ts` (apply `normalize_model` before forwarding)
+- `supabase/functions/_shared/providers_test.ts` (new)
+
+After approval I'll implement, redeploy `dashboard` and `proxy`, and verify by listing models for the Perplexity key and sending `sonar` through the proxy.
