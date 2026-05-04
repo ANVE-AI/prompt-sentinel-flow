@@ -1208,6 +1208,7 @@ const Endpoints = () => {
               </div>
             )}
 
+            {formMode === "advanced" && (<>
             <div>
               <Label>Kind</Label>
               <Select value={form.kind} onValueChange={(v) => setForm({ ...form, kind: v })}>
