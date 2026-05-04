@@ -50,6 +50,20 @@ function hostOf(url: string | null | undefined): string {
   try { return new URL(url).host; } catch { return url; }
 }
 
+// Compact "last used" label for keys/endpoints. Returns null when never used.
+function formatLastUsed(ts: string | null | undefined): string | null {
+  if (!ts) return null;
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${formatDistanceToNowStrict(d, { addSuffix: false })} ago`;
+}
+function lastUsedTitle(ts: string | null | undefined): string {
+  if (!ts) return "Never used";
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return "Never used";
+  return `Last used: ${d.toLocaleString()}`;
+}
+
 /**
  * REPL-style two-pane Playground: request on the left, live response on
  * the right. Now also lists configured endpoints that have no AnveGuard key
