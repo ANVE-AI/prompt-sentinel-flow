@@ -2040,7 +2040,7 @@ Deno.serve(async (req) => {
       case "stats": {
         const since = new Date(Date.now() - 14 * 86400000).toISOString();
         const { data: logs } = await sb.from("request_logs")
-          .select("id,status,latency_ms,created_at,verdict_layers,block_reason,model,api_key_id,messages").eq("user_id", userId).gte("created_at", since);
+          .select("id,status,latency_ms,created_at,verdict_layers,block_reason,model,api_key_id,messages,tokens_in,tokens_out,tokens_saved_estimate,compression_applied").eq("user_id", userId).gte("created_at", since);
         const { data: keys } = await sb.from("api_keys")
           .select("id,name,key_prefix,is_active").eq("user_id", userId);
         const keyMap = new Map((keys ?? []).map((k: any) => [k.id, k]));
@@ -2048,6 +2048,10 @@ Deno.serve(async (req) => {
         const blocked = (logs ?? []).filter((l) => l.status?.startsWith("blocked")).length;
         const errors = (logs ?? []).filter((l) => l.status === "error").length;
         const avgLatency = total ? Math.round((logs!.reduce((s, l) => s + (l.latency_ms ?? 0), 0)) / total) : 0;
+        const tokensInTotal = (logs ?? []).reduce((s, l) => s + (l.tokens_in ?? 0), 0);
+        const tokensOutTotal = (logs ?? []).reduce((s, l) => s + (l.tokens_out ?? 0), 0);
+        const tokensSavedTotal = (logs ?? []).reduce((s, l) => s + (l.tokens_saved_estimate ?? 0), 0);
+        const compressedRequests = (logs ?? []).filter((l) => l.compression_applied).length;
 
         // Top triggered rules across the window. We aggregate fired layers
         // (verdict !== "allow") from request_logs.verdict_layers JSONB, keyed
@@ -2134,16 +2138,19 @@ Deno.serve(async (req) => {
           });
 
         // Bucket by day
-        const buckets: Record<string, { requests: number; blocked: number }> = {};
+        const buckets: Record<string, { requests: number; blocked: number; tokens_in: number; tokens_out: number; tokens_saved: number }> = {};
         for (let i = 13; i >= 0; i--) {
           const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
-          buckets[d] = { requests: 0, blocked: 0 };
+          buckets[d] = { requests: 0, blocked: 0, tokens_in: 0, tokens_out: 0, tokens_saved: 0 };
         }
         for (const l of logs ?? []) {
           const d = l.created_at.slice(0, 10);
           if (buckets[d]) {
             buckets[d].requests++;
             if (l.status?.startsWith("blocked")) buckets[d].blocked++;
+            buckets[d].tokens_in += l.tokens_in ?? 0;
+            buckets[d].tokens_out += l.tokens_out ?? 0;
+            buckets[d].tokens_saved += l.tokens_saved_estimate ?? 0;
           }
         }
         const chart = Object.entries(buckets).map(([day, v]) => ({ day, ...v }));
@@ -2152,6 +2159,10 @@ Deno.serve(async (req) => {
           blocked_pct: total ? Number(((blocked / total) * 100).toFixed(2)) : 0,
           active_keys: (keys ?? []).filter((k) => k.is_active).length,
           total_keys: keys?.length ?? 0,
+          tokens_in_total: tokensInTotal,
+          tokens_out_total: tokensOutTotal,
+          tokens_saved_total: tokensSavedTotal,
+          compressed_requests: compressedRequests,
           chart, top_rules, block_patterns, recent_blocks,
         });
       }
