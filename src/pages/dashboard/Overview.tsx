@@ -170,6 +170,68 @@ const Overview = () => {
         </CardContent>
       </Card>
 
+      {/* Compression impact — saved tokens grouped by per-key compression mode. */}
+      <Card className="surface-1 border-border">
+        <div className="px-5 pt-4 pb-3 flex items-center justify-between border-b border-border">
+          <div>
+            <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Cost</div>
+            <div className="text-h2 font-medium mt-0.5">Compression impact</div>
+          </div>
+          <Link to="/dashboard/policies" className="text-meta text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1">
+            Tune policy <ArrowUpRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+        {(() => {
+          const rows: any[] = data?.compression_breakdown ?? [];
+          if (isLoading) {
+            return <SkeletonRows rows={3} cols="grid-cols-[1fr_auto_auto_auto]" rowClassName="px-5 py-2.5 h-auto" />;
+          }
+          if (rows.length === 0) {
+            return (
+              <EmptyState
+                icon={<ShieldAlert className="h-5 w-5" />}
+                title="No compression data yet"
+                description="Once requests flow through, savings by mode will appear here."
+              />
+            );
+          }
+          const maxSaved = Math.max(1, ...rows.map((r) => r.tokens_saved));
+          return (
+            <ul className="divide-y divide-border">
+              {rows.map((r) => {
+                const totalUsed = (r.tokens_in ?? 0) + (r.tokens_out ?? 0);
+                const pct = totalUsed + r.tokens_saved
+                  ? ((r.tokens_saved / (totalUsed + r.tokens_saved)) * 100).toFixed(1)
+                  : "0";
+                const bar = Math.round((r.tokens_saved / maxSaved) * 100);
+                const label =
+                  r.mode === "inherit" ? `Inherit · resolves to ${r.effective}` :
+                  r.mode.charAt(0).toUpperCase() + r.mode.slice(1);
+                return (
+                  <li key={r.mode} className="grid grid-cols-[160px_1fr_auto_auto] gap-3 items-center px-5 py-2.5 hover:bg-surface-2/60 transition-colors">
+                    <div className="min-w-0">
+                      <div className="text-body font-medium truncate">{label}</div>
+                      <div className="text-meta text-muted-foreground tabular-nums">
+                        {r.compressed_requests}/{r.requests} req compressed
+                      </div>
+                    </div>
+                    <div className="h-1.5 rounded bg-surface-2 overflow-hidden">
+                      <div className="h-full bg-primary/70" style={{ width: `${bar}%` }} />
+                    </div>
+                    <span className="text-meta tabular-nums text-muted-foreground w-20 text-right">
+                      {pct}% saved
+                    </span>
+                    <span className="text-body tabular-nums w-24 text-right font-medium">
+                      {fmtTok(r.tokens_saved)} tok
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          );
+        })()}
+      </Card>
+
       {/* Chart */}
       <Card className="surface-1 border-border">
         <div className="px-5 pt-4 pb-2 flex items-center justify-between">
