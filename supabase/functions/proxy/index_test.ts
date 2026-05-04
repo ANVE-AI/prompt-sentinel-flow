@@ -25,10 +25,16 @@ import {
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? Deno.env.get("VITE_SUPABASE_URL");
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
-if (!SUPABASE_URL) throw new Error("SUPABASE_URL / VITE_SUPABASE_URL must be set");
-if (!SERVICE_ROLE_KEY) throw new Error("SUPABASE_SERVICE_ROLE_KEY must be set");
+// These tests are integration tests that hit a real Supabase project. When
+// env vars aren't set (e.g. in plain CI without test-Supabase secrets), skip
+// the tests instead of crashing the whole runner. Local devs and the
+// integration-test pipeline still get full coverage.
+const SKIP_INTEGRATION = !SUPABASE_URL || !SERVICE_ROLE_KEY;
+if (SKIP_INTEGRATION) {
+  console.warn("[index_test.ts] SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set — integration tests will be skipped.");
+}
 
-const PROXY_URL = `${SUPABASE_URL}/functions/v1/proxy`;
+const PROXY_URL = `${SUPABASE_URL ?? ""}/functions/v1/proxy`;
 
 // Test fixture identity. Using a stable, recognizably-fake user id makes
 // stray rows easy to find and clean up later if a teardown ever fails.
@@ -133,7 +139,7 @@ async function postChat(token: string) {
   return { status: res.status, body: parsed, raw: text };
 }
 
-Deno.test("proxy rejects revoked API key with 401 before calling provider", async () => {
+Deno.test({ name: "proxy rejects revoked API key with 401 before calling provider", ignore: SKIP_INTEGRATION, fn: async () => {
   await clearRateLimitBuckets();
   const seeded = await seedRevokedKey();
   try {
@@ -166,9 +172,9 @@ Deno.test("proxy rejects revoked API key with 401 before calling provider", asyn
   } finally {
     await teardownKey(seeded.id);
   }
-});
+} });
 
-Deno.test("proxy returns the same 401 for an unknown API key (no info leak)", async () => {
+Deno.test({ name: "proxy returns the same 401 for an unknown API key (no info leak)", ignore: SKIP_INTEGRATION, fn: async () => {
   await clearRateLimitBuckets();
   // A well-formed but never-seeded token. Same shape as a real key so the
   // Authorization regex passes and we exercise the DB lookup branch.
@@ -178,9 +184,9 @@ Deno.test("proxy returns the same 401 for an unknown API key (no info leak)", as
   assertEquals(status, 401);
   assertEquals(body?.error?.type, "authentication_error");
   assertStringIncludes(String(body?.error?.message), "Invalid or revoked API key");
-});
+} });
 
-Deno.test("proxy rejects requests with no Authorization header", async () => {
+Deno.test({ name: "proxy rejects requests with no Authorization header", ignore: SKIP_INTEGRATION, fn: async () => {
   await clearRateLimitBuckets();
   const res = await fetch(PROXY_URL, {
     method: "POST",
@@ -194,7 +200,7 @@ Deno.test("proxy rejects requests with no Authorization header", async () => {
   const body = text ? JSON.parse(text) : null;
   assertEquals(res.status, 401);
   assertStringIncludes(String(body?.error?.message), "Missing API key");
-});
+} });
 
 // ---------------------------------------------------------------------------
 // Repeated revoked-key requests: documented behavior (post audit C4)
@@ -209,7 +215,7 @@ Deno.test("proxy rejects requests with no Authorization header", async () => {
 //   3. Zero `request_logs` rows are written for any of the N attempts —
 //      the proxy must reject before reaching the provider call path.
 //   4. The whole burst completes well under a generous wall-clock budget.
-Deno.test("proxy throttles repeated revoked-key auth failures per IP", async () => {
+Deno.test({ name: "proxy throttles repeated revoked-key auth failures per IP", ignore: SKIP_INTEGRATION, fn: async () => {
   await clearRateLimitBuckets();
   const seeded = await seedRevokedKey();
   try {
@@ -265,5 +271,5 @@ Deno.test("proxy throttles repeated revoked-key auth failures per IP", async () 
   } finally {
     await teardownKey(seeded.id);
   }
-});
+} });
 

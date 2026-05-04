@@ -61,6 +61,35 @@ async function loadReadableEndpoint(
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: dashboardCorsHeaders(req) });
 
+  // /healthz — unauthenticated readiness probe for uptime monitors. Cheap
+  // DB ping, no Clerk JWT required, wildcard-friendly. Must come before the
+  // bearer check so monitors don't need credentials.
+  {
+    const path = new URL(req.url).pathname.replace(/\/+$/, "");
+    if (req.method === "GET" && (path.endsWith("/healthz") || path.endsWith("/health"))) {
+      const start = Date.now();
+      let dbOk = false;
+      let dbError: string | null = null;
+      try {
+        const sb = service();
+        const { error } = await sb.from("profiles").select("clerk_user_id", { count: "exact", head: true }).limit(0);
+        dbOk = !error;
+        if (error) dbError = error.message.slice(0, 120);
+      } catch (e) {
+        dbError = e instanceof Error ? e.message.slice(0, 120) : "unknown";
+      }
+      return json({
+        status: dbOk ? "ok" : "degraded",
+        service: "anveguard-dashboard",
+        version: Deno.env.get("SUPABASE_FUNCTION_VERSION") ?? "dev",
+        db: dbOk ? "ok" : "down",
+        db_error: dbError,
+        db_latency_ms: Date.now() - start,
+        time: new Date().toISOString(),
+      }, dbOk ? 200 : 503);
+    }
+  }
+
   // Inner IIFE so the existing `return json(...)` sites resolve to the
   // function's return value; we then post-process CORS once on the outside.
   const inner = await (async (): Promise<Response> => {

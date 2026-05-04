@@ -106,6 +106,39 @@ function errorResponse(
   return json(errorForShape(shape, status, message, opts), status, opts.headers);
 }
 
+// ---- Health endpoint -------------------------------------------------------
+// Lightweight readiness probe for uptime monitors. Pings the DB once, returns
+// {status, db, time, version}. 200 when healthy, 503 when DB is unreachable.
+// Intentionally unauthenticated — exposing existence-of-service is fine; the
+// payload contains no secrets and no per-user data.
+
+const SERVICE_VERSION = Deno.env.get("SUPABASE_FUNCTION_VERSION") ?? "dev";
+
+async function handleHealth(): Promise<Response> {
+  const start = Date.now();
+  let dbOk = false;
+  let dbError: string | null = null;
+  try {
+    const sb = service();
+    // Cheap ping — head:true means rows aren't actually fetched, just counted.
+    const { error } = await sb.from("rate_limit_buckets").select("scope", { count: "exact", head: true }).limit(0);
+    dbOk = !error;
+    if (error) dbError = error.message.slice(0, 120);
+  } catch (e) {
+    dbError = e instanceof Error ? e.message.slice(0, 120) : "unknown";
+  }
+  const body = {
+    status: dbOk ? "ok" : "degraded",
+    service: "anveguard-proxy",
+    version: SERVICE_VERSION,
+    db: dbOk ? "ok" : "down",
+    db_error: dbError,
+    db_latency_ms: Date.now() - start,
+    time: new Date().toISOString(),
+  };
+  return json(body, dbOk ? 200 : 503);
+}
+
 // ---- Auth-failure rate limit ----------------------------------------------
 // Two sliding-window buckets per caller IP: 5 fails/min (catches active
 // brute-force) and 50 fails/hour (catches slow / distributed probing). Once
@@ -268,6 +301,13 @@ Deno.serve(async (req) => {
   // path. Anything else: 405.
   if (req.method === "GET") {
     const path = new URL(req.url).pathname.replace(/\/+$/, "");
+    // Health endpoint for uptime monitors (Better Stack, UptimeRobot, etc.).
+    // No auth — anyone can ping. Cheap: a single SELECT roundtrip. Returns 200
+    // when DB is reachable, 503 when not. Caches CORS as wildcard so monitors
+    // from any origin can read.
+    if (path.endsWith("/healthz") || path.endsWith("/health")) {
+      return await handleHealth();
+    }
     if (path.endsWith("/v1/models")) {
       try { return await handleListModels(req); }
       catch (e) {
