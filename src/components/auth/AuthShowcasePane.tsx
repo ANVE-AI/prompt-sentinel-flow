@@ -1,5 +1,6 @@
 import { ShieldCheck, Plug, KeyRound, Sparkles, HelpCircle, RotateCcw } from "lucide-react";
 import { Link } from "react-router-dom";
+import { toast } from "sonner";
 
 /**
  * Showcase pane shown beside the Clerk auth form on /sign-in and /sign-up.
@@ -103,6 +104,19 @@ export const AuthShowcasePane = () => (
         <div className="mt-5 flex flex-wrap items-center gap-2">
           <Link
             to="/#how"
+            onClick={() => {
+              toast("Need help finishing setup?", {
+                id: "quickstart-help",
+                description: "Full guides, API reference, and troubleshooting live in the docs.",
+                duration: 8000,
+                action: {
+                  label: "Open docs",
+                  onClick: () => {
+                    window.location.assign("/docs");
+                  },
+                },
+              });
+            }}
             className="inline-flex items-center gap-1.5 text-meta text-muted-foreground hover:text-foreground transition-colors"
           >
             <RotateCcw className="h-3 w-3" />

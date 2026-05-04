@@ -6,6 +6,7 @@ import { Logo } from "@/components/Logo";
 import { CodeTabs } from "@/components/landing/CodeTabs";
 import { QuickstartHelpPanel } from "@/components/quickstart-help-panel";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 /**
  * Landing page — YC-style "high-signal, low-decoration" layout.
@@ -231,6 +232,20 @@ const Landing = () => {
                 window.setTimeout(() => {
                   el.classList.remove("ring-2", "ring-primary/60");
                 }, 1400);
+                // Surface a dismissible "Need help?" toast pointing at the
+                // docs — discoverability for users who replay the quickstart
+                // because they're stuck rather than curious.
+                toast("Need help finishing setup?", {
+                  id: "quickstart-help", // dedupe rapid re-clicks
+                  description: "Full guides, API reference, and troubleshooting live in the docs.",
+                  duration: 8000,
+                  action: {
+                    label: "Open docs",
+                    onClick: () => {
+                      window.location.assign("/docs");
+                    },
+                  },
+                });
               }}
             >
               <RotateCcw className="mr-2 h-4 w-4" />
