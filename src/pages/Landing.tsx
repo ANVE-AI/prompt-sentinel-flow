@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, Github, Check } from "lucide-react";
+import { ArrowRight, Github, Check, HelpCircle, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/Logo";
 import { CodeTabs } from "@/components/landing/CodeTabs";
@@ -176,6 +176,12 @@ const Landing = () => {
           })}
         </nav>
         <div className="flex items-center gap-1.5">
+          <Button variant="ghost" size="sm" asChild className="text-muted-foreground hover:text-foreground">
+            <Link to="/docs" title="Open the AnveGuard documentation">
+              <HelpCircle className="h-3.5 w-3.5" />
+              Help
+            </Link>
+          </Button>
           <Button variant="ghost" size="sm" asChild>
             <Link to="/sign-in">Sign in</Link>
           </Button>
@@ -212,11 +218,30 @@ const Landing = () => {
             </Link>
           </Button>
           <Button size="lg" variant="outline" asChild>
-            <a href="#how">See how it works</a>
+            <a
+              href="#how"
+              onClick={(e) => {
+                e.preventDefault();
+                const el = document.getElementById("how");
+                if (!el) return;
+                el.scrollIntoView({ behavior: "smooth", block: "start" });
+                // Flash the section so users see exactly what was replayed.
+                el.classList.add("ring-2", "ring-primary/60", "transition-shadow");
+                window.setTimeout(() => {
+                  el.classList.remove("ring-2", "ring-primary/60");
+                }, 1400);
+              }}
+            >
+              <RotateCcw className="mr-2 h-4 w-4" />
+              Replay quickstart
+            </a>
           </Button>
         </div>
         <p className="mt-4 text-meta text-muted-foreground">
-          Free tier · No credit card · 2-minute setup
+          Free tier · No credit card · 2-minute setup ·{" "}
+          <Link to="/docs" className="underline hover:text-foreground">
+            Need help?
+          </Link>
         </p>
       </div>
 
