@@ -1331,6 +1331,7 @@ const Endpoints = () => {
                 </div>
               )}
             </div>
+            </>)}
 
             {requiresKey && (
               <div>
