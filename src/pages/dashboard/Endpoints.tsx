@@ -889,7 +889,7 @@ const Endpoints = () => {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button onClick={startCreate} size="sm">
+          <Button onClick={() => startCreate()} size="sm">
             <Plus className="h-3.5 w-3.5 mr-1.5" /> New endpoint
           </Button>
         </div>
@@ -911,7 +911,7 @@ const Endpoints = () => {
               title="No endpoints yet"
               description="Add Ollama, vLLM, Azure, Groq, or any custom OpenAI-compatible URL."
               action={
-                <Button onClick={startCreate} size="sm">
+                <Button onClick={() => startCreate()} size="sm">
                   <Plus className="h-3.5 w-3.5 mr-1.5" /> New endpoint
                 </Button>
               }
