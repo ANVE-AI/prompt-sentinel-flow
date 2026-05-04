@@ -4,6 +4,7 @@ import { ArrowRight, Github, Check, HelpCircle, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/Logo";
 import { CodeTabs } from "@/components/landing/CodeTabs";
+import { QuickstartHelpPanel } from "@/components/quickstart-help-panel";
 import { cn } from "@/lib/utils";
 
 /**
