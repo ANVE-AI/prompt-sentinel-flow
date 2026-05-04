@@ -422,19 +422,28 @@ const Playground = () => {
                           if (k.model_default) meta.push(k.model_default);
                           if (k.custom_kind) meta.push(k.custom_kind);
                           const fullUrl = k.custom_base_url || "";
+                          const lastUsedLabel = formatLastUsed(k.last_used_at);
                           const tooltip = [
                             `Key: ${k.name}`,
                             k.endpoint_name ? `Endpoint: ${k.endpoint_name}` : null,
                             fullUrl ? `URL: ${fullUrl}` : `Provider: ${k.provider}`,
                             k.model_default ? `Default model: ${k.model_default}` : null,
+                            lastUsedTitle(k.last_used_at),
                           ].filter(Boolean).join("\n");
                           return (
                             <SelectItem key={`key:${k.id}`} value={`key:${k.id}`} title={tooltip}>
                               <span className="flex flex-col items-start gap-0.5 py-0.5">
-                                <span className="flex items-center gap-2">
+                                <span className="flex items-center gap-2 flex-wrap">
                                   <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
                                   <span className="font-medium">{k.name}</span>
                                   <span className="font-mono text-[10px] text-muted-foreground">{k.key_prefix}…</span>
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[10px] py-0 px-1.5 h-4 font-normal gap-1 border-border/60 text-muted-foreground"
+                                  >
+                                    <Clock className="h-2.5 w-2.5" />
+                                    {lastUsedLabel ?? "Never used"}
+                                  </Badge>
                                 </span>
                                 <span className="text-[11px] text-muted-foreground pl-5">
                                   {meta.join(" · ")}
