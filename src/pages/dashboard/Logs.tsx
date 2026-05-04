@@ -45,11 +45,49 @@ const statusOf = (s: string): "ok" | "warn" | "block" =>
   s === "allowed" ? "ok" : s === "error" ? "warn" : "block";
 
 const auditActionMeta: Record<string, { label: string; icon: typeof Ban }> = {
-  "api_key.revoked": { label: "API key revoked", icon: Ban },
-  "api_key.admin_granted": { label: "Key admin granted", icon: ShieldCheck },
-  "api_key.admin_revoked": { label: "Key admin revoked", icon: ShieldAlert },
-  "system_prompt.allowed": { label: "system_prompt allowed", icon: CheckCircle2 },
-  "system_prompt.rejected": { label: "system_prompt rejected", icon: ShieldAlert },
+  // API keys
+  "api_key.revoked":               { label: "API key revoked",              icon: Ban },
+  "api_key.admin_granted":         { label: "Key admin granted",            icon: ShieldCheck },
+  "api_key.admin_revoked":         { label: "Key admin revoked",            icon: ShieldAlert },
+  // Endpoints
+  "endpoint.created":              { label: "Endpoint created",             icon: CheckCircle2 },
+  "endpoint.updated":              { label: "Endpoint updated",             icon: ShieldCheck },
+  "endpoint.deleted":              { label: "Endpoint deleted",             icon: Ban },
+  "endpoint.default_model_set":    { label: "Endpoint default model set",   icon: ShieldCheck },
+  "endpoint_share.granted":        { label: "Endpoint share granted",       icon: ShieldCheck },
+  "endpoint_share.revoked":        { label: "Endpoint share revoked",       icon: Ban },
+  "endpoints.imported":            { label: "Endpoints imported",           icon: CheckCircle2 },
+  // Policies
+  "policies.updated":              { label: "Legacy policies updated",      icon: ShieldCheck },
+  "policy_settings.updated":       { label: "Policy settings updated",      icon: ShieldCheck },
+  "policy_rule.created":           { label: "Policy rule created",          icon: CheckCircle2 },
+  "policy_rule.updated":           { label: "Policy rule updated",          icon: ShieldCheck },
+  "policy_rule.deleted":           { label: "Policy rule deleted",          icon: Ban },
+  "policy_intent.upserted":        { label: "Policy intent saved",          icon: ShieldCheck },
+  "policy_intent.deleted":         { label: "Policy intent deleted",        icon: Ban },
+  "policy_intents.bulk_replaced":  { label: "Policy intents bulk-saved",    icon: ShieldCheck },
+  "policy_template.created":       { label: "Policy template created",      icon: CheckCircle2 },
+  "policy_template.updated":       { label: "Policy template updated",      icon: ShieldCheck },
+  "policy_template.deleted":       { label: "Policy template deleted",      icon: Ban },
+  "policy_template.rolled_back":   { label: "Policy template rolled back",  icon: ShieldAlert },
+  // Intents catalog
+  "known_intent.created":          { label: "Known intent created",         icon: CheckCircle2 },
+  "known_intent.updated":          { label: "Known intent updated",         icon: ShieldCheck },
+  "known_intent.deleted":          { label: "Known intent deleted",         icon: Ban },
+  // Aliases & routes
+  "model_alias.created":           { label: "Model alias created",          icon: CheckCircle2 },
+  "model_alias.updated":           { label: "Model alias updated",          icon: ShieldCheck },
+  "model_alias.deleted":           { label: "Model alias deleted",          icon: Ban },
+  "route.upserted":                { label: "Route saved",                  icon: ShieldCheck },
+  "route.deleted":                 { label: "Route deleted",                icon: Ban },
+  // System prompt + key bulk
+  "system_prompt.allowed":         { label: "System prompt allowed",        icon: CheckCircle2 },
+  "system_prompt.rejected":        { label: "System prompt rejected",       icon: ShieldAlert },
+  // GDPR / data subject rights (Articles 17, 20, 5(1)(e))
+  "data.exported":                 { label: "Data exported (Article 20)",   icon: ShieldCheck },
+  "data.deletion_requested":      { label: "Account deletion requested",   icon: ShieldAlert },
+  "data.retention_updated":       { label: "Log retention updated",        icon: ShieldCheck },
+  "data.logs_pruned":             { label: "Logs pruned",                  icon: Flame },
 };
 
 // Shared 6-column grid template so the Requests + Audit tabs visually align.
@@ -688,14 +726,17 @@ const AuditLog = () => {
     <>
       <div className="flex gap-2">
         <Select value={action} onValueChange={setAction}>
-          <SelectTrigger className="w-56 h-9 surface-2 border-border"><SelectValue /></SelectTrigger>
-          <SelectContent>
+          <SelectTrigger className="w-64 h-9 surface-2 border-border"><SelectValue /></SelectTrigger>
+          <SelectContent className="max-h-[60vh]">
             <SelectItem value="all">All actions</SelectItem>
-            <SelectItem value="api_key.revoked">API key revoked</SelectItem>
-            <SelectItem value="api_key.admin_granted">Key admin granted</SelectItem>
-            <SelectItem value="api_key.admin_revoked">Key admin revoked</SelectItem>
-            <SelectItem value="system_prompt.allowed">system_prompt allowed</SelectItem>
-            <SelectItem value="system_prompt.rejected">system_prompt rejected</SelectItem>
+            {/* Generated from auditActionMeta so the filter stays in sync
+                with whatever verbs the backend actually emits — adding a
+                new audit verb only requires editing one map above. */}
+            {Object.entries(auditActionMeta)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([key, meta]) => (
+                <SelectItem key={key} value={key}>{meta.label}</SelectItem>
+              ))}
           </SelectContent>
         </Select>
       </div>
