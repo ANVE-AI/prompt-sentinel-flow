@@ -854,6 +854,8 @@ export function resolveEndpoint(keyRow: {
   response_format: ResponseFormat;
   /** Headers ready to send (auth already applied where applicable). */
   headers: Record<string, string>;
+  /** Optional rewriter to apply to the model id before forwarding. */
+  normalize_model?: (id: string) => string;
 } {
   if (keyRow.provider === "custom") {
     const r = resolveCustomEndpoint({
