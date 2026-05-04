@@ -373,6 +373,7 @@ const Endpoints = () => {
     setLastRefreshOk(false);
     setSavedDefaultModel(e.default_model ?? "");
     setPreviewTemplateId("");
+    setFormMode("advanced");
     setOpen(true);
   };
 
