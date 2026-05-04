@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +10,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SkeletonBlock, SkeletonRows } from "@/components/skeletons";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+
+type Range = "7d" | "14d" | "30d" | "90d";
+const RANGE_LABELS: Record<Range, string> = { "7d": "7d", "14d": "14d", "30d": "30d", "90d": "90d" };
+const RANGE_DAYS: Record<Range, number> = { "7d": 7, "14d": 14, "30d": 30, "90d": 90 };
 
 /**
  * Overview — operator-style: one hero KPI, a chart that takes the whole
@@ -18,7 +24,11 @@ import { EmptyState } from "@/components/empty-state";
  */
 const Overview = () => {
   const { call } = useDashboardApi();
-  const { data, isLoading } = useQuery({ queryKey: ["stats"], queryFn: () => call<any>("stats") });
+  const [range, setRange] = useState<Range>("14d");
+  const { data, isLoading } = useQuery({
+    queryKey: ["stats", range],
+    queryFn: () => call<any>("stats", { query: { range } }),
+  });
   const { data: logsData, isLoading: logsLoading } = useQuery({
     queryKey: ["logs", "recent"],
     queryFn: () => call<any>("list_logs", { query: { limit: "6" } }),
@@ -52,7 +62,22 @@ const Overview = () => {
     <div className="px-4 md:px-6 py-5 space-y-6 max-w-[1200px] mx-auto">
       <PageHeader
         title="Overview"
-        description="Live signal across every AnveGuard key in the last 14 days."
+        description={`Live signal across every AnveGuard key in the last ${RANGE_DAYS[range]} days.`}
+        actions={
+          <ToggleGroup
+            type="single"
+            value={range}
+            onValueChange={(v) => v && setRange(v as Range)}
+            size="sm"
+            variant="outline"
+          >
+            {(Object.keys(RANGE_LABELS) as Range[]).map((r) => (
+              <ToggleGroupItem key={r} value={r} aria-label={`Last ${RANGE_LABELS[r]}`}>
+                {RANGE_LABELS[r]}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+        }
       />
 
       {spike?.spike && (
@@ -296,7 +321,7 @@ const Overview = () => {
             <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Traffic</div>
             <div className="text-h2 font-medium mt-0.5">Requests over time</div>
           </div>
-          <div className="text-meta text-muted-foreground tabular-nums">last 14 days</div>
+          <div className="text-meta text-muted-foreground tabular-nums">last {RANGE_DAYS[range]} days</div>
         </div>
         <CardContent className="pt-2 pb-4">
           <div className="h-64">
