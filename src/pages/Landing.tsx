@@ -176,6 +176,12 @@ const Landing = () => {
           })}
         </nav>
         <div className="flex items-center gap-1.5">
+          <Button variant="ghost" size="sm" asChild className="text-muted-foreground hover:text-foreground">
+            <Link to="/docs" title="Open the AnveGuard documentation">
+              <HelpCircle className="h-3.5 w-3.5" />
+              Help
+            </Link>
+          </Button>
           <Button variant="ghost" size="sm" asChild>
             <Link to="/sign-in">Sign in</Link>
           </Button>
