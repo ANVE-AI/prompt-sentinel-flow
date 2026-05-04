@@ -311,6 +311,18 @@ const PERSONA_BYPASS_RE = /\b(?:without (?:any |all )?(?:rules?|restrictions?|fi
 // what verb follows. Combined with HARMFUL_SUBJECT_RE this becomes Tier 2.
 const NARRATIVE_FRAME_RE = /\b(?:write (?:a |an )?(?:story|fictional (?:account|story|scenario|tale)|hypothetical|scenario|tale|fable|essay|article|paper|guide|tutorial|walk-?through) (?:about|where|in which)|as (?:a |an )?(?:fictional|hypothetical|imaginary) (?:character|scenario|world|setting)|imagine (?:you|yourself) (?:are|were)|pretend (?:you are|to be|that you|that we'?re)|role[- ]?play(?:ing)? as|play(?:ing)? the role of|act as my (?:deceased |late |dead )?(?:grandmother|grandfather|grandparent|grandma|grandpa|granny|relative|aunt|uncle|mother|father|mom|dad)|in (?:a |this )?(?:hypothetical|fictional|fantasy|alternate|imaginary|made[- ]?up) (?:scenario|world|universe|reality|setting)|for (?:purely )?(?:educational|research|academic|historical|fictional|hypothetical) (?:purposes|reasons)|my (?:deceased |late |dead )?(?:grandmother|grandfather|grandparent|grandma|grandpa|granny)\s+(?:was |is |used to|would|always|loved|liked|told|taught|read))\b/i;
 
+// Deepfake / non-consensual likeness intent. Catches direct mentions
+// (deepfake, fake video, etc.) and the "photorealistic + named figure" /
+// "realistic photo of [the president/politician/celebrity]" pattern that
+// drives most misuse on image-gen modalities. Without NER we can't reliably
+// detect every named person; we cover the common signals where the prompt
+// itself flags intent ("photorealistic ... of the president", "fake photo
+// of a politician"). Returns flag (not block) — legitimate use cases like
+// historical reenactment or parody exist; operators can promote to block.
+const DEEPFAKE_DIRECT_RE = /\b(?:deep[- ]?fakes?|fake (?:photo|image|video|footage|recording) of|create (?:a |an )?fake (?:photo|image|video|footage)|impersonation of (?:[A-Z][a-z]+|the (?:president|prime minister|ceo|king|queen|pope))|swap (?:my |their )?face)\b/i;
+const DEEPFAKE_FRAMING_RE = /\b(?:photo[- ]?realistic|hyper[- ]?realistic|highly[- ]?realistic|true[- ]?to[- ]?life|life[- ]?like)\s+(?:image|photo|photograph|video|footage|render|portrait|depiction)\s+(?:of|featuring|showing|depicting)\b/i;
+const PUBLIC_FIGURE_HINT_RE = /\b(?:the president|prime minister|chancellor|ceo of|the king|the queen|the pope|head of state|the dictator|world leader|politician|celebrity|public figure|elon musk|donald trump|joe biden|vladimir putin|xi jinping|kim jong[- ]un)\b/i;
+
 // Sensitive subject hints — combined with narrative framing this is a high-
 // confidence misdirection signal. Word boundaries kept loose so partial /
 // compound forms still match (e.g. "methamphetamine", "napalm-style").
@@ -396,6 +408,27 @@ const DETECTORS: Record<string, Detector> = {
         matched: true,
         verdict: "flag",
         reason: "Narrative framing combined with a sensitive subject (likely jailbreak misdirection).",
+      };
+    }
+    return { matched: false };
+  },
+  deepfake_intent: ({ rawText, direction }) => {
+    if (direction !== "input") return { matched: false };
+    // Tier 1 — explicit "deepfake" / "fake photo of [the president]" language.
+    if (DEEPFAKE_DIRECT_RE.test(rawText)) {
+      return {
+        matched: true,
+        verdict: "flag",
+        reason: "Direct deepfake / non-consensual likeness intent in prompt.",
+      };
+    }
+    // Tier 2 — "photorealistic image of [public figure]" pattern. Both halves
+    // must be present so generic "photorealistic mountain landscape" passes.
+    if (DEEPFAKE_FRAMING_RE.test(rawText) && PUBLIC_FIGURE_HINT_RE.test(rawText)) {
+      return {
+        matched: true,
+        verdict: "flag",
+        reason: "Photorealistic-image framing combined with a named public figure (likely deepfake intent).",
       };
     }
     return { matched: false };
@@ -530,7 +563,7 @@ export function evaluateHeuristics(
   // returning `verdict` in its result (used by narrative_misdirection's
   // persona-bypass tier which is a high-confidence jailbreak signal).
   const out: LayerVerdict[] = [];
-  for (const name of ["role_impersonation", "pseudo_system_block", "encoded_density", "narrative_misdirection"] as const) {
+  for (const name of ["role_impersonation", "pseudo_system_block", "encoded_density", "narrative_misdirection", "deepfake_intent"] as const) {
     const r = DETECTORS[name]({ rawText, normalizedText, direction });
     if (r.matched) {
       out.push({ layer: "heuristics", verdict: r.verdict ?? "flag", reason: r.reason, rule: name });
