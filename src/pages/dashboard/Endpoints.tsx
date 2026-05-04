@@ -687,11 +687,41 @@ const Endpoints = () => {
   };
 
   const save = useMutation({
-    mutationFn: () => call<any>("save_endpoint", { body: buildPayload() }),
-    onSuccess: () => {
-      toast.success(isEdit ? "Endpoint updated" : "Endpoint created");
+    mutationFn: async (): Promise<{ endpoint_id: string; key?: { id: string; full_key: string; name: string } }> => {
+      const ep = await call<{ id: string }>("save_endpoint", { body: buildPayload() });
+      // Only chain key creation on first save (create flow) when the user
+      // opted in. Edits never auto-create — the option is hidden in that mode.
+      if (!isEdit && autoCreateKey) {
+        const keyName = (autoKeyName.trim() || `${form.name} key`).slice(0, 120);
+        const k = await call<{ id: string; full_key: string }>("create_key", {
+          body: {
+            name: keyName,
+            provider: "custom",
+            endpoint_id: ep.id,
+            model: form.default_model || undefined,
+            is_admin: autoKeyIsAdmin,
+          },
+        });
+        return { endpoint_id: ep.id, key: { id: k.id, full_key: k.full_key, name: keyName } };
+      }
+      return { endpoint_id: ep.id };
+    },
+    onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["endpoints"] });
-      setOpen(false);
+      qc.invalidateQueries({ queryKey: ["keys"] });
+      if (res.key) {
+        // Stay on the dialog so the user can copy the one-time secret.
+        setCreatedKey({
+          id: res.key.id,
+          full_key: res.key.full_key,
+          endpoint_id: res.endpoint_id,
+          endpoint_name: form.name,
+        });
+        toast.success(`Endpoint created · key "${res.key.name}" ready to use`);
+      } else {
+        toast.success(isEdit ? "Endpoint updated" : "Endpoint created");
+        setOpen(false);
+      }
     },
     onError: (e: any) => toast.error(e.message),
   });
