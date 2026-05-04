@@ -22,6 +22,7 @@ const Overview = () => (
       <li><strong>Drop-in.</strong> Change one base URL. No SDK upgrades, no wrappers.</li>
       <li><strong>Multi-provider.</strong> OpenAI, Anthropic, Google, and any OpenAI-compatible endpoint.</li>
       <li><strong>Governable.</strong> Per-key policies, model aliases, and fallback chains — managed in the dashboard.</li>
+      <li><strong>Observable.</strong> Token spike alerts with a calibratable severity score so anomalies surface before they hit the bill.</li>
       <li><strong>Auditable.</strong> Every request and admin action is logged with actor, timestamp, and payload.</li>
     </UL>
 
