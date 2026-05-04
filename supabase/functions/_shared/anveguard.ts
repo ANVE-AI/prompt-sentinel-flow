@@ -2,12 +2,66 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { createRemoteJWKSet, jwtVerify } from "https://esm.sh/jose@5.9.6";
 
+// Wildcard CORS — used by the public proxy endpoint, which is intended to be
+// called from any origin (it's an OpenAI-compatible API).
 export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-clerk-auth",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
 };
+
+// Default origin patterns for the dashboard function. Local dev (any port) and
+// Lovable preview/production URLs are always allowed so the included setup
+// keeps working out of the box. Add additional production origins via the
+// ALLOWED_ORIGINS env var (comma-separated, exact-match strings).
+const DEFAULT_DASHBOARD_ORIGIN_PATTERNS: RegExp[] = [
+  /^http:\/\/localhost:\d+$/,
+  /^http:\/\/127\.0\.0\.1:\d+$/,
+  /^https:\/\/[a-z0-9-]+\.lovable\.app$/i,
+  /^https:\/\/[a-z0-9-]+\.lovableproject\.com$/i,
+  /^https:\/\/[a-z0-9-]+\.lovable\.dev$/i,
+];
+
+function isAllowedDashboardOrigin(origin: string): boolean {
+  if (DEFAULT_DASHBOARD_ORIGIN_PATTERNS.some((re) => re.test(origin))) return true;
+  const env = Deno.env.get("ALLOWED_ORIGINS")?.trim();
+  if (!env) return false;
+  const allowed = env.split(",").map((o) => o.trim()).filter(Boolean);
+  return allowed.includes(origin);
+}
+
+/**
+ * CORS headers for the dashboard function. Echoes the request's Origin only
+ * when it matches the allowlist, never `*` — the dashboard carries Clerk
+ * JWTs and must not be readable from arbitrary origins.
+ */
+export function dashboardCorsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get("origin");
+  const headers: Record<string, string> = {
+    "Access-Control-Allow-Headers":
+      "authorization, x-client-info, apikey, content-type, x-clerk-auth",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+    "Vary": "Origin",
+  };
+  if (origin && isAllowedDashboardOrigin(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  }
+  return headers;
+}
+
+/**
+ * Wrap an inner Response so its CORS headers reflect the caller's Origin.
+ * Used by the dashboard function to override the wildcard headers `json()`
+ * stamps onto its responses.
+ */
+export function applyDashboardCors(res: Response, req: Request): Response {
+  const cors = dashboardCorsHeaders(req);
+  const headers = new Headers(res.headers);
+  headers.delete("Access-Control-Allow-Origin");
+  for (const [k, v] of Object.entries(cors)) headers.set(k, v);
+  return new Response(res.body, { status: res.status, headers });
+}
 
 export function json(body: unknown, status = 200, extra: HeadersInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -69,6 +123,65 @@ export async function ensureProfile(userId: string, email?: string) {
   }
 }
 
+// === Rate limiting ===
+
+/**
+ * Best-effort caller-IP extraction. Tries the standard proxy headers in
+ * priority order; falls back to "unknown" so a missing header still produces
+ * a usable bucket key (a single shared bucket for unknown callers).
+ */
+export function callerIp(req: Request): string {
+  const xff = req.headers.get("x-forwarded-for");
+  if (xff) {
+    const first = xff.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  const xri = req.headers.get("x-real-ip")?.trim();
+  if (xri) return xri;
+  const cf = req.headers.get("cf-connecting-ip")?.trim();
+  if (cf) return cf;
+  return "unknown";
+}
+
+export interface RateLimitResult {
+  allowed: boolean;
+  count: number;
+  retryAfterSeconds: number;
+}
+
+/**
+ * Increment a rate-limit bucket and return whether the caller is over the
+ * limit. Designed to **fail open**: if the RPC errors (table missing, network
+ * blip), we log and allow the request. This means deploying the proxy code
+ * before the migration runs is safe — protection turns on as soon as the
+ * migration applies.
+ */
+export async function checkRateLimit(
+  sb: ReturnType<typeof service>,
+  scope: string,
+  key: string,
+  limit: number,
+  windowSeconds: number,
+): Promise<RateLimitResult> {
+  try {
+    const { data, error } = await sb.rpc("increment_rate_limit", {
+      _scope: scope, _key: key, _window_seconds: windowSeconds,
+    });
+    if (error || !data || !data[0]) {
+      if (error) console.error("rate_limit rpc error (failing open):", error.message);
+      return { allowed: true, count: 0, retryAfterSeconds: 0 };
+    }
+    const count = Number(data[0].count) || 0;
+    if (count > limit) {
+      return { allowed: false, count, retryAfterSeconds: windowSeconds };
+    }
+    return { allowed: true, count, retryAfterSeconds: 0 };
+  } catch (e) {
+    console.error("rate_limit threw (failing open):", e instanceof Error ? e.message : e);
+    return { allowed: true, count: 0, retryAfterSeconds: 0 };
+  }
+}
+
 // === API key generation / hashing ===
 
 const enc = new TextEncoder();
@@ -79,9 +192,17 @@ export async function sha256Hex(input: string): Promise<string> {
 }
 
 export function generateApiKey(): string {
+  // 24 bytes = 192 bits of entropy. base64url encoding (RFC 4648 §5) keeps the
+  // full 64-char alphabet URL-safe and avoids the collision the previous
+  // implementation introduced by collapsing both `+` and `/` to `0`.
+  // Existing keys remain valid — verification hashes the raw string, so the
+  // alphabet change is backwards compatible.
   const bytes = crypto.getRandomValues(new Uint8Array(24));
-  const b64 = btoa(String.fromCharCode(...bytes)).replace(/\+/g, "0").replace(/\//g, "0").replace(/=/g, "");
-  return `ag_live_${b64}`;
+  const b64url = btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=/g, "");
+  return `ag_live_${b64url}`;
 }
 
 // === AES-GCM encrypt/decrypt for stored OpenAI keys ===

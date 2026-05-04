@@ -1,8 +1,8 @@
 // AnveGuard dashboard API. Authenticates with a Clerk session JWT and exposes
 // CRUD for keys, policies, logs, and stats. Single function with action routing.
-import { corsHeaders, json, service, verifyClerkJwt, bearer, ensureProfile,
+import { dashboardCorsHeaders, applyDashboardCors, json, service, verifyClerkJwt, bearer, ensureProfile,
   generateApiKey, sha256Hex, encryptString, decryptString, GLOBAL_DEFAULT_BLOCKED } from "../_shared/anveguard.ts";
-import { evaluate as evaluatePolicy, DEFAULT_SETTINGS,
+import { evaluate as evaluatePolicy, DEFAULT_SETTINGS, isSafeRegex, MAX_REGEX_PATTERN_LEN,
   type PolicyRule, type PolicyIntent, type PolicySettings } from "../_shared/policy_engine.ts";
 import { HARNESS_CASES, type ExpectedVerdict } from "../_shared/policy_test_corpus.ts";
 import { PROVIDERS, getProvider, CUSTOM_SCHEMA, resolveCustomEndpoint,
@@ -59,9 +59,12 @@ async function loadReadableEndpoint(
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") return new Response(null, { headers: dashboardCorsHeaders(req) });
 
-  try {
+  // Inner IIFE so the existing `return json(...)` sites resolve to the
+  // function's return value; we then post-process CORS once on the outside.
+  const inner = await (async (): Promise<Response> => {
+    try {
     const token = bearer(req);
     if (!token) return json({ error: "Missing auth" }, 401);
     const { sub: userId, email } = await verifyClerkJwt(token);
@@ -1274,8 +1277,15 @@ Deno.serve(async (req) => {
         if (kind === "regex") {
           const pattern = String(config.pattern ?? "");
           if (!pattern) return json({ error: "regex rule requires config.pattern" }, 400);
+          if (pattern.length > MAX_REGEX_PATTERN_LEN) {
+            return json({ error: `regex pattern too long (max ${MAX_REGEX_PATTERN_LEN} chars)` }, 400);
+          }
           try { new RegExp(pattern, String(config.flags ?? "i")); }
           catch (e) { return json({ error: `invalid regex: ${(e as Error).message}` }, 400); }
+          const safety = isSafeRegex(pattern);
+          if (!safety.safe) {
+            return json({ error: `unsafe regex pattern: ${safety.reason}` }, 400);
+          }
         }
         const row = {
           user_id: userId, name, kind, severity, direction, enabled, config,
@@ -3151,10 +3161,12 @@ Deno.serve(async (req) => {
       default:
         return json({ error: "Unknown action" }, 400);
     }
-  } catch (e) {
-    console.error("dashboard error:", e);
-    return json({ error: e instanceof Error ? e.message : "Unknown error" }, 500);
-  }
+    } catch (e) {
+      console.error("dashboard error:", e);
+      return json({ error: e instanceof Error ? e.message : "Unknown error" }, 500);
+    }
+  })();
+  return applyDashboardCors(inner, req);
 });
 
 async function safeJson(req: Request): Promise<any> {

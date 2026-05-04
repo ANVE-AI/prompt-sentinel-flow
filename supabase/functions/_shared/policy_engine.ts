@@ -15,6 +15,47 @@
 
 import { GLOBAL_DEFAULT_BLOCKED, checkPolicy } from "./anveguard.ts";
 
+// ---------- ReDoS protection ----------------------------------------------
+
+/** Hard cap on user-supplied regex pattern length. */
+export const MAX_REGEX_PATTERN_LEN = 256;
+
+/**
+ * Hard cap on the size of text we'll match a user-supplied regex against.
+ * JavaScript regex is synchronous and uncancellable; capping input length is
+ * the cheapest defense against catastrophic backtracking when the heuristic
+ * below misses a malicious pattern.
+ */
+export const MAX_REGEX_INPUT_LEN = 50_000;
+
+/**
+ * Heuristic check for ReDoS-prone patterns. Rejects nested quantifiers like
+ * `(a+)+`, `(a|a)*`, `(.*?)+` — the classic catastrophic backtracking shapes —
+ * and rejects excessive bounded repetition. Not exhaustive (no NFA analysis),
+ * but catches the patterns that show up in CVE-style ReDoS bug reports.
+ */
+export function isSafeRegex(pattern: string): { safe: true } | { safe: false; reason: string } {
+  if (pattern.length > MAX_REGEX_PATTERN_LEN) {
+    return { safe: false, reason: `pattern exceeds ${MAX_REGEX_PATTERN_LEN} characters` };
+  }
+  // Group with a quantifier inside, followed by a quantifier outside: (a+)+
+  const nestedQuant = /\([^()]*[+*?][^()]*\)\s*[+*?{]/;
+  // Group with alternation, followed by a quantifier: (a|a)*
+  const altQuant = /\([^()]*\|[^()]*\)\s*[+*?{]/;
+  // Excessively large bounded repetition: a{10000} or a{1,99999}
+  const hugeBound = /\{(\d{4,}|\d+,\d{4,})/;
+  if (nestedQuant.test(pattern)) {
+    return { safe: false, reason: "nested quantifiers (potential ReDoS)" };
+  }
+  if (altQuant.test(pattern)) {
+    return { safe: false, reason: "alternation under quantifier (potential ReDoS)" };
+  }
+  if (hugeBound.test(pattern)) {
+    return { safe: false, reason: "excessive repetition counter" };
+  }
+  return { safe: true };
+}
+
 // ---------- Types ----------------------------------------------------------
 
 export type LayerName =
@@ -372,9 +413,24 @@ export function evaluatePatterns(
       const pattern = String(rule.config.pattern ?? "");
       const flags = String(rule.config.flags ?? "i");
       if (!pattern) continue;
+      // Defense in depth — even if save-time validation missed something, never
+      // run an unsafe pattern at the hot path. Surface as a flag so the user
+      // notices and can fix the rule.
+      const safety = isSafeRegex(pattern);
+      if (!safety.safe) {
+        out.push({
+          layer: "patterns", verdict: "flag",
+          reason: `Regex rule "${rule.name}" disabled: ${safety.reason}.`,
+          rule: rule.name,
+        });
+        continue;
+      }
       try {
         const re = new RegExp(pattern, flags);
-        const m = text.match(re);
+        // Cap input length — JS regex is uncancellable, so the cheapest
+        // protection against backtracking is to bound the haystack.
+        const haystack = text.length > MAX_REGEX_INPUT_LEN ? text.slice(0, MAX_REGEX_INPUT_LEN) : text;
+        const m = haystack.match(re);
         if (m) {
           out.push({
             layer: "patterns", verdict: severityToVerdict(rule.severity),

@@ -1,6 +1,6 @@
 // AnveGuard proxy — OpenAI-compatible /v1/chat/completions endpoint.
 // Public function; authenticated via AnveGuard API keys (Authorization: Bearer ag_live_...).
-import { corsHeaders, json, service, sha256Hex, decryptString } from "../_shared/anveguard.ts";
+import { corsHeaders, json, service, sha256Hex, decryptString, callerIp, checkRateLimit } from "../_shared/anveguard.ts";
 import { getProvider, resolveEndpoint } from "../_shared/providers.ts";
 import { openaiToAnthropicRequest, anthropicToOpenAIResponse,
   anthropicStreamToOpenAI } from "../_shared/anthropic.ts";
@@ -104,6 +104,38 @@ function errorResponse(
   shape: RequestShape, status: number, message: string, opts: ErrorOpts = {},
 ): Response {
   return json(errorForShape(shape, status, message, opts), status, opts.headers);
+}
+
+// ---- Auth-failure rate limit ----------------------------------------------
+// Two sliding-window buckets per caller IP: 5 fails/min (catches active
+// brute-force) and 50 fails/hour (catches slow / distributed probing). Once
+// either is over the limit, return 429 with Retry-After. Both call sites that
+// emit 401 for missing/invalid keys go through this helper so the protection
+// is uniform.
+//
+// Fails open if the rate-limit RPC errors (e.g. before the migration applies),
+// see checkRateLimit in _shared/anveguard.ts.
+const AUTH_FAIL_LIMIT_PER_MIN = 5;
+const AUTH_FAIL_LIMIT_PER_HOUR = 50;
+
+async function rateLimitedAuthFailure(
+  sb: ReturnType<typeof service>,
+  req: Request,
+  shape: RequestShape,
+  message: string,
+  code: string,
+): Promise<Response> {
+  const ip = callerIp(req);
+  const min = await checkRateLimit(sb, "proxy_auth_fail_min", ip, AUTH_FAIL_LIMIT_PER_MIN, 60);
+  const hour = await checkRateLimit(sb, "proxy_auth_fail_hour", ip, AUTH_FAIL_LIMIT_PER_HOUR, 3600);
+  if (!min.allowed || !hour.allowed) {
+    const retryAfter = Math.max(min.retryAfterSeconds, hour.retryAfterSeconds);
+    return errorResponse(shape, 429, "Too many failed authentication attempts. Try again later.", {
+      code: "rate_limited",
+      headers: { "Retry-After": String(retryAfter) },
+    });
+  }
+  return errorResponse(shape, 401, message, { code });
 }
 
 // ---- SSE helpers -----------------------------------------------------------
@@ -364,7 +396,9 @@ async function handleRequest(req: Request): Promise<Response> {
     || (xApiKey.startsWith("ag_live_") ? xApiKey : "")
     || (queryKey.startsWith("ag_live_") ? queryKey : "");
   if (!apiKeyPlain) {
-    return errorResponse(reqShape, 401, "Missing API key. Provide it in the Authorization header (Bearer ag_live_…), the x-api-key header, or the ?key= query param.", { code: "missing_api_key" });
+    return await rateLimitedAuthFailure(sb, req, reqShape,
+      "Missing API key. Provide it in the Authorization header (Bearer ag_live_…), the x-api-key header, or the ?key= query param.",
+      "missing_api_key");
   }
   const key_hash = await sha256Hex(apiKeyPlain);
 
@@ -372,7 +406,9 @@ async function handleRequest(req: Request): Promise<Response> {
     .select("id,user_id,provider,provider_key_encrypted,model_default,is_active,is_admin,compression_mode,custom_base_url,custom_models_url,custom_kind,custom_auth_scheme,custom_auth_header,custom_extra_headers,custom_path_prefix,custom_chat_path,custom_models_path,custom_response_format")
     .eq("key_hash", key_hash).maybeSingle();
   if (!keyRow || !keyRow.is_active) {
-    return errorResponse(reqShape, 401, "Invalid or revoked API key.", { code: "invalid_api_key" });
+    return await rateLimitedAuthFailure(sb, req, reqShape,
+      "Invalid or revoked API key.",
+      "invalid_api_key");
   }
 
   // Body — parse, then translate to canonical OpenAI Chat Completions shape.
