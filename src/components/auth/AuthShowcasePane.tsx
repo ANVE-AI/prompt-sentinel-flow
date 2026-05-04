@@ -96,6 +96,27 @@ export const AuthShowcasePane = () => (
             );
           })}
         </ol>
+
+        {/* Lightweight footer actions — give signed-out users an obvious
+            escape hatch back to the public quickstart and the docs without
+            losing their place in the auth form. */}
+        <div className="mt-5 flex flex-wrap items-center gap-2">
+          <Link
+            to="/#how"
+            className="inline-flex items-center gap-1.5 text-meta text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <RotateCcw className="h-3 w-3" />
+            Replay quickstart
+          </Link>
+          <span className="text-muted-foreground/40">·</span>
+          <Link
+            to="/docs"
+            className="inline-flex items-center gap-1.5 text-meta text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <HelpCircle className="h-3 w-3" />
+            Help &amp; docs
+          </Link>
+        </div>
       </div>
     </div>
   </div>
