@@ -365,7 +365,10 @@ const Keys = () => {
                     <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Production" className="mt-1.5" />
                   </div>
                   <div>
-                    <Label>Provider</Label>
+                    <Label className="inline-flex items-center gap-1.5">
+                      Provider
+                      <HelpHint>Pick a managed provider for the fastest setup, or <strong>Custom</strong> to point at any OpenAI-compatible / Anthropic-style endpoint (Perplexity, your Ollama, etc.).</HelpHint>
+                    </Label>
                     <Select value={providerId} onValueChange={onProviderChange}>
                       <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
                       <SelectContent>
