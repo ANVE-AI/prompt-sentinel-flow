@@ -296,6 +296,7 @@ const Overview = () => {
       )}
 
       {/* Token usage chart — separate card to keep the requests chart clean. */}
+      {!noData && (
       <Card className="surface-1 border-border">
         <div className="px-5 pt-4 pb-2 flex items-center justify-between">
           <div>
@@ -308,6 +309,13 @@ const Overview = () => {
         </div>
         <CardContent className="pt-2 pb-4">
           <div className="h-48">
+            {isLoading ? (
+              <div className="h-full grid place-items-center text-meta text-muted-foreground">
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading token usage…
+                </span>
+              </div>
+            ) : (
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={data?.chart ?? []} margin={{ top: 6, right: 12, bottom: 0, left: -16 }}>
                 <defs>
@@ -329,10 +337,11 @@ const Overview = () => {
                 <Area type="monotone" dataKey="tokens_saved" stroke="hsl(var(--muted-foreground))" fill="transparent" strokeDasharray="3 3" strokeWidth={1.25} />
               </AreaChart>
             </ResponsiveContainer>
+            )}
           </div>
         </CardContent>
       </Card>
-
+      )}
       {/* Compression impact — saved tokens grouped by per-key compression mode. */}
       <Card className="surface-1 border-border">
         <div className="px-5 pt-4 pb-3 flex items-center justify-between border-b border-border">
