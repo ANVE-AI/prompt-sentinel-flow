@@ -163,7 +163,18 @@ const res = await client.chat.completions.create({
 });`,
           },
         ]}
-      />
+      >
+        <div className="pt-1">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => window.dispatchEvent(new Event(OPEN_WALKTHROUGH_EVENT))}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            Replay onboarding walkthrough
+          </Button>
+        </div>
+      </HelpPanel>
 
       {/* Page-level empty state — shown when the selected range has zero traffic.
           Sits below alerts so spike banners (which use a different baseline window)
