@@ -114,6 +114,8 @@ interface CustomSchema {
     id: string;
     label: string;
     description?: string;
+    category?: "managed" | "hosted" | "self_hosted";
+    managed?: boolean;
     values: {
       kind: string;
       base_url: string;
