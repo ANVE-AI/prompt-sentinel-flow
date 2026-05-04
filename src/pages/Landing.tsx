@@ -4,6 +4,7 @@ import { ArrowRight, Github, Check, HelpCircle, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/Logo";
 import { CodeTabs } from "@/components/landing/CodeTabs";
+import { QuickstartHelpPanel } from "@/components/quickstart-help-panel";
 import { cn } from "@/lib/utils";
 
 /**
@@ -348,6 +349,13 @@ const Landing = () => {
             </li>
           ))}
         </ol>
+
+        {/* Inline, copy-paste-ready quickstart so visitors can finish setup
+            without first opening the dashboard. Lives inside #how so the nav
+            link and "Replay quickstart" CTA still land users on it. */}
+        <div className="mt-10">
+          <QuickstartHelpPanel variant="full" />
+        </div>
       </div>
     </section>
 
