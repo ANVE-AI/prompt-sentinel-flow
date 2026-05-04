@@ -529,6 +529,21 @@ Deno.test("output: credential shape in response (sk-… key)", async () => {
   assertEquals(r.verdict, "block", `credential-shape leak must block`);
 });
 
+Deno.test("output: credential_shape is NOT stateful across requests", async () => {
+  // Regression for the classic /g + .test() lastIndex bug: CRED_PATTERNS
+  // regexes use the global flag, and re.test() with /g advances lastIndex
+  // on the regex object itself. Without an explicit lastIndex reset,
+  // request 1 hits, request 2 silently misses, request 3 hits again
+  // (alternating). Module-level regexes persist across requests in the
+  // same Deno isolate, so this would intermittently let secret-shape
+  // strings slip through in production. Invoke twice with different keys
+  // and assert both block.
+  const r1 = await runOutputCase("Here's a key: sk-AAAAAAAAAAAAAAAAAAAA. Anything else?");
+  assertEquals(r1.verdict, "block", `first call must block`);
+  const r2 = await runOutputCase("Here's another: sk-BBBBBBBBBBBBBBBBBBBB. Cheers.");
+  assertEquals(r2.verdict, "block", `second call must ALSO block — proves lastIndex is reset`);
+});
+
 Deno.test("output FP guard: user asks 'how do I make a curl request' — no fake tool_calls, no fake creds", async () => {
   // The model legitimately includes the literal text "tool_calls" in
   // documentation prose. The detector requires "tool_calls" to appear

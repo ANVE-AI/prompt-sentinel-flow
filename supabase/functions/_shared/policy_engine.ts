@@ -419,6 +419,10 @@ const DETECTORS: Record<string, Detector> = {
   },
   credential_shape: ({ rawText }) => {
     for (const { name, re } of CRED_PATTERNS) {
+      // Reset lastIndex: CRED_PATTERNS regexes use the /g flag and re.test()
+      // with /g is stateful — each call advances lastIndex, so after one
+      // hit the next request would silently miss until the index wraps.
+      re.lastIndex = 0;
       if (re.test(rawText)) return { matched: true, reason: `Looks like a leaked credential (${name}).` };
     }
     return { matched: false };
