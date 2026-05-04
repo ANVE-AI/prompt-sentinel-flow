@@ -17,6 +17,8 @@ import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SkeletonRows } from "@/components/skeletons";
 import { EmptyState } from "@/components/empty-state";
+import { HelpPanel } from "@/components/help-panel";
+import { HelpHint } from "@/components/help-hint";
 import { AliasesSheet } from "@/components/aliases-sheet";
 
 const PROXY_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proxy`;
@@ -609,6 +611,41 @@ const Keys = () => {
           </DialogContent>
         </Dialog>
       </div>
+
+      <HelpPanel
+        storageKey="keys"
+        title="How AnveGuard keys work"
+        steps={[
+          {
+            title: "One key per environment or app",
+            body: <>Each <code className="font-mono">ag_live_…</code> key proxies requests to a single upstream provider. Issue separate keys for staging vs prod so you can revoke one without breaking the other.</>,
+          },
+          {
+            title: "Provider credentials stay in Lovable Cloud",
+            body: "Your real Perplexity / OpenAI / Anthropic key is encrypted server-side. Clients only ever see the AnveGuard key, so a leaked key affects one app — not your provider account.",
+          },
+          {
+            title: "Rotate without downtime",
+            body: <>Use <strong>Create replacement key</strong> to mint a new key bound to the same endpoint, swap it in your app, then revoke the old one.</>,
+          },
+          {
+            title: "Admin keys can override system prompts",
+            body: <>Only <strong>admin</strong> keys are allowed to send a <code className="font-mono">system_prompt</code> alongside the workspace guardrail. Leave it off for regular app keys.</>,
+          },
+        ]}
+        examples={[
+          {
+            label: "curl with an AnveGuard key",
+            code: `curl https://${typeof window !== "undefined" ? window.location.host : "your-app"}/proxy/v1/chat/completions \\
+  -H 'Authorization: Bearer ag_live_…' \\
+  -H 'Content-Type: application/json' \\
+  -d '{
+    "model": "sonar-pro",
+    "messages": [{"role": "user", "content": "Hello"}]
+  }'`,
+          },
+        ]}
+      />
 
       {/* Bulk action bar — only rendered when there's an active selection so
           the page stays calm in the common case. Both buttons hit the
