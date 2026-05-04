@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +10,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SkeletonBlock, SkeletonRows } from "@/components/skeletons";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+
+type Range = "7d" | "14d" | "30d" | "90d";
+const RANGE_LABELS: Record<Range, string> = { "7d": "7d", "14d": "14d", "30d": "30d", "90d": "90d" };
+const RANGE_DAYS: Record<Range, number> = { "7d": 7, "14d": 14, "30d": 30, "90d": 90 };
 
 /**
  * Overview — operator-style: one hero KPI, a chart that takes the whole
