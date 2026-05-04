@@ -1363,6 +1363,9 @@ Deno.serve(async (req) => {
             token_spike_min_tokens: 10000,
             token_spike_ratio: 3.0,
             token_spike_webhook_url: null,
+            severity_baseline_days: 7,
+            severity_volume_dampening: 0.6,
+            severity_score_cap: 100,
           },
           known_intents: await loadKnownIntentNames(sb, userId),
         });
