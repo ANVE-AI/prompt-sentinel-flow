@@ -15,6 +15,7 @@ import { HelpPanel } from "@/components/help-panel";
 import { Button } from "@/components/ui/button";
 import { OPEN_WALKTHROUGH_EVENT } from "@/components/onboarding-walkthrough";
 import { Sparkles } from "lucide-react";
+import { NextStepCard } from "@/components/next-step-card";
 
 const PROXY_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proxy`;
 
@@ -97,6 +98,8 @@ const Overview = () => {
           </div>
         }
       />
+
+      <NextStepCard />
 
       <HelpPanel
         storageKey="overview"
