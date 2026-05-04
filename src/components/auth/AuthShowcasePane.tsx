@@ -1,4 +1,5 @@
-import { ShieldCheck, Plug, KeyRound, Sparkles } from "lucide-react";
+import { ShieldCheck, Plug, KeyRound, Sparkles, HelpCircle, RotateCcw } from "lucide-react";
+import { Link } from "react-router-dom";
 
 /**
  * Showcase pane shown beside the Clerk auth form on /sign-in and /sign-up.
