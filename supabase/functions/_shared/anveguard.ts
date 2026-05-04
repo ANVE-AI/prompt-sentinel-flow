@@ -21,6 +21,7 @@ const DEFAULT_DASHBOARD_ORIGIN_PATTERNS: RegExp[] = [
   /^https:\/\/[a-z0-9-]+\.lovable\.app$/i,
   /^https:\/\/[a-z0-9-]+\.lovableproject\.com$/i,
   /^https:\/\/[a-z0-9-]+\.lovable\.dev$/i,
+  /^https:\/\/(?:[a-z0-9-]+\.)*citerlabs\.com$/i,
 ];
 
 function isAllowedDashboardOrigin(origin: string): boolean {
