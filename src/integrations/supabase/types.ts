@@ -541,11 +541,13 @@ export type Database = {
           enable_intent: boolean
           enable_normalizer: boolean
           enable_patterns: boolean
+          enable_pii_detection: boolean
           enable_semantic_keywords: boolean
           guardrail_system_prompt: string | null
           injection_action: string
           intent_shadow_mode: boolean
           log_retention_days: number
+          pii_action: string
           semantic_threshold: number
           severity_baseline_days: number
           severity_score_cap: number
@@ -582,11 +584,13 @@ export type Database = {
           enable_intent?: boolean
           enable_normalizer?: boolean
           enable_patterns?: boolean
+          enable_pii_detection?: boolean
           enable_semantic_keywords?: boolean
           guardrail_system_prompt?: string | null
           injection_action?: string
           intent_shadow_mode?: boolean
           log_retention_days?: number
+          pii_action?: string
           semantic_threshold?: number
           severity_baseline_days?: number
           severity_score_cap?: number
@@ -623,11 +627,13 @@ export type Database = {
           enable_intent?: boolean
           enable_normalizer?: boolean
           enable_patterns?: boolean
+          enable_pii_detection?: boolean
           enable_semantic_keywords?: boolean
           guardrail_system_prompt?: string | null
           injection_action?: string
           intent_shadow_mode?: boolean
           log_retention_days?: number
+          pii_action?: string
           semantic_threshold?: number
           severity_baseline_days?: number
           severity_score_cap?: number
