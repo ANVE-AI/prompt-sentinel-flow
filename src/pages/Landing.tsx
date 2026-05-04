@@ -1,8 +1,10 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, Github, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/Logo";
 import { CodeTabs } from "@/components/landing/CodeTabs";
+import { cn } from "@/lib/utils";
 
 /**
  * Landing page — YC-style "high-signal, low-decoration" layout.
