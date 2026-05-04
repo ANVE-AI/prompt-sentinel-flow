@@ -12,6 +12,9 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { HelpPanel } from "@/components/help-panel";
+import { Button } from "@/components/ui/button";
+import { OPEN_WALKTHROUGH_EVENT } from "@/components/onboarding-walkthrough";
+import { Sparkles } from "lucide-react";
 
 const PROXY_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proxy`;
 
@@ -160,7 +163,18 @@ const res = await client.chat.completions.create({
 });`,
           },
         ]}
-      />
+      >
+        <div className="pt-1">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => window.dispatchEvent(new Event(OPEN_WALKTHROUGH_EVENT))}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            Replay onboarding walkthrough
+          </Button>
+        </div>
+      </HelpPanel>
 
       {/* Page-level empty state — shown when the selected range has zero traffic.
           Sits below alerts so spike banners (which use a different baseline window)
