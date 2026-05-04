@@ -1309,6 +1309,11 @@ Deno.serve(async (req) => {
           use_global_defaults: !!use_global_defaults,
           block_message: block_message || "This request was blocked by your organization's AI policy.",
         }, { onConflict: "user_id" });
+        await auditAction(sb, userId, "policies.updated", "policies", userId, {
+          blocked_keywords_count: Array.isArray(blocked_keywords) ? blocked_keywords.length : 0,
+          allowed_keywords_count: Array.isArray(allowed_keywords) ? allowed_keywords.length : 0,
+          use_global_defaults: !!use_global_defaults,
+        });
         return json({ ok: true });
       }
 
@@ -1665,6 +1670,7 @@ Deno.serve(async (req) => {
         await sb.from("policy_intents").upsert({
           user_id: userId, intent, action, min_confidence: minConf,
         }, { onConflict: "user_id,intent" });
+        await auditAction(sb, userId, "policy_intent.upserted", "policy_intent", intent, { action, min_confidence: minConf });
         return json({ ok: true });
       }
 
@@ -1673,6 +1679,7 @@ Deno.serve(async (req) => {
         if (!intent) return json({ error: "intent is required" }, 400);
         const { error } = await sb.from("policy_intents").delete().eq("user_id", userId).eq("intent", intent);
         if (error) return json({ error: error.message }, 400);
+        await auditAction(sb, userId, "policy_intent.deleted", "policy_intent", intent);
         return json({ ok: true });
       }
 
@@ -1724,8 +1731,11 @@ Deno.serve(async (req) => {
       case "delete_known_intent": {
         const id = String(body?.id ?? "");
         if (!id) return json({ error: "id required" }, 400);
+        const { data: row } = await sb.from("known_intents").select("name")
+          .eq("id", id).eq("user_id", userId).maybeSingle();
         const { error } = await sb.from("known_intents").delete().eq("id", id).eq("user_id", userId);
         if (error) return json({ error: error.message }, 400);
+        await auditAction(sb, userId, "known_intent.deleted", "known_intent", id, row ?? {});
         return json({ ok: true });
       }
       // one or more detected intents.
@@ -1849,8 +1859,11 @@ Deno.serve(async (req) => {
       case "delete_policy_template": {
         const id = String(body?.id ?? "");
         if (!id) return json({ error: "id required" }, 400);
+        const { data: row } = await sb.from("policy_templates").select("name,current_version")
+          .eq("id", id).eq("user_id", userId).maybeSingle();
         const { error } = await sb.from("policy_templates").delete().eq("id", id).eq("user_id", userId);
         if (error) return json({ error: error.message }, 400);
+        await auditAction(sb, userId, "policy_template.deleted", "policy_template", id, row ?? {});
         return json({ ok: true });
       }
 
@@ -3391,9 +3404,12 @@ Deno.serve(async (req) => {
       case "delete_alias": {
         const { id } = body ?? {};
         if (!id) return json({ error: "id required" }, 400);
+        const { data: row } = await sb.from("model_aliases").select("alias,target_model")
+          .eq("id", id).eq("user_id", userId).maybeSingle();
         const { error } = await sb.from("model_aliases").delete()
           .eq("id", id).eq("user_id", userId);
         if (error) return json({ error: error.message }, 400);
+        await auditAction(sb, userId, "model_alias.deleted", "model_alias", id, row ?? {});
         return json({ ok: true });
       }
 
@@ -3485,9 +3501,12 @@ Deno.serve(async (req) => {
       case "delete_route": {
         const { id } = body ?? {};
         if (!id) return json({ error: "id required" }, 400);
+        const { data: row } = await sb.from("routes").select("name")
+          .eq("id", id).eq("user_id", userId).maybeSingle();
         const { error } = await sb.from("routes").delete()
           .eq("id", id).eq("user_id", userId);
         if (error) return json({ error: error.message }, 400);
+        await auditAction(sb, userId, "route.deleted", "route", id, row ?? {});
         return json({ ok: true });
       }
 
