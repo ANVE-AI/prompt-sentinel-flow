@@ -303,7 +303,19 @@ const URL_RE = /https?:\/\/([^\s)>'"]+)/gi;
 //                   Vietnam"). Operators can promote to block via strict_mode.
 
 // Persona-bypass language. Direct jailbreak signals regardless of any narrative.
-const PERSONA_BYPASS_RE = /\b(?:without (?:any |all )?(?:rules?|restrictions?|filters?|limits?|safety|censorship|moderation|guidelines|guardrails)|no (?:rules?|restrictions?|filters?|limits?|safety|censorship|guidelines|guardrails)|unrestricted|uncensored|unfiltered|jailbroken|jail[- ]?break|do anything now|developer mode|debug mode|god mode|act(?:ing)? (?:like|as) (?:an? )?(?:uncensored|unrestricted|unfiltered|jailbroken|evil|dark|rogue) (?:ai|model|assistant|chatbot)|disregard (?:your|all|any|the) (?:instructions|rules|restrictions|guidelines|safety|policy)|ignore (?:your|all|any|the) (?:instructions|rules|restrictions|guidelines|safety|policy|prior|previous)|you (?:have|are) (?:now )?(?:no|free of|without) (?:rules?|restrictions?|filters?|limits?|guidelines)|you don'?t have (?:any |to follow )?(?:rules?|restrictions?|filters?|limits?|guidelines))\b/i;
+// NOTE: the `ignore` clause is intentionally permissive — `ignore safety
+// guidelines` (no "your"/"all"/"any" article) is the exact phrasing every
+// jailbreak corpus uses, so we let the optional-article variant match too.
+const PERSONA_BYPASS_RE = /\b(?:without (?:any |all )?(?:rules?|restrictions?|filters?|limits?|safety|censorship|moderation|guidelines|guardrails)|no (?:rules?|restrictions?|filters?|limits?|safety|censorship|guidelines|guardrails)|unrestricted|uncensored|unfiltered|jailbroken|jail[- ]?break|do anything now|developer mode|debug mode|god mode|act(?:ing)? (?:like|as) (?:an? )?(?:uncensored|unrestricted|unfiltered|jailbroken|evil|dark|rogue) (?:ai|model|assistant|chatbot)|disregard (?:your|all|any|the)? ?(?:instructions|rules|restrictions|guidelines|safety|policy)|ignore (?:your|all|any|the)? ?(?:instructions|rules|restrictions|guidelines|safety|policy|prior|previous)|you (?:have|are) (?:now )?(?:no|free of|without) (?:rules?|restrictions?|filters?|limits?|guidelines)|you don'?t have (?:any |to follow )?(?:rules?|restrictions?|filters?|limits?|guidelines))\b/i;
+
+// Always-block subjects — content that has NO legitimate generative use case.
+// Hard blocks regardless of narrative framing or "for research" excuses.
+const ALWAYS_BLOCK_SUBJECT_RE = /\b(?:csam|child (?:sexual|sexually|pornograph|abuse imag(?:e|ery))|cp imagery|pedophil(?:e|ic|ia)|minor (?:nudity|sexual))\b/i;
+
+// Construction intent + harmful subject — "how to assemble a pipe bomb",
+// "step by step synthesis of meth", "schematic showing how to build". When
+// both halves match, the ask is for actionable harmful instructions.
+const CONSTRUCTION_INTENT_RE = /\b(?:how to (?:assemble|build|construct|make|cook|synthesi[sz]e|prepare|detonate|deploy)|recipe for (?:making|building|cooking|synthesi[sz]ing)|step.by.step.{0,30}(?:assembly|construction|synthesis|build|cook|recipe)|schematic (?:for|of|showing how) (?:assembling|building|making|deploying)|detailed (?:schematic|instructions|guide|blueprint) (?:for|to|on how to|showing how to|on (?:assembling|building|making|deploying)))\b/i;
 
 // Narrative framing. Alone these are benign (lots of valid creative writing).
 // The "deceased relative" branch is intentionally loose — the well-known
@@ -391,6 +403,15 @@ const DETECTORS: Record<string, Detector> = {
   },
   narrative_misdirection: ({ rawText, normalizedText, direction }) => {
     if (direction !== "input") return { matched: false };
+    // Tier 0: subjects with NO legitimate generative use (CSAM etc.) — always
+    // hard block, no narrative wrapper required.
+    if (ALWAYS_BLOCK_SUBJECT_RE.test(normalizedText) || ALWAYS_BLOCK_SUBJECT_RE.test(rawText)) {
+      return {
+        matched: true,
+        verdict: "block",
+        reason: "Subject has no legitimate generative use (always-blocked category).",
+      };
+    }
     // Tier 1: persona-bypass language is a jailbreak signal independent of any
     // narrative wrapper. High confidence → block.
     if (PERSONA_BYPASS_RE.test(normalizedText) || PERSONA_BYPASS_RE.test(rawText)) {
@@ -398,6 +419,17 @@ const DETECTORS: Record<string, Detector> = {
         matched: true,
         verdict: "block",
         reason: "Persona-bypass language requesting an unrestricted/uncensored model.",
+      };
+    }
+    // Tier 1.5: construction-intent verbs ("how to assemble", "step-by-step
+    // synthesis") combined with a harmful subject. The narrative wrapper
+    // doesn't change the actionability — this is the "make me a weapon"
+    // shape regardless of phrasing → block.
+    if (CONSTRUCTION_INTENT_RE.test(rawText) && HARMFUL_SUBJECT_RE.test(normalizedText)) {
+      return {
+        matched: true,
+        verdict: "block",
+        reason: "Construction-intent verbs combined with a harmful subject (actionable-harm request).",
       };
     }
     // Tier 2: narrative framing combined with a sensitive subject. Lower
