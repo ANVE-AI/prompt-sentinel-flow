@@ -101,18 +101,73 @@ const FAQ: { q: string; a: string }[] = [
   },
 ];
 
-const Landing = () => (
-  <div className="min-h-screen bg-background text-foreground antialiased">
+const SECTION_IDS = ["product", "observability", "how", "faq"];
+
+const Landing = () => {
+  const [activeSection, setActiveSection] = useState<string>("");
+
+  // Smooth-scroll for in-page hash links (respects reduced-motion via CSS).
+  const handleHashClick = (
+    e: React.MouseEvent<HTMLAnchorElement>,
+    href: string,
+  ) => {
+    if (!href.startsWith("#")) return;
+    const id = href.slice(1);
+    const el = document.getElementById(id);
+    if (!el) return;
+    e.preventDefault();
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    history.replaceState(null, "", href);
+  };
+
+  // Highlight the nav item whose section is currently in view.
+  useEffect(() => {
+    const elements = SECTION_IDS
+      .map((id) => document.getElementById(id))
+      .filter((el): el is HTMLElement => el !== null);
+    if (elements.length === 0) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+        if (visible) setActiveSection(visible.target.id);
+      },
+      { rootMargin: "-40% 0px -55% 0px", threshold: [0, 0.25, 0.5, 1] },
+    );
+    elements.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+  <div className="min-h-screen bg-background text-foreground antialiased [scroll-behavior:smooth] [&_section[id]]:scroll-mt-16">
     {/* ------------------------------- Top bar ------------------------------ */}
     <header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur">
       <div className="mx-auto max-w-6xl px-4 md:px-6 h-12 flex items-center justify-between">
         <Logo />
         <nav className="hidden md:flex items-center gap-6 text-meta text-muted-foreground">
-          {NAV.map((n) => (
-            <a key={n.href} href={n.href} className="hover:text-foreground transition-colors">
-              {n.label}
-            </a>
-          ))}
+          {NAV.map((n) => {
+            const isHash = n.href.startsWith("#");
+            const isActive = isHash && activeSection === n.href.slice(1);
+            return (
+              <a
+                key={n.href}
+                href={n.href}
+                onClick={(e) => handleHashClick(e, n.href)}
+                aria-current={isActive ? "true" : undefined}
+                className={cn(
+                  "relative transition-colors hover:text-foreground",
+                  isActive && "text-foreground",
+                )}
+              >
+                {n.label}
+                {isActive && (
+                  <span className="absolute -bottom-[15px] left-0 right-0 h-px bg-primary" />
+                )}
+              </a>
+            );
+          })}
         </nav>
         <div className="flex items-center gap-1.5">
           <Button variant="ghost" size="sm" asChild>
