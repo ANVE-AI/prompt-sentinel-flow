@@ -1316,6 +1316,7 @@ Deno.serve(async (req) => {
           "enable_injection_guard", "enable_behavioral",
           "enable_fuzzy_keywords", "enable_semantic_keywords",
           "allow_client_system_prompt",
+          "enable_compression",
         ] as const;
         const patch: Record<string, unknown> = { user_id: userId };
         for (const k of allowedKeys) {
@@ -1400,6 +1401,20 @@ Deno.serve(async (req) => {
             return json({ error: "system_prompt_max_length must be an integer 100-64000" }, 400);
           }
           patch.system_prompt_max_length = n;
+        }
+        if ("compression_level" in (body ?? {})) {
+          const v = String(body.compression_level);
+          if (!["light", "balanced", "aggressive"].includes(v)) {
+            return json({ error: "compression_level must be light, balanced, or aggressive" }, 400);
+          }
+          patch.compression_level = v;
+        }
+        if ("compression_min_chars" in (body ?? {})) {
+          const n = Number(body.compression_min_chars);
+          if (!Number.isInteger(n) || n < 0 || n > 100000) {
+            return json({ error: "compression_min_chars must be an integer 0-100000" }, 400);
+          }
+          patch.compression_min_chars = n;
         }
         await sb.from("policy_settings").upsert(patch, { onConflict: "user_id" });
         return json({ ok: true });
