@@ -704,6 +704,30 @@ export type Database = {
         }
         Relationships: []
       }
+      rate_limit_buckets: {
+        Row: {
+          count: number
+          expires_at: string
+          key: string
+          scope: string
+          window_start: string
+        }
+        Insert: {
+          count?: number
+          expires_at?: string
+          key: string
+          scope: string
+          window_start?: string
+        }
+        Update: {
+          count?: number
+          expires_at?: string
+          key?: string
+          scope?: string
+          window_start?: string
+        }
+        Relationships: []
+      }
       request_logs: {
         Row: {
           api_key_id: string | null
@@ -874,6 +898,14 @@ export type Database = {
         Args: { _email: string; _user_id: string }
         Returns: number
       }
+      increment_rate_limit: {
+        Args: { _key: string; _scope: string; _window_seconds: number }
+        Returns: {
+          count: number
+          window_start: string
+        }[]
+      }
+      prune_rate_limit_buckets: { Args: never; Returns: number }
     }
     Enums: {
       [_ in never]: never
