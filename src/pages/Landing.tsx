@@ -253,6 +253,110 @@ const Landing = () => (
       </div>
     </section>
 
+    {/* ---------------------------- Observability --------------------------- */}
+    <section id="observability" className="border-b border-border">
+      <div className="mx-auto max-w-6xl px-4 md:px-6 py-16 lg:py-20">
+        <div className="grid lg:grid-cols-2 gap-10 lg:gap-14 items-start">
+          <div>
+            <div className="text-meta uppercase tracking-[0.18em] text-primary font-mono">
+              Observability
+            </div>
+            <h2 className="mt-2 text-display font-semibold tracking-tight">
+              Catch token spikes before they hit the bill.
+            </h2>
+            <p className="mt-4 text-body text-muted-foreground leading-relaxed">
+              The Overview dashboard scores every anomaly window 0–100 based on how far
+              <code className="mx-1 font-mono text-foreground">tokens_in</code> and
+              <code className="mx-1 font-mono text-foreground">tokens_out</code> deviate
+              from a rolling baseline. Calibrate baseline window, volume dampening, and
+              score cap to match your traffic — no redeploys.
+            </p>
+            <ul className="mt-6 space-y-3">
+              <li className="flex items-start gap-3">
+                <span className="mt-1 inline-flex h-5 min-w-[2rem] items-center justify-center rounded border border-border surface-2 px-1.5 text-meta font-mono tabular-nums text-muted-foreground">
+                  0–39
+                </span>
+                <span className="text-body text-muted-foreground">
+                  <span className="text-foreground font-medium">Normal.</span>{" "}
+                  Within expected variance for the baseline window.
+                </span>
+              </li>
+              <li className="flex items-start gap-3">
+                <span className="mt-1 inline-flex h-5 min-w-[2rem] items-center justify-center rounded border border-status-warn/40 bg-status-warn/10 px-1.5 text-meta font-mono tabular-nums text-status-warn">
+                  40–69
+                </span>
+                <span className="text-body text-muted-foreground">
+                  <span className="text-foreground font-medium">Elevated.</span>{" "}
+                  Sustained deviation worth a glance — usually a new workload or noisy key.
+                </span>
+              </li>
+              <li className="flex items-start gap-3">
+                <span className="mt-1 inline-flex h-5 min-w-[2rem] items-center justify-center rounded border border-status-err/40 bg-status-err/10 px-1.5 text-meta font-mono tabular-nums text-status-err">
+                  70–100
+                </span>
+                <span className="text-body text-muted-foreground">
+                  <span className="text-foreground font-medium">Critical.</span>{" "}
+                  Banner + email notification. Likely runaway prompt loop or batch job.
+                </span>
+              </li>
+            </ul>
+            <div className="mt-8 flex flex-wrap items-center gap-2.5">
+              <Button size="lg" asChild>
+                <Link to="/dashboard">
+                  Open observability dashboard <ArrowRight className="ml-2 h-4 w-4" />
+                </Link>
+              </Button>
+              <Button size="lg" variant="outline" asChild>
+                <Link to="/docs/policies#severity-score">How severity is scored</Link>
+              </Button>
+            </div>
+          </div>
+
+          {/* Mock anomaly card — pure presentation, no live data */}
+          <div className="rounded-md border border-border surface-1 overflow-hidden">
+            <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+              <div className="flex items-center gap-2 text-meta font-mono text-muted-foreground">
+                <span className="h-1.5 w-1.5 rounded-full bg-status-err live-pulse" />
+                anomaly · last 1h
+              </div>
+              <span className="text-meta font-mono text-muted-foreground">range: 7d</span>
+            </div>
+            <div className="px-4 py-5">
+              <div className="flex items-baseline gap-3">
+                <div className="text-display font-semibold tabular-nums tracking-tight text-status-err">
+                  82
+                </div>
+                <div className="text-meta font-mono uppercase tracking-[0.12em] text-muted-foreground">
+                  severity
+                </div>
+              </div>
+              <p className="mt-2 text-body text-muted-foreground leading-relaxed">
+                Output tokens 6.4× the 7-day average for this window.
+              </p>
+              <dl className="mt-5 grid grid-cols-2 gap-px bg-border border border-border">
+                <div className="surface-2 p-3">
+                  <dt className="text-meta font-mono uppercase tracking-[0.12em] text-muted-foreground">
+                    tokens_in / h
+                  </dt>
+                  <dd className="mt-1 text-h2 font-medium tabular-nums">
+                    1.2k <span className="text-meta text-muted-foreground">vs 230</span>
+                  </dd>
+                </div>
+                <div className="surface-2 p-3">
+                  <dt className="text-meta font-mono uppercase tracking-[0.12em] text-muted-foreground">
+                    tokens_out / h
+                  </dt>
+                  <dd className="mt-1 text-h2 font-medium tabular-nums">
+                    9.8k <span className="text-meta text-muted-foreground">vs 1.5k</span>
+                  </dd>
+                </div>
+              </dl>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     {/* -------------------------------- Quote -------------------------------- */}
     <section className="border-b border-border">
       <div className="mx-auto max-w-3xl px-4 md:px-6 py-16 lg:py-20">
