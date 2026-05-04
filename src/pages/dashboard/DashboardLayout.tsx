@@ -102,6 +102,7 @@ const DashboardLayout = () => {
 
         <MobileSidebar open={mobileOpen} onOpenChange={setMobileOpen} />
         <CommandPalette />
+        <OnboardingWalkthrough />
 
         <main className="flex-1 min-w-0 flex flex-col">
           <Topbar onMenuClick={() => setMobileOpen(true)} />
