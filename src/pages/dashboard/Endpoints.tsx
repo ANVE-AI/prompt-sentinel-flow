@@ -1307,7 +1307,10 @@ Default model:   sonar-pro`,
             </div>
 
             <div>
-              <Label>Base URL</Label>
+              <Label className="inline-flex items-center gap-1.5">
+                Base URL
+                <HelpHint>The upstream provider root, e.g. <code className="font-mono">https://api.perplexity.ai</code>. Don't include <code className="font-mono">/v1</code> here unless the provider's chat path is just <code className="font-mono">/chat/completions</code>.</HelpHint>
+              </Label>
               <Input
                 value={form.base_url}
                 onChange={(e) => setForm({ ...form, base_url: e.target.value })}
@@ -1394,7 +1397,10 @@ Default model:   sonar-pro`,
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Auth scheme</Label>
+                <Label className="inline-flex items-center gap-1.5">
+                  Auth scheme
+                  <HelpHint><strong>bearer</strong>: <code className="font-mono">Authorization: Bearer …</code>. <strong>header</strong>: custom header (e.g. <code className="font-mono">x-api-key</code>). <strong>query</strong>: passed as a URL param. <strong>none</strong>: no auth.</HelpHint>
+                </Label>
                 <Select value={form.auth_scheme} onValueChange={(v) => setForm({ ...form, auth_scheme: v })}>
                   <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
                   <SelectContent>
