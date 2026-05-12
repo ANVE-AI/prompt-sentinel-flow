@@ -122,6 +122,11 @@ resp = client.chat.completions.create(
 
 Every request now appears in the dashboard with status, latency, tokens, payloads, and policy verdicts.
 
+<div align="center">
+  <img src="docs/images/quickstart.png" alt="AnveGuard Quickstart docs page showing how to mint a key and point your SDK at the proxy" width="90%" />
+  <br /><sub><i>The in-app Quickstart — three minutes from <code>npm install</code> to your first proxied request.</i></sub>
+</div>
+
 ---
 
 ## Stack
