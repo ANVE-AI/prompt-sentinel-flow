@@ -1,16 +1,24 @@
 <div align="center">
 
+<img src="docs/images/banner.png" alt="AnveGuard — the open-source LLM firewall" width="100%" />
+
 # 🛡️ AnveGuard
 
 **The open-source LLM firewall.**
 A drop-in OpenAI-compatible proxy that inspects, governs, and audits every call to OpenAI, Anthropic, Google, Perplexity, and any custom provider — without changing your application code.
 
-[![CI](https://img.shields.io/badge/CI-passing-22c55e?style=flat-square)](./.github/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](#license)
+[![CI](https://img.shields.io/badge/CI-passing-22c55e?style=flat-square&logo=githubactions&logoColor=white)](./.github/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-ff69b4?style=flat-square)](./CONTRIBUTING.md)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](./tsconfig.json)
+[![Deno Edge](https://img.shields.io/badge/Deno-edge%20functions-000?style=flat-square&logo=deno&logoColor=white)](./supabase/functions)
 [![Built with Lovable](https://img.shields.io/badge/built%20with-Lovable-8b5cf6?style=flat-square)](https://lovable.dev)
 
-[Live demo](https://prompt-sentinel-flow.lovable.app) · [Docs](https://prompt-sentinel-flow.lovable.app/docs) · [Report a vulnerability](./SECURITY.md)
+### [🚀 Live demo](https://prompt-sentinel-flow.lovable.app) · [📚 Docs](https://prompt-sentinel-flow.lovable.app/docs) · [🔐 Security policy](./SECURITY.md) · [🤝 Contributing](./CONTRIBUTING.md)
+
+<br />
+
+<img src="docs/images/hero.png" alt="AnveGuard landing page — the control layer between your app and every AI model" width="90%" />
 
 </div>
 
@@ -18,15 +26,53 @@ A drop-in OpenAI-compatible proxy that inspects, governs, and audits every call 
 
 ## Why AnveGuard
 
-Most teams ship LLM features with **no record** of what was sent, what came back, or who could change the rules. AnveGuard slots in front of any LLM in 60 seconds and gives you the operational layer that's missing:
+Most teams ship LLM features with **no record** of what was sent, what came back, or who could change the rules. AnveGuard slots in front of any LLM in 60 seconds and gives you the operational layer that's missing.
 
-- 🔍 **Full audit log** of every prompt, response, token count, and admin action
-- 🧱 **Layered policy engine** — normalizer → patterns → heuristics → intent classifier — that can block, flag, or sanitize before bytes leave your network
-- 🧠 **Prompt-injection & jailbreak detection** out of the box
-- 🔁 **Multi-provider routing** with fallback chains (`route:fast` → OpenAI → Anthropic → Gemini)
-- 🏷️ **Model aliases** per key (`fast`, `cheap`, `smart`) decoupled from upstream model IDs
-- 📈 **Token-spike alerts** with a calibratable severity score
-- 🔐 **Zero plaintext secrets** — AnveGuard keys are SHA-256 hashed, upstream keys are AES-GCM encrypted at rest
+<table>
+  <tr>
+    <td width="33%" valign="top">
+      <h3>🔍 Full audit log</h3>
+      Every prompt, response, token count, latency, model, status code, and admin action — searchable and exportable.
+    </td>
+    <td width="33%" valign="top">
+      <h3>🧱 Layered policy engine</h3>
+      Normalizer → patterns → heuristics → intent classifier. Block, flag, or sanitize before bytes leave your network.
+    </td>
+    <td width="33%" valign="top">
+      <h3>🧠 Injection &amp; jailbreak detection</h3>
+      Battle-tested detectors for prompt injection, role-hijack, exfiltration, and risk-trio combos.
+    </td>
+  </tr>
+  <tr>
+    <td valign="top">
+      <h3>🔁 Multi-provider routing</h3>
+      Fallback chains across OpenAI, Anthropic, Google, Perplexity, and custom OpenAI-compatible endpoints.
+    </td>
+    <td valign="top">
+      <h3>🏷️ Per-key model aliases</h3>
+      Map <code>fast</code>, <code>cheap</code>, <code>smart</code> to whichever upstream model you want — swap providers without redeploying.
+    </td>
+    <td valign="top">
+      <h3>📈 Token-spike alerts</h3>
+      Calibratable severity scoring catches runaway costs and abusive keys before they hit the bill.
+    </td>
+  </tr>
+  <tr>
+    <td valign="top">
+      <h3>🔐 Zero plaintext secrets</h3>
+      AnveGuard keys SHA-256 hashed, upstream provider keys AES-GCM encrypted at rest.
+    </td>
+    <td valign="top">
+      <h3>⚡ &lt;5 ms overhead</h3>
+      Streaming responses are relayed without buffering. Your users won't notice the proxy is there.
+    </td>
+    <td valign="top">
+      <h3>🧰 Drop-in</h3>
+      Change one base URL. No SDK upgrades, no wrappers, no application changes.
+    </td>
+  </tr>
+</table>
+
 
 ---
 
@@ -75,6 +121,11 @@ resp = client.chat.completions.create(
 ```
 
 Every request now appears in the dashboard with status, latency, tokens, payloads, and policy verdicts.
+
+<div align="center">
+  <img src="docs/images/quickstart.png" alt="AnveGuard Quickstart docs page showing how to mint a key and point your SDK at the proxy" width="90%" />
+  <br /><sub><i>The in-app Quickstart — three minutes from <code>npm install</code> to your first proxied request.</i></sub>
+</div>
 
 ---
 
@@ -185,11 +236,21 @@ By participating you agree to be a decent human. Disagree with ideas, not people
 
 ## Documentation
 
+<div align="center">
+  <img src="docs/images/docs.png" alt="AnveGuard in-app documentation" width="90%" />
+  <br /><sub><i>The in-app docs — Overview, Concepts, Guides, and a full API reference.</i></sub>
+</div>
+
+<br />
+
 In-app docs live at [`/docs/*`](src/pages/docs):
 
-- [Overview](src/pages/docs/Overview.tsx) · [Quickstart](src/pages/docs/Quickstart.tsx) · [Concepts](src/pages/docs/Concepts.tsx)
-- [API Keys](src/pages/docs/ApiKeys.tsx) · [Endpoints](src/pages/docs/Endpoints.tsx) · [Routes](src/pages/docs/Routes.tsx) · [Policies](src/pages/docs/Policies.tsx)
-- [Proxy API reference](src/pages/docs/ProxyApi.tsx) · [Logs](src/pages/docs/Logs.tsx) · [Errors](src/pages/docs/Errors.tsx) · [FAQ](src/pages/docs/Faq.tsx)
+| Introduction | Guides | Reference |
+| --- | --- | --- |
+| [Overview](src/pages/docs/Overview.tsx) | [API Keys](src/pages/docs/ApiKeys.tsx) | [Proxy API](src/pages/docs/ProxyApi.tsx) |
+| [Quickstart](src/pages/docs/Quickstart.tsx) | [Endpoints](src/pages/docs/Endpoints.tsx) | [Logs](src/pages/docs/Logs.tsx) |
+| [Concepts](src/pages/docs/Concepts.tsx) | [Routes](src/pages/docs/Routes.tsx) | [Errors](src/pages/docs/Errors.tsx) |
+|  | [Policies](src/pages/docs/Policies.tsx) | [FAQ](src/pages/docs/Faq.tsx) |
 
 For maintainers: [`SECURITY.md`](./SECURITY.md), [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
