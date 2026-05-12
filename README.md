@@ -1,16 +1,24 @@
 <div align="center">
 
+<img src="docs/images/banner.png" alt="AnveGuard — the open-source LLM firewall" width="100%" />
+
 # 🛡️ AnveGuard
 
 **The open-source LLM firewall.**
 A drop-in OpenAI-compatible proxy that inspects, governs, and audits every call to OpenAI, Anthropic, Google, Perplexity, and any custom provider — without changing your application code.
 
-[![CI](https://img.shields.io/badge/CI-passing-22c55e?style=flat-square)](./.github/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](#license)
+[![CI](https://img.shields.io/badge/CI-passing-22c55e?style=flat-square&logo=githubactions&logoColor=white)](./.github/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-ff69b4?style=flat-square)](./CONTRIBUTING.md)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](./tsconfig.json)
+[![Deno Edge](https://img.shields.io/badge/Deno-edge%20functions-000?style=flat-square&logo=deno&logoColor=white)](./supabase/functions)
 [![Built with Lovable](https://img.shields.io/badge/built%20with-Lovable-8b5cf6?style=flat-square)](https://lovable.dev)
 
-[Live demo](https://prompt-sentinel-flow.lovable.app) · [Docs](https://prompt-sentinel-flow.lovable.app/docs) · [Report a vulnerability](./SECURITY.md)
+### [🚀 Live demo](https://prompt-sentinel-flow.lovable.app) · [📚 Docs](https://prompt-sentinel-flow.lovable.app/docs) · [🔐 Security policy](./SECURITY.md) · [🤝 Contributing](./CONTRIBUTING.md)
+
+<br />
+
+<img src="docs/images/hero.png" alt="AnveGuard landing page — the control layer between your app and every AI model" width="90%" />
 
 </div>
 
