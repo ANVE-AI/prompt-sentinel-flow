@@ -236,11 +236,21 @@ By participating you agree to be a decent human. Disagree with ideas, not people
 
 ## Documentation
 
+<div align="center">
+  <img src="docs/images/docs.png" alt="AnveGuard in-app documentation" width="90%" />
+  <br /><sub><i>The in-app docs — Overview, Concepts, Guides, and a full API reference.</i></sub>
+</div>
+
+<br />
+
 In-app docs live at [`/docs/*`](src/pages/docs):
 
-- [Overview](src/pages/docs/Overview.tsx) · [Quickstart](src/pages/docs/Quickstart.tsx) · [Concepts](src/pages/docs/Concepts.tsx)
-- [API Keys](src/pages/docs/ApiKeys.tsx) · [Endpoints](src/pages/docs/Endpoints.tsx) · [Routes](src/pages/docs/Routes.tsx) · [Policies](src/pages/docs/Policies.tsx)
-- [Proxy API reference](src/pages/docs/ProxyApi.tsx) · [Logs](src/pages/docs/Logs.tsx) · [Errors](src/pages/docs/Errors.tsx) · [FAQ](src/pages/docs/Faq.tsx)
+| Introduction | Guides | Reference |
+| --- | --- | --- |
+| [Overview](src/pages/docs/Overview.tsx) | [API Keys](src/pages/docs/ApiKeys.tsx) | [Proxy API](src/pages/docs/ProxyApi.tsx) |
+| [Quickstart](src/pages/docs/Quickstart.tsx) | [Endpoints](src/pages/docs/Endpoints.tsx) | [Logs](src/pages/docs/Logs.tsx) |
+| [Concepts](src/pages/docs/Concepts.tsx) | [Routes](src/pages/docs/Routes.tsx) | [Errors](src/pages/docs/Errors.tsx) |
+|  | [Policies](src/pages/docs/Policies.tsx) | [FAQ](src/pages/docs/Faq.tsx) |
 
 For maintainers: [`SECURITY.md`](./SECURITY.md), [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
