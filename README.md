@@ -1,109 +1,202 @@
-# AnveGuard
+<div align="center">
 
-> Drop-in OpenAI-compatible proxy that intercepts LLM requests, runs layered policy checks, and logs every call for audit.
+# 🛡️ AnveGuard
 
-AnveGuard sits between your application and any LLM provider (OpenAI, Anthropic, Gemini, custom). Every request is evaluated by a layered policy engine — **normalizer → patterns → heuristics → intent classifier** — that can block, flag, or sanitize. Every request and response is logged for audit, with a dashboard for keys, endpoints, policies, routing, and observability.
+**The open-source LLM firewall.**
+A drop-in OpenAI-compatible proxy that inspects, governs, and audits every call to OpenAI, Anthropic, Google, Perplexity, and any custom provider — without changing your application code.
+
+[![CI](https://img.shields.io/badge/CI-passing-22c55e?style=flat-square)](./.github/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](#license)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-ff69b4?style=flat-square)](./CONTRIBUTING.md)
+[![Built with Lovable](https://img.shields.io/badge/built%20with-Lovable-8b5cf6?style=flat-square)](https://lovable.dev)
+
+[Live demo](https://prompt-sentinel-flow.lovable.app) · [Docs](https://prompt-sentinel-flow.lovable.app/docs) · [Report a vulnerability](./SECURITY.md)
+
+</div>
+
+---
+
+## Why AnveGuard
+
+Most teams ship LLM features with **no record** of what was sent, what came back, or who could change the rules. AnveGuard slots in front of any LLM in 60 seconds and gives you the operational layer that's missing:
+
+- 🔍 **Full audit log** of every prompt, response, token count, and admin action
+- 🧱 **Layered policy engine** — normalizer → patterns → heuristics → intent classifier — that can block, flag, or sanitize before bytes leave your network
+- 🧠 **Prompt-injection & jailbreak detection** out of the box
+- 🔁 **Multi-provider routing** with fallback chains (`route:fast` → OpenAI → Anthropic → Gemini)
+- 🏷️ **Model aliases** per key (`fast`, `cheap`, `smart`) decoupled from upstream model IDs
+- 📈 **Token-spike alerts** with a calibratable severity score
+- 🔐 **Zero plaintext secrets** — AnveGuard keys are SHA-256 hashed, upstream keys are AES-GCM encrypted at rest
 
 ---
 
 ## Architecture
 
+```text
+┌────────────┐  ag_live_*   ┌──────────────┐  provider key   ┌────────────┐
+│  Your app  │ ───────────► │  AnveGuard   │ ──────────────► │  OpenAI    │
+│ (any SDK)  │              │    proxy     │                 │  Anthropic │
+└────────────┘              └──────┬───────┘                 │  Gemini    │
+                                   │                         │  Perplexity│
+                                   ▼                         │  Custom    │
+                          policy · routing · logs            └────────────┘
+                                   │
+                                   ▼
+                        ┌─────────────────────┐
+                        │  Postgres (RLS)     │ ◄── React dashboard
+                        │  request_logs, etc. │     (Clerk auth)
+                        └─────────────────────┘
 ```
-React dashboard (Clerk auth) ──HTTPS──▶ /functions/dashboard ──▶ Postgres (RLS, service-role only)
-                                                                     │
-Customer app ──Bearer ag_live_*──▶ /functions/proxy ──policy engine──▶ OpenAI / Anthropic / custom
-                                       │
-                                       └──▶ logs every request to request_logs
+
+| Edge function | Auth | Purpose |
+| --- | --- | --- |
+| [`proxy`](supabase/functions/proxy) | `Bearer ag_live_*` | OpenAI-compatible public endpoint, runs policy layers, forwards upstream, logs every call |
+| [`dashboard`](supabase/functions/dashboard) | Clerk JWT | Action router for the React app: CRUD on keys, endpoints, policies, logs, routes |
+| [`alerts-fire`](supabase/functions/alerts-fire) | cron | Evaluates anomaly rules every minute and emits webhooks |
+
+Shared modules live in [`supabase/functions/_shared`](supabase/functions/_shared): `policy_engine.ts`, `anveguard.ts` (key auth + AES-GCM + Clerk JWT verify), `providers.ts`, `anthropic.ts`, `system_prompt.ts`, `compress.ts`.
+
+---
+
+## Quickstart — proxy your first request in 60 seconds
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="ag_live_…",                       # your AnveGuard key
+    base_url="https://anveguard.app/v1",       # the only line that changes
+)
+
+resp = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": "Hello"}],
+)
 ```
 
-Two Supabase Edge Functions do the work:
+Every request now appears in the dashboard with status, latency, tokens, payloads, and policy verdicts.
 
-| Function | Auth | Purpose |
-|---|---|---|
-| [`supabase/functions/proxy`](supabase/functions/proxy) | `Bearer ag_live_*` API key | OpenAI-compatible public endpoint, runs policy layers, forwards to upstream, logs every call |
-| [`supabase/functions/dashboard`](supabase/functions/dashboard) | Clerk session JWT | Action-router for the React app: CRUD on keys/endpoints/policies/logs |
-
-Shared modules live in [`supabase/functions/_shared`](supabase/functions/_shared): `policy_engine.ts` (layered evaluator), `anveguard.ts` (key auth + crypto + Clerk JWT verify), `providers.ts`, `anthropic.ts`, `system_prompt.ts`, `compress.ts`.
+---
 
 ## Stack
 
-- **Frontend:** Vite, React 18, TypeScript, Tailwind, shadcn/Radix, TanStack React Query, react-hook-form + zod, React Router 6
+- **Frontend:** Vite · React 18 · TypeScript · Tailwind · shadcn/Radix · TanStack Query · react-hook-form + zod · React Router 6
 - **Auth:** [Clerk](https://clerk.com)
 - **Backend:** [Supabase](https://supabase.com) — Postgres + Deno Edge Functions
-- **Tests:** Vitest (unit), Deno tests (edge functions), Playwright (e2e)
+- **Tests:** Vitest (unit) · Deno (edge functions) · Playwright (e2e)
 
-## Getting started
+---
+
+## Local development
 
 ### Prerequisites
 
-- Node 22.x (`@types/node` is pinned to v22)
-- A Supabase project (free tier works)
-- A Clerk application (free tier works)
-- Deno CLI (for running edge-function tests)
+- Node **22.x**
+- A free [Supabase](https://supabase.com) project
+- A free [Clerk](https://clerk.com) application
+- [Deno](https://deno.com) CLI (for edge-function tests)
 
-### Local dev
+### Setup
 
 ```bash
-# 1. Install dependencies
+git clone https://github.com/<you>/anveguard.git
+cd anveguard
 npm ci
-
-# 2. Configure env
-cp .env.example .env
-# Fill in VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY, VITE_SUPABASE_PROJECT_ID
-# Edge-function secrets (SUPABASE_SERVICE_ROLE_KEY, KEY_ENCRYPTION_SECRET, etc.)
-# go in your Supabase project, NOT in this .env.
-
-# 3. Run the dev server
-npm run dev          # http://localhost:8080
+cp .env.example .env        # fill in VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY, VITE_SUPABASE_PROJECT_ID
+npm run dev                 # http://localhost:8080
 ```
+
+Edge-function secrets (`SUPABASE_SERVICE_ROLE_KEY`, `KEY_ENCRYPTION_SECRET`, `CLERK_JWKS_URL`, provider keys) belong in your **Supabase project**, not in `.env`.
 
 ### Quality gates
 
 ```bash
-npm run lint         # ESLint
-npm run typecheck    # tsc --noEmit
-npm test             # Vitest unit tests
-npm run build        # Production build
-npm run e2e          # Playwright e2e (needs e2e/.env.e2e — see e2e/README.md)
-```
+npm run lint          # ESLint
+npm run typecheck     # tsc --noEmit
+npm test              # Vitest unit tests
+npm run build         # Production build
+npm run e2e           # Playwright (needs e2e/.env.e2e — see e2e/README.md)
 
-Edge function tests:
-
-```bash
+# Edge functions
 cd supabase/functions
 deno test --allow-env --allow-net --no-check
 ```
 
-CI runs all of the above on every push and PR — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+CI runs all of the above on every push and PR — see [`.github/workflows/ci.yml`](./.github/workflows/ci.yml).
 
 ### Database
 
-29 migrations in [`supabase/migrations`](supabase/migrations) define the schema. Apply with the [Supabase CLI](https://supabase.com/docs/guides/cli):
+29 forward-only migrations live in [`supabase/migrations`](supabase/migrations).
 
 ```bash
 supabase link --project-ref <your-project-ref>
 supabase db push
 ```
 
-Key tables: `profiles`, `api_keys`, `endpoints`, `request_logs`, `policy_settings`, `policy_rules`, `policy_intents`, `routes`, `audit_logs`, `key_behavior_profiles`. RLS is enabled on every table; service role is the only accessor (all access goes through audited edge functions).
+Key tables: `profiles`, `api_keys`, `endpoints`, `request_logs`, `policy_settings`, `policy_rules`, `policy_intents`, `routes`, `audit_logs`, `key_behavior_profiles`. RLS is **enabled on every table**; the service role is the only accessor and all access goes through audited edge functions.
 
-## Deploy
+---
 
-This project is configured for [Lovable](https://lovable.dev) deployment with git sync — pushes to `main` trigger a Lovable build. Edge functions and migrations deploy via the Supabase CLI:
+## Deploying
 
 ```bash
-supabase functions deploy proxy dashboard
+supabase functions deploy proxy dashboard alerts-fire
 supabase db push
 ```
 
+The frontend is a plain Vite SPA — deploy the `dist/` output to any static host (Vercel, Netlify, Cloudflare Pages, S3+CloudFront, or [Lovable](https://lovable.dev) with one click).
+
+---
+
+## Security model (one-page summary)
+
+AnveGuard is multi-tenant. Isolation depends on three layers:
+
+1. **Auth at the edge.** `proxy` validates `Bearer ag_live_*` against `api_keys` (SHA-256 hash compare). `dashboard` validates a Clerk JWT via JWKS.
+2. **Application-level row scoping.** Every read in `dashboard/index.ts` filters by the authenticated `clerk_user_id`; CI grep-checks guard against missing `.eq("user_id", …)` clauses.
+3. **RLS as defense in depth.** Every table denies `anon`/`authenticated`; only the service role can read or write.
+
+**Secrets:** AnveGuard keys are SHA-256 hashed (never plaintext after creation). Upstream provider keys are AES-GCM encrypted with a key derived from `KEY_ENCRYPTION_SECRET`.
+
+Found a vulnerability? See [`SECURITY.md`](./SECURITY.md) — please don't open a public issue.
+
+---
+
+## Roadmap
+
+- [ ] Per-workspace key derivation for upstream credentials
+- [ ] Metadata-only logging mode by default
+- [ ] Self-hostable Docker distribution
+- [ ] Spend caps & per-key budgets
+- [ ] Streaming-aware output classification
+- [ ] More built-in policy templates (PII, PCI, HIPAA, GDPR)
+
+Track progress in [GitHub Issues](../../issues) and grab anything tagged `good-first-issue`.
+
+---
+
+## Contributing
+
+PRs are very welcome — see [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the workflow, commit style, and pre-commit checklist. The active hardening roadmap is in the audit plan (issues `C1-C5`, `H1-H11`, `M1-M11`); pick an unclaimed item and reference its ID in your PR.
+
+By participating you agree to be a decent human. Disagree with ideas, not people.
+
+---
+
 ## Documentation
 
-In-app docs live at [`/docs/*`](src/pages/docs) (Quickstart, Concepts, API reference, FAQs). For contributors:
+In-app docs live at [`/docs/*`](src/pages/docs):
 
-- [`SECURITY.md`](SECURITY.md) — disclosure policy + security model
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — dev workflow, commit style, PR checklist
-- `.lovable/plan.md` — Lovable's working notes (dev only)
+- [Overview](src/pages/docs/Overview.tsx) · [Quickstart](src/pages/docs/Quickstart.tsx) · [Concepts](src/pages/docs/Concepts.tsx)
+- [API Keys](src/pages/docs/ApiKeys.tsx) · [Endpoints](src/pages/docs/Endpoints.tsx) · [Routes](src/pages/docs/Routes.tsx) · [Policies](src/pages/docs/Policies.tsx)
+- [Proxy API reference](src/pages/docs/ProxyApi.tsx) · [Logs](src/pages/docs/Logs.tsx) · [Errors](src/pages/docs/Errors.tsx) · [FAQ](src/pages/docs/Faq.tsx)
+
+For maintainers: [`SECURITY.md`](./SECURITY.md), [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+
+---
 
 ## License
 
-TBD.
+[MIT](./LICENSE) © AnveGuard contributors.
+
+If AnveGuard saves you from a leaky prompt, an exploded token bill, or a 3am incident — drop us a ⭐ on GitHub. It's the cheapest way to support the project.
