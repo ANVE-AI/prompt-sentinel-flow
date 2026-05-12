@@ -519,7 +519,7 @@ const Playground = () => {
             <div>
               <Label htmlFor="ak" className="text-meta uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1.5">
                 AnveGuard API key
-                <HelpHint>Paste the <code className="font-mono">ag_live_…</code> secret. It's only shown once at creation — Lovable Cloud stores a hash, not the secret.</HelpHint>
+                <HelpHint>Paste the <code className="font-mono">ag_live_…</code> secret. It's only shown once at creation — AnveGuard stores a hash, not the secret.</HelpHint>
               </Label>
               <Input
                 id="ak" value={apiKey}

@@ -4,8 +4,8 @@ import type { Page } from "@playwright/test";
 /**
  * Full user journey:
  *
- *   1. Create a Lovable-managed AnveGuard key via the Keys UI (no provider
- *      key needed — uses the bundled Lovable AI Gateway).
+ *   1. Create a managed AnveGuard key via the Keys UI (no provider
+ *      key needed — uses the bundled managed AI gateway).
  *   2. Capture the one-time secret from the success dialog.
  *   3. Add a unique sentinel term to the user's blocked-keywords policy.
  *   4. Open Playground, paste the key, send TWO prompts:
@@ -34,7 +34,7 @@ test.describe("end-to-end: create key → policy → playground → logs → rev
   let secretKey = "";
   let originalBlocked: string[] = [];
 
-  test("step 1 — create a Lovable-managed key", async ({ page }) => {
+  test("step 1 — create a managed key", async ({ page }) => {
     await page.goto("/dashboard/keys");
     await expect(page.getByRole("heading", { name: /api keys/i })).toBeVisible();
 

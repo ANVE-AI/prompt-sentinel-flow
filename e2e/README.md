@@ -12,7 +12,7 @@ Playwright-based E2E tests that sign in via Clerk and exercise the dashboard.
 | `04-endpoints.spec.ts` | Endpoints list, usage dialog 1h/24h/7d/30d/90d/all presets fire `endpoint_usage` with the right `range`, revoke confirm dialog shows last-used / last-model and the "Create replacement key" shortcut (cancel only — no destructive click) |
 | `05-policies.spec.ts` | Policies load via `get_policies`, switch round-trips through `save_policies` and is restored |
 | `06-policies-lifecycle.spec.ts` | Save real keyword overrides + custom block message → reload → assert persistence → restore |
-| `07-full-journey.spec.ts` | **Full user journey:** create Lovable-managed key → add sentinel keyword to policy → send benign prompt (allowed) and sentinel prompt (blocked) through Playground → assert both rows land in Logs with correct status → revoke key → assert `api_key.revoked` audit entry appears with the right metadata. Auto-restores policy on completion. |
+| `07-full-journey.spec.ts` | **Full user journey:** create a managed AnveGuard key → add sentinel keyword to policy → send benign prompt (allowed) and sentinel prompt (blocked) through Playground → assert both rows land in Logs with correct status → revoke key → assert `api_key.revoked` audit entry appears with the right metadata. Auto-restores policy on completion. |
 
 Tests are read-only or self-restoring. They never click destructive actions (Revoke, Delete) in CI.
 
@@ -24,7 +24,7 @@ npx playwright install chromium
 
 # Configure environment
 cp .env.e2e.example .env.e2e
-# edit E2E_BASE_URL (defaults to the deployed Lovable preview)
+# edit E2E_BASE_URL (defaults to the deployed app)
 ```
 
 ## Authenticate (pick one strategy)

@@ -13,7 +13,7 @@ import "dotenv/config";
  *      runs will reuse that session via the project's `storageState`.
  *
  *   2. Programmatic sign-in via @clerk/testing. Set in .env.e2e:
- *        E2E_BASE_URL=https://id-preview--<id>.lovable.app
+ *        E2E_BASE_URL=https://your-deployment.example.com
  *        E2E_CLERK_USER=<email>
  *        E2E_CLERK_PASSWORD=<password>
  *      Then `npm run e2e:auth` runs the global setup which creates the

@@ -12,9 +12,8 @@ A drop-in OpenAI-compatible proxy that inspects, governs, and audits every call 
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-ff69b4?style=flat-square)](./CONTRIBUTING.md)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](./tsconfig.json)
 [![Deno Edge](https://img.shields.io/badge/Deno-edge%20functions-000?style=flat-square&logo=deno&logoColor=white)](./supabase/functions)
-[![Built with Lovable](https://img.shields.io/badge/built%20with-Lovable-8b5cf6?style=flat-square)](https://lovable.dev)
 
-### [🚀 Live demo](https://prompt-sentinel-flow.lovable.app) · [📚 Docs](https://prompt-sentinel-flow.lovable.app/docs) · [🔐 Security policy](./SECURITY.md) · [🤝 Contributing](./CONTRIBUTING.md)
+### [🚀 Live demo](https://guard.citerlabs.com) · [📚 Docs](https://guard.citerlabs.com/docs) · [🔐 Security policy](./SECURITY.md) · [🤝 Contributing](./CONTRIBUTING.md)
 
 <br />
 
@@ -195,7 +194,7 @@ supabase functions deploy proxy dashboard alerts-fire
 supabase db push
 ```
 
-The frontend is a plain Vite SPA — deploy the `dist/` output to any static host (Vercel, Netlify, Cloudflare Pages, S3+CloudFront, or [Lovable](https://lovable.dev) with one click).
+The frontend is a plain Vite SPA — deploy the `dist/` output to any static host (Vercel, Netlify, Cloudflare Pages, S3 + CloudFront, etc.).
 
 ---
 
