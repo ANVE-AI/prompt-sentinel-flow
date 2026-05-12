@@ -72,6 +72,10 @@ Most teams ship LLM features with **no record** of what was sent, what came back
   </tr>
 </table>
 
+<div align="center">
+  <img src="docs/images/product.png" alt="Inspect, enforce, audit — the three product pillars shown on the AnveGuard landing page" width="92%" />
+  <br /><sub><i>Inspect &middot; Enforce &middot; Audit — the three pillars, in one console.</i></sub>
+</div>
 
 ---
 
@@ -92,6 +96,11 @@ Most teams ship LLM features with **no record** of what was sent, what came back
                         │  request_logs, etc. │     (Clerk auth)
                         └─────────────────────┘
 ```
+
+<div align="center">
+  <img src="docs/images/concepts.png" alt="AnveGuard Concepts docs — five primitives (endpoint, key, alias, route, policy)" width="92%" />
+  <br /><sub><i>Five primitives. Once these click, the rest of the docs read fast.</i></sub>
+</div>
 
 | Edge function | Auth | Purpose |
 | --- | --- | --- |
