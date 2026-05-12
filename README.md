@@ -131,9 +131,48 @@ resp = client.chat.completions.create(
 Every request now appears in the dashboard with status, latency, tokens, payloads, and policy verdicts.
 
 <div align="center">
-  <img src="docs/images/quickstart.png" alt="AnveGuard Quickstart docs page showing how to mint a key and point your SDK at the proxy" width="90%" />
+  <img src="docs/images/quickstart.png" alt="AnveGuard Quickstart docs page showing how to mint a key and point your SDK at the proxy" width="92%" />
   <br /><sub><i>The in-app Quickstart — three minutes from <code>npm install</code> to your first proxied request.</i></sub>
 </div>
+
+---
+
+## Screenshots
+
+A short tour of the surfaces you actually live in:
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <a href="docs/images/observability.png"><img src="docs/images/observability.png" alt="Observability — token-spike alerts with calibratable severity score" /></a>
+      <br /><sub><b>Observability</b> — token-spike alerts scored 0–100 against a rolling baseline.</sub>
+    </td>
+    <td width="50%" align="center">
+      <a href="docs/images/policies.png"><img src="docs/images/policies.png" alt="Policies docs — keyword guardrails, allowlist overrides, custom block messages" /></a>
+      <br /><sub><b>Policies</b> — keyword guardrails on input <i>and</i> output, with allowlist overrides.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="docs/images/endpoints-docs.png"><img src="docs/images/endpoints-docs.png" alt="Endpoints &amp; providers — supported provider kinds (OpenAI, Anthropic, Google, OpenAI-compatible)" /></a>
+      <br /><sub><b>Endpoints &amp; providers</b> — OpenAI, Anthropic, Google, and any OpenAI-compatible upstream.</sub>
+    </td>
+    <td align="center">
+      <a href="docs/images/proxy-api.png"><img src="docs/images/proxy-api.png" alt="Proxy API reference — strict subset of the OpenAI REST API" /></a>
+      <br /><sub><b>Proxy API</b> — a strict subset of the OpenAI REST API. No SDK changes.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="docs/images/errors.png"><img src="docs/images/errors.png" alt="Errors reference — OpenAI-shaped error bodies with stable codes" /></a>
+      <br /><sub><b>Errors</b> — OpenAI-shaped bodies with stable codes (<code>blocked_input</code>, <code>invalid_api_key</code>, …).</sub>
+    </td>
+    <td align="center">
+      <a href="docs/images/docs.png"><img src="docs/images/docs.png" alt="In-app documentation — Overview, Concepts, Guides, Reference" /></a>
+      <br /><sub><b>Docs</b> — Overview, Concepts, Guides, and a full API reference, in-app.</sub>
+    </td>
+  </tr>
+</table>
 
 ---
 
