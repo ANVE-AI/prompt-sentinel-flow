@@ -624,7 +624,7 @@ const Keys = () => {
             body: <>Each <code className="font-mono">ag_live_…</code> key proxies requests to a single upstream provider. Issue separate keys for staging vs prod so you can revoke one without breaking the other.</>,
           },
           {
-            title: "Provider credentials stay in Lovable Cloud",
+            title: "Provider credentials stay server-side",
             body: "Your real Perplexity / OpenAI / Anthropic key is encrypted server-side. Clients only ever see the AnveGuard key, so a leaked key affects one app — not your provider account.",
           },
           {

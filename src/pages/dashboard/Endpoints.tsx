@@ -967,7 +967,7 @@ const Endpoints = () => {
           },
           {
             title: "Send through the proxy",
-            body: <>Point your client at <code className="font-mono">/proxy/v1/chat/completions</code> with the <code className="font-mono">ag_live_…</code> key — your real provider key never leaves Lovable Cloud.</>,
+            body: <>Point your client at <code className="font-mono">/proxy/v1/chat/completions</code> with the <code className="font-mono">ag_live_…</code> key — your real provider key never leaves the AnveGuard backend.</>,
           },
         ]}
         examples={[
