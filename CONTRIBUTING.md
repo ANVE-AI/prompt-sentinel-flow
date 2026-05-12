@@ -65,7 +65,7 @@ The active hardening roadmap is in the audit plan — search for items by ID (C1
 
 ## Releasing
 
-`main` is the deploy branch — Lovable auto-builds on push. Edge function and migration deploys are manual via Supabase CLI:
+`main` is the deploy branch. The frontend is auto-built on push by the configured static host. Edge function and migration deploys are manual via Supabase CLI:
 
 ```bash
 supabase functions deploy proxy dashboard

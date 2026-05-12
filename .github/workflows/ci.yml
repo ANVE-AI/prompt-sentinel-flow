@@ -18,9 +18,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Bun is used as the package manager because Lovable's bot pushes
-      # bun.lockb on every iteration; npm's lockfile drifts and fails npm ci.
-      # Bun handles vite + vitest + everything in this stack natively.
+      # Bun is the canonical package manager for this repo (bun.lock is
+      # committed). It handles vite + vitest natively with no extra config.
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest

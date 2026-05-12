@@ -185,7 +185,7 @@ Auxiliary surfaces:
   detection (already-done steps are marked). Replayable from the Overview.
 - **Quickstart help panel** — self-contained, signed-out version of the
   walkthrough on the landing page and beneath the auth forms; includes
-  per-provider example switcher (OpenAI / Anthropic / Perplexity / Lovable
+  per-provider example switcher (OpenAI / Anthropic / Perplexity / managed
   AI) and three discrete copy buttons (Proxy base URL, Auth header, Sample
   request).
 - **Help links + "Replay quickstart" toast** — landing top bar Help link,
@@ -286,7 +286,6 @@ Notable database functions:
 
 **Backend**
 - Supabase (Postgres + Deno Edge Functions)
-- Lovable Cloud (managed Supabase)
 
 **Tests & quality**
 - Vitest (unit), Deno tests (edge functions), Playwright (e2e)
@@ -334,8 +333,8 @@ npm run dev            # http://localhost:8080
 ```
 
 Edge-function secrets (`SUPABASE_SERVICE_ROLE_KEY`, `KEY_ENCRYPTION_SECRET`,
-`SUPABASE_JWKS`, `CLERK_SECRET_KEY`, `LOVABLE_API_KEY`, …) live in the
-Supabase project, **not** in `.env`.
+`SUPABASE_JWKS`, `CLERK_SECRET_KEY`, the managed-AI gateway key, …) live in
+the Supabase project, **not** in `.env`.
 
 Quality gates: `npm run lint`, `npm run typecheck`, `npm test`,
 `npm run e2e`.
