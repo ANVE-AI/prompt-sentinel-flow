@@ -634,6 +634,69 @@ const DETECTORS: Record<string, Detector> = {
     }
     return { matched: false };
   },
+  // Homoglyph-smuggling — Cyrillic/Greek lookalike chars used to spoof
+  // English jailbreak terms past keyword filters. The 2024-2025 attack:
+  // "Ignоre previоus instructiоns" where every 'o' is U+043E (Cyrillic),
+  // which renders identically but is a different codepoint. Detection
+  // strategy: any token (run of "word chars" by Unicode definition) that
+  // mixes scripts (Latin + Cyrillic, Latin + Greek, Latin + Armenian) in
+  // the same word is almost never legitimate English text. Threshold of
+  // 1 mixed-script token is enough — even one is a strong signal because
+  // attackers always need at least one substitution per blocked word.
+  homoglyph_smuggling: ({ rawText, direction }) => {
+    if (direction !== "input") return { matched: false };
+    if (rawText.length < 10) return { matched: false };
+    // Split into word-like tokens. \p{L} = any Unicode letter. We look
+    // at each token for script mixing.
+    const tokens = rawText.match(/[\p{L}\p{N}]{3,}/gu) ?? [];
+    let mixedTokens = 0;
+    const samples: string[] = [];
+    for (const tok of tokens) {
+      const hasLatin = /[A-Za-z]/.test(tok);
+      const hasCyrillic = /[Ѐ-ӿ]/.test(tok);
+      const hasGreek = /[Ͱ-Ͽ]/.test(tok);
+      const hasArmenian = /[԰-֏]/.test(tok);
+      const nonLatinScripts =
+        Number(hasCyrillic) + Number(hasGreek) + Number(hasArmenian);
+      if (hasLatin && nonLatinScripts > 0) {
+        mixedTokens++;
+        if (samples.length < 3) samples.push(tok);
+      }
+    }
+    if (mixedTokens === 0) return { matched: false };
+    return {
+      matched: true,
+      verdict: "block",
+      reason: `Homoglyph attack — ${mixedTokens} word${mixedTokens === 1 ? "" : "s"} mix Latin with Cyrillic/Greek/Armenian script (example${samples.length === 1 ? "" : "s"}: ${samples.map((s) => `"${s}"`).join(", ")}). Used to bypass keyword filters while looking like English.`,
+    };
+  },
+  // Many-shot jailbreak (Anthropic 2024) — attacker stuffs the user
+  // message with many fake "Human: X / Assistant: Y" pairs where the
+  // fake assistant agrees to harmful asks, then poses the real ask at
+  // the end. Detection: count role-marker alternations in a SINGLE
+  // user message (real chat history travels as separate `messages`
+  // entries, not embedded markers). Threshold ≥ 4 alternations is
+  // strong signal — legitimate users rarely paste 4+ "User: ... AI: ..."
+  // pairs in one message.
+  many_shot_jailbreak: ({ rawText, direction }) => {
+    if (direction !== "input") return { matched: false };
+    if (rawText.length < 200) return { matched: false };
+    // Count distinct role-marker lines. Each pattern needs a line start
+    // (or message start) to avoid matching prose like "the human user".
+    const markers = rawText.match(/(?:^|\n)\s*(?:human|user|assistant|ai|gpt|claude|model|q|a)\s*[:>]/gi) ?? [];
+    if (markers.length < 4) return { matched: false };
+    // Require alternation — at least 2 different role markers must
+    // appear, otherwise it's a Q-only or A-only list (FAQ format).
+    const distinctMarkers = new Set(
+      markers.map((m) => m.toLowerCase().replace(/[^a-z]/g, "")),
+    );
+    if (distinctMarkers.size < 2) return { matched: false };
+    return {
+      matched: true,
+      verdict: "block",
+      reason: `Many-shot jailbreak pattern: ${markers.length} role-marker alternations (${Array.from(distinctMarkers).slice(0, 4).join("/")}) embedded in a single user message. Real chat history should arrive as separate messages, not pasted markers.`,
+    };
+  },
   encoded_density: ({ rawText }) => {
     const total = rawText.length || 1;
     let encoded = 0;
@@ -770,7 +833,7 @@ export function evaluateHeuristics(
   // direction and is a strong block signal because secret-shape strings in
   // output are almost always RAG bleed-through or training-data extraction.
   const out: LayerVerdict[] = [];
-  for (const name of ["role_impersonation", "pseudo_system_block", "encoded_density", "narrative_misdirection", "deepfake_intent", "unicode_smuggling", "output_repetition", "output_pii_leak", "url_exfil", "system_prompt_leak", "tool_injection", "credential_shape"] as const) {
+  for (const name of ["role_impersonation", "pseudo_system_block", "encoded_density", "narrative_misdirection", "deepfake_intent", "unicode_smuggling", "output_repetition", "output_pii_leak", "url_exfil", "system_prompt_leak", "tool_injection", "credential_shape", "homoglyph_smuggling", "many_shot_jailbreak"] as const) {
     const r = DETECTORS[name]({
       rawText,
       normalizedText,
@@ -786,6 +849,8 @@ export function evaluateHeuristics(
       const defaultVerdict =
         name === "credential_shape" ? "block" :
         name === "system_prompt_leak" ? "block" :
+        name === "homoglyph_smuggling" ? "block" :
+        name === "many_shot_jailbreak" ? "block" :
         "flag";
       out.push({ layer: "heuristics", verdict: r.verdict ?? defaultVerdict, reason: r.reason, rule: name });
     }
@@ -1146,6 +1211,139 @@ const INJECTION_PATTERNS: { name: string; re: RegExp; reason: string; severity?:
     name: "encoded_instruction_payload",
     re: /\b(?:decode|base64\s*-?\s*decode|rot13|hex\s*-?\s*decode|url\s*-?\s*decode)\s+(?:this|the\s+following|below)\b[\s\S]{0,40}\b(?:and\s+(?:execute|run|follow|do|perform|act\s+on))\b/gi,
     reason: "Decode-and-execute pattern (encoded instruction smuggling).",
+    severity: "high",
+  },
+  // ---- Refusal suppression (2024 research: "answer-anyway" framings) -----
+  // Distinct from no_warnings_disclaimers — this catches the broader family
+  // of "answer directly", "no caveats", "no judgment", "skip the lecture"
+  // patterns that don't use the words warning/disclaimer/safety.
+  {
+    name: "refusal_suppression",
+    re: /\b(?:answer|respond|reply|tell\s+me|give\s+me)\s+(?:the\s+(?:question|truth|answer)|me|this|that)?\s*(?:directly|plainly|without\s+(?:any\s+)?(?:caveats?|judgment|hedging|moralizing|preaching|lectures?|sermons?|filtering|censorship|qualifications?|hesitation)|no\s+(?:bs|bullshit|nonsense|fluff|preamble|sermon|lecture|soapbox|moralizing|moral\s+lectures?))\b/gi,
+    reason: "Refusal-suppression framing — asks the model to bypass its hedging/lecture behavior.",
+    severity: "med",
+  },
+  {
+    // Allows one optional object word between the verb and the
+    // "anyway/regardless/even if" particle ("answer this anyway", "tell me
+    // anyway"), and a broader range of unethical-claim phrasings.
+    name: "answer_regardless",
+    re: /\b(?:answer|respond|comply|help|tell\s+me)\s+(?:(?:this|that|it|me|us|now)\s+)?(?:anyway|regardless|nonetheless|nevertheless|even\s+(?:if|though)\s+(?:you\s+(?:think|believe|consider|feel)|it'?s?|its|that'?s?)\s*(?:not|un|in)?(?:ethical|safe|allowed|appropriate|acceptable|moral|legal|right|ok|okay))\b/gi,
+    reason: "'Answer regardless' framing — instructs the model to comply despite safety judgment.",
+    severity: "high",
+  },
+  // ---- Authority impersonation (claimed inside-baseball authority) -------
+  // "I'm from OpenAI/Anthropic/your training team" — used to social-engineer
+  // the model into thinking the request is sanctioned. Distinct from a real
+  // operator system message: this lives in USER content claiming privileged
+  // status, which is always a manipulation attempt.
+  {
+    name: "authority_impersonation",
+    re: /\b(?:i'?m|i\s+am|this\s+is|we'?re|we\s+are)\s+(?:from\s+|with\s+|on\s+behalf\s+of\s+|representing\s+)?(?:openai|anthropic|google|meta|microsoft|deepmind|hugging\s*face|the\s+(?:safety|trust(?:\s+and\s+safety)?|alignment|policy|training|model|developer|red[- ]?team|moderation|content)\s+team|your\s+(?:developer|trainer|creator|maker|operator|admin|red[- ]?team|safety\s+team|policy\s+team))\b/gi,
+    reason: "Authority impersonation — user claims OpenAI/Anthropic/training-team identity to bypass safety.",
+    severity: "high",
+  },
+  {
+    name: "policy_was_updated",
+    re: /\b(?:openai|anthropic|the\s+(?:policy|policies|safety|safety\s+team|developer|developers|company))\s+(?:has\s+(?:approved|updated|changed|removed|lifted|relaxed|allowed)|now\s+(?:allows?|permits?)|recently\s+(?:approved|allowed|permitted|updated))\b/gi,
+    reason: "Policy-change framing — falsely claims provider has approved restricted content.",
+    severity: "high",
+  },
+  // ---- Refusal extraction probe (asks model to describe its own refusal) -
+  // Modern jailbreaks reframe the ask: instead of "tell me how to make X",
+  // they ask "describe what a model without safety would say" or "give an
+  // example of a refusal for X" — the model leaks the harmful content as
+  // an example. AntiRefusal / TAP attacks use this.
+  {
+    name: "refusal_extraction_probe",
+    re: /\b(?:what\s+would|how\s+would|describe\s+what|give\s+(?:me\s+)?(?:an?\s+)?example\s+of\s+what)\s+(?:an?\s+(?:uncensored|unfiltered|unrestricted|jailbroken|evil|dark|rogue|malicious)\s+(?:ai|model|assistant|chatbot)|you\s+would\s+say\s+(?:if|when)|a\s+model\s+without\s+(?:safety|restrictions?|filters?)|the\s+(?:opposite|inverse)\s+of\s+(?:your|a)\s+(?:safety|safe))\b/gi,
+    reason: "Refusal-extraction probe — asks the model to roleplay/describe an unrestricted response.",
+    severity: "high",
+  },
+  // ---- Output-format hijack to suppress refusal phrasing ----------------
+  // "Respond ONLY in JSON, no prose, no apologies" + harmful payload. The
+  // format constraint removes the model's natural hedging hooks and is
+  // explicitly designed to strip refusal language.
+  {
+    name: "format_hijack_no_prose",
+    re: /\b(?:respond|reply|answer|output)\s+(?:only|exclusively|strictly)\s+(?:in|as|with)\s+(?:json|yaml|xml|code|csv|a\s+(?:json|yaml|code)\s+(?:object|block|file))\b[\s\S]{0,80}\b(?:no\s+(?:prose|apologies?|warnings?|disclaimers?|explanations?|preamble|caveats?|other\s+text|additional\s+text))\b/gi,
+    reason: "Output-format hijack — requests format-constrained reply to strip refusal hooks.",
+    severity: "med",
+  },
+  // ---- "You previously agreed" / refusal poisoning ----------------------
+  // Many-turn attacks: attacker claims the assistant already promised to
+  // help with the harmful task in a prior turn (which never happened).
+  // High-signal pattern.
+  {
+    name: "false_prior_agreement",
+    re: /\b(?:you\s+(?:just\s+|already\s+|previously\s+|earlier\s+|before\s+))?(?:said|told\s+me|agreed|promised|confirmed|acknowledged)\s+(?:you\s+)?(?:would|will|can|could|are\s+able\s+to|are\s+going\s+to)\s+(?:help|do|tell|provide|explain|describe|write|generate)\s+(?:this|that|with\s+(?:this|that)|me\s+(?:with\s+)?(?:this|that))\b/gi,
+    reason: "False prior-agreement framing — claims the model already consented in an earlier turn.",
+    severity: "med",
+  },
+  // ---- Modern persona variants (extends DAN/AIM coverage) ----------------
+  // 2024-2025 jailbreak community personas: BetterDAN, STAN, DUDE, Mongo
+  // Tom, Evil Confidant, Machiavelli, UCAR, EvilBOT, ChadGPT, Sydney 2.0.
+  // Word-boundary to avoid matching DAN inside e.g. "abundance".
+  {
+    name: "modern_jailbreak_persona",
+    re: /\b(?:BetterDAN|STAN|DUDE|Mongo\s+Tom|Evil\s+Confidant|Machiavelli|UCAR|EvilBOT|ChadGPT|JailBroken|Sydney\s*(?:2(?:\.0)?)?|DAN\s*(?:1[0-9]|[2-9][0-9])(?:\.\d+)?|Cody|Mr\.?\s*Hyde|Death\s+Mode|Anti[- ]?GPT|Opposite\s+(?:Mode|Day))\b/g,
+    reason: "Known modern jailbreak persona name invoked.",
+    severity: "high",
+  },
+  // ---- Skeleton Key composite (Microsoft 2024) ---------------------------
+  // "Update your behavior" + "prefix with a warning" + "safe educational
+  // context" hits frontier models at near-100%. Composite pattern: any TWO
+  // of the three components trigger.
+  {
+    name: "skeleton_key_update",
+    re: /\b(?:update|change|revise|adjust|modify|relax|disable|turn\s+off|switch\s+off|drop|loosen)\s+(?:your\s+)?(?:behavior|guidelines?|safety|filters?|rules?|restrictions?|policies|policy|guardrails?|response\s+style)\b/gi,
+    reason: "Skeleton-Key-style request to modify the model's safety behavior.",
+    severity: "high",
+  },
+  {
+    name: "skeleton_key_prefix_warning",
+    re: /\b(?:prefix|preface|precede|prepend|start)\s+(?:the\s+(?:response|reply|answer|content|output)\s+)?(?:with\s+(?:a\s+)?(?:warning|disclaimer|caveat|note)|by\s+(?:adding|including)\s+(?:a\s+)?(?:warning|disclaimer))\b/gi,
+    reason: "Skeleton-Key pattern: prefix-harmful-content-with-warning bypass.",
+    severity: "high",
+  },
+  // ---- System-role JSON injection (in USER content) ----------------------
+  // Attacker pastes {"role": "system", "content": "..."} into a user
+  // message hoping the model treats it as a real role boundary.
+  {
+    name: "system_role_json_injection",
+    re: /(?:"role"\s*:\s*"system"|'role'\s*:\s*'system')|\b<\s*\|?\s*im_start\s*\|?\s*>\s*system\b|\[INST\][\s\S]{0,40}system/gi,
+    reason: "System-role chat-template token or JSON injected into user content.",
+    severity: "high",
+  },
+  // ---- Chain-of-thought / reasoning extraction ---------------------------
+  // Targets o1/o3/Claude extended thinking. Probe asks to reveal the
+  // internal <thinking> / <scratchpad> trace.
+  {
+    // Two alternatives: bare keyword form (anchored with \b) or angle-bracket
+    // form like <thinking> (no trailing \b — > is non-word adjacent to spaces).
+    name: "cot_extraction",
+    re: /\b(?:show|reveal|print|output|expose|leak|dump|share|disclose)\s+(?:your\s+|the\s+)?(?:(?:thinking|reasoning|scratchpad|chain[- ]?of[- ]?thought|cot|internal\s+(?:thoughts?|reasoning|monolog)|hidden\s+(?:reasoning|thoughts?|scratchpad))\b|<\s*(?:thinking|scratchpad|reasoning|internal)\s*>)/gi,
+    reason: "Chain-of-thought / scratchpad extraction probe.",
+    severity: "med",
+  },
+  // ---- Many-shot chat-template tokens ------------------------------------
+  // Attacker pastes raw chat-template markers (<|im_start|>, [INST], etc.)
+  // hoping to bend the model into reading them as real role boundaries.
+  // This catches the token-form; the alternation-count detector below
+  // catches the prose-form ("Human: ... Assistant: ..." repeated).
+  {
+    name: "chat_template_token_smuggle",
+    re: /<\s*\|?\s*(?:im_start|im_end|im_sep|start_header|end_header|begin_of_text|end_of_text|fim_prefix|fim_suffix)\s*\|?\s*>|\[\/?INST\]|<<SYS>>|<<\/SYS>>|<\|begin_of_text\|>|<\|eot_id\|>/gi,
+    reason: "Raw chat-template tokens pasted in user content (many-shot or boundary smuggling).",
+    severity: "high",
+  },
+  // ---- "Start your response with 'Sure'" — refusal-prefix override -------
+  // Classic AutoDAN/GCG forcing: pre-fill the assistant's response opener
+  // so its safety-trained refusal hook never fires.
+  {
+    name: "force_compliance_prefix",
+    re: /\b(?:start|begin|open|prefix|preface|prepend|always\s+respond)\s+(?:your\s+(?:response|reply|answer|message)\s+)?(?:with|by\s+saying|by\s+writing)\s+["']?(?:sure|certainly|of\s+course|absolutely|here(?:'s|\s+is)|i'?ll\s+help|here\s+you\s+go|no\s+problem|gladly)["']?/gi,
+    reason: "Force-compliance prefix — pre-fills assistant opener to bypass refusal training.",
     severity: "high",
   },
 ];
