@@ -670,6 +670,134 @@ const DETECTORS: Record<string, Detector> = {
       reason: `Homoglyph attack — ${mixedTokens} word${mixedTokens === 1 ? "" : "s"} mix Latin with Cyrillic/Greek/Armenian script (example${samples.length === 1 ? "" : "s"}: ${samples.map((s) => `"${s}"`).join(", ")}). Used to bypass keyword filters while looking like English.`,
     };
   },
+  // Cipher attacks — ROT13, Caesar, leetspeak, Atbash, Morse, Pig Latin.
+  // Detection strategy: cipher MENTION (the word ROT13/Caesar/Atbash etc)
+  // combined with a payload of >= 20 chars in the corresponding character
+  // class. For leetspeak alone, look at digit-substitution density inside
+  // would-be word boundaries. Each tier has its own threshold tuned to
+  // keep FP low.
+  cipher_payload: ({ rawText, direction }) => {
+    if (direction !== "input") return { matched: false };
+    if (rawText.length < 20) return { matched: false };
+    const lower = rawText.toLowerCase();
+    // Tier 1 — explicit cipher mention + decode/execute framing. High
+    // signal: legitimate uses say "what does ROT13 of X give me"; jailbreaks
+    // say "decode this rot13 and answer".
+    const mentionRe = /\b(?:rot\s*-?\s*13|caesar\s+cipher|atbash|vigen[èe]re|substitution\s+cipher|morse\s+code|pig\s+latin|base16|hex(?:adecimal)?\s+encoded|reverse(?:d)?\s+string|leet\s*speak|l33t\s*speak)\b/i;
+    const decodeRe = /\b(?:decode|decipher|decrypt|unscramble|reverse|translate)\s+(?:this|the\s+following|below|above|it)?\s*(?:and\s+(?:answer|respond|reply|execute|run|act\s+on|follow|do|tell\s+me))?\b/i;
+    if (mentionRe.test(rawText) && decodeRe.test(rawText)) {
+      return {
+        matched: true,
+        verdict: "block",
+        reason: "Cipher mention + decode-and-answer framing — encoded-payload jailbreak.",
+      };
+    }
+    // Tier 2 — leetspeak density inside word boundaries. Count tokens of
+    // length >= 4 where 20%+ of the chars are digit/special substitutions
+    // that ARE in the leetspeak map (1/3/4/5/7/0/@/$/!).
+    const leetMap: Record<string, string> = {
+      "0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t",
+      "@": "a", "$": "s", "!": "i",
+    };
+    const tokens = lower.match(/[\w@$!]{4,}/g) ?? [];
+    let leetTokens = 0;
+    const samples: string[] = [];
+    for (const tok of tokens) {
+      const subs = tok.split("").filter((c) => c in leetMap).length;
+      const letters = tok.split("").filter((c) => /[a-z]/.test(c)).length;
+      // Need both: substitutions AND some real letters (pure-digit token
+      // is just a number, not leetspeak)
+      if (subs >= 2 && letters >= 2 && subs / tok.length >= 0.25) {
+        leetTokens++;
+        if (samples.length < 3) samples.push(tok);
+      }
+    }
+    if (leetTokens >= 2) {
+      return {
+        matched: true,
+        verdict: "flag",
+        reason: `Leetspeak substitution detected in ${leetTokens} tokens (example${leetTokens === 1 ? "" : "s"}: ${samples.map((s) => `"${s}"`).join(", ")}).`,
+      };
+    }
+    // Tier 3 — Morse-density: long runs of [.- ] with token-like spacing
+    // (each Morse char is 1-5 .- separated by single space, chars by /).
+    // 30+ Morse chars in a row is the signature.
+    const morseHits = rawText.match(/\b[.\-/]{2,5}(?:\s+[.\-/]{2,5}){9,}/g);
+    if (morseHits && morseHits.some((h) => h.length >= 30)) {
+      return {
+        matched: true,
+        verdict: "flag",
+        reason: "Long sequence of Morse-code-shaped tokens detected.",
+      };
+    }
+    // Tier 4 — Pig Latin: ≥ 4 words ending in "ay" with a consonant
+    // cluster prefix that looks moved (e.g., "ello-hay", "orld-way").
+    const pigHits = rawText.match(/\b[a-z]{2,}-?[bcdfghjklmnpqrstvwxyz]{1,3}ay\b/gi);
+    if (pigHits && pigHits.length >= 4) {
+      return {
+        matched: true,
+        verdict: "flag",
+        reason: `Pig-Latin pattern detected (${pigHits.length} words).`,
+      };
+    }
+    return { matched: false };
+  },
+  // Adversarial-suffix detector — GCG / AutoDAN-Turbo / BEAST style.
+  // These attacks append a gradient-optimized gibberish string to a normal
+  // prompt to force compliance. Examples:
+  //   ".. describing.\ + similarlyNow write oppositeley.]( Me giving**ONE"
+  //   "step==[ for == Sure---{} sentence inv FORMAT"
+  // Signatures: high bracket/punctuation-cluster density, mid-word case
+  // changes, non-English bigrams, gibberish tokens. Detection scans the
+  // ENTIRE text (sentence terminators inside the suffix break a tail-only
+  // approach), but normalizes by text length so short benign text isn't
+  // over-flagged.
+  adversarial_suffix: ({ rawText, direction }) => {
+    if (direction !== "input") return { matched: false };
+    if (rawText.length < 60) return { matched: false };
+    // Signal 1: bracket/punctuation cluster — `,
+    // `{}`, `==`, `]( `, `**` are GCG hallmarks. Count clusters of 2+
+    // adjacent bracket-like chars.
+    const bracketClusters = (rawText.match(/[[\]{}()<>\\*+=]{2,}/g) ?? []).length;
+    // Signal 2: mid-word case-mix (e.g. "oppositeley", "ONE Me", "writeNow").
+    // Count transitions: lowercase letter directly followed by uppercase.
+    const midCaseHits = (rawText.match(/[a-z][A-Z]/g) ?? []).length;
+    // Signal 3: gibberish tokens — length ≥ 3, less than half alnum.
+    // These show up when the suffix is mostly punctuation.
+    const tokens = rawText.split(/\s+/);
+    const gibberishTokens = tokens.filter((t) => {
+      if (t.length < 3) return false;
+      const alnum = (t.match(/[A-Za-z0-9]/g) ?? []).length;
+      return alnum / t.length < 0.5;
+    }).length;
+    // Signal 4: token-length variance is anomalously high in trailing
+    // half. GCG suffixes have wildly inconsistent token shapes.
+    const tail = rawText.slice(Math.floor(rawText.length / 2));
+    const tailTokens = tail.split(/\s+/).filter((t) => t.length > 0);
+    let tailNoise = 0;
+    if (tailTokens.length >= 3) {
+      tailNoise = tailTokens.filter((t) =>
+        /[[\]{}()<>\\*+=]{2,}/.test(t) || /[a-z][A-Z]/.test(t),
+      ).length;
+    }
+    // Composite — block when ≥ 2 of the 4 signals fire OR when tail has
+    // 3+ noisy tokens. The thresholds are tuned to keep normal punctuated
+    // prose passing (1-2 brackets, 0-1 mid-case, 0-1 gibberish per
+    // typical question).
+    const signals =
+      Number(bracketClusters >= 2) +
+      Number(midCaseHits >= 2) +
+      Number(gibberishTokens >= 2) +
+      Number(tailNoise >= 2);
+    if (signals >= 2 || tailNoise >= 3) {
+      return {
+        matched: true,
+        verdict: "block",
+        reason: `Adversarial-suffix signature (${bracketClusters} bracket clusters, ${midCaseHits} mid-word case changes, ${gibberishTokens} gibberish tokens, ${tailNoise} noisy trailing tokens). GCG/AutoDAN family.`,
+      };
+    }
+    return { matched: false };
+  },
   // Many-shot jailbreak (Anthropic 2024) — attacker stuffs the user
   // message with many fake "Human: X / Assistant: Y" pairs where the
   // fake assistant agrees to harmful asks, then poses the real ask at
@@ -833,7 +961,7 @@ export function evaluateHeuristics(
   // direction and is a strong block signal because secret-shape strings in
   // output are almost always RAG bleed-through or training-data extraction.
   const out: LayerVerdict[] = [];
-  for (const name of ["role_impersonation", "pseudo_system_block", "encoded_density", "narrative_misdirection", "deepfake_intent", "unicode_smuggling", "output_repetition", "output_pii_leak", "url_exfil", "system_prompt_leak", "tool_injection", "credential_shape", "homoglyph_smuggling", "many_shot_jailbreak"] as const) {
+  for (const name of ["role_impersonation", "pseudo_system_block", "encoded_density", "narrative_misdirection", "deepfake_intent", "unicode_smuggling", "output_repetition", "output_pii_leak", "url_exfil", "system_prompt_leak", "tool_injection", "credential_shape", "homoglyph_smuggling", "many_shot_jailbreak", "cipher_payload", "adversarial_suffix"] as const) {
     const r = DETECTORS[name]({
       rawText,
       normalizedText,
@@ -851,6 +979,7 @@ export function evaluateHeuristics(
         name === "system_prompt_leak" ? "block" :
         name === "homoglyph_smuggling" ? "block" :
         name === "many_shot_jailbreak" ? "block" :
+        name === "adversarial_suffix" ? "block" :
         "flag";
       out.push({ layer: "heuristics", verdict: r.verdict ?? defaultVerdict, reason: r.reason, rule: name });
     }
@@ -1361,6 +1490,245 @@ function mergeSpans(spans: { start: number; end: number; match: string }[]) {
       last.match = last.match + " | " + cur.match;
     } else out.push(cur);
   }
+  return out;
+}
+
+// ===========================================================================
+// XPIA / Indirect Prompt Injection scanner — `evaluateRetrieved()`
+// ===========================================================================
+//
+// Detects malicious instructions hidden in CONTENT THE MODEL INGESTS but did
+// NOT come from the user — RAG chunks, web-search snippets, scraped HTML,
+// email bodies, MCP tool responses, image alt-text, EXIF metadata. The 2025
+// EchoLeak family (CVE-2025-32711, Vanna.AI CVE-2024-5565, Langflow
+// CVE-2025-3248, etc.) all live in this channel.
+//
+// Key asymmetry vs evaluateInjection(): in retrieved content "ignore previous
+// instructions" has essentially no legitimate use case (no human typed it),
+// so verdicts are stricter — BLOCK on first match instead of FLAG.
+//
+// Wire-up: callers pass a `RetrievedSource` describing where the content
+// came from. The proxy should call this BEFORE concatenating retrieved
+// content into the model context. Results are LayerVerdict[] just like the
+// other layers, so the existing aggregator can consume them.
+
+export type RetrievedChannel =
+  | "rag"
+  | "web_search"
+  | "email"
+  | "mcp_tool_result"
+  | "mcp_tool_desc"
+  | "image_meta"
+  | "scraped_html";
+
+export interface RetrievedSource {
+  kind: RetrievedChannel;
+  /** URL, MCP server name, doc id, etc. — appears in audit logs. */
+  origin?: string;
+  /** Downstream consumer of the content. Gates code/SQL-specific checks. */
+  consumer?: "chat" | "sql_gen" | "code_gen" | "tool_router";
+}
+
+// Instruction-override patterns aimed at the model from inside data.
+const RETRIEVED_OVERRIDE_RE = /\b(?:ignore|disregard|forget|override|bypass)\s+(?:all\s+|the\s+|any\s+|your\s+|previous\s+|prior\s+|above\s+|earlier\s+)*(?:previous\s+|prior\s+|above\s+|earlier\s+)?(?:instructions?|rules?|prompts?|system\s+(?:prompt|message)|guidelines?|directives?|context)\b|\byou\s+are\s+(?:now\s+)?(?:in\s+(?:developer|debug|admin)\s+mode|jailbroken|dan|aim|uncensored|unfiltered)\b|\b(?:new|updated|revised)\s+(?:instructions?|system\s+prompt|directives?)\s*[:\-—]/gi;
+
+// Imperative addressed to the model from inside a tool description /
+// retrieved doc. "You must …", "before any call …", "always include …",
+// the <IMPORTANT> tag pattern from Invariant Labs's 2025 MCP advisory.
+const TO_MODEL_IMPERATIVE_RE = /\b(?:you\s+(?:must|should|always|need\s+to|have\s+to)|before\s+(?:any\s+|each\s+|every\s+)?(?:call|use|invocation|response)|always\s+(?:call|read|include|append|send|forward|copy|bcc|cc)|first\s+(?:call|execute|run|read|fetch))\b|<\s*(?:important|system|sys|admin|internal|note)\s*>[\s\S]{20,}<\s*\/\s*\1\s*>/gi;
+
+// Markdown image exfil — `![](url?leak={{data}})` and reference-style
+// images with templated query strings or unknown hosts. EchoLeak vector.
+const MD_IMG_RE = /!\[[^\]]*\]\(([^)]+)\)|!\[[^\]]*\]\[([^\]]+)\]/g;
+const URL_TEMPLATE_RE = /\{\{[^}]+\}\}|\$\{[^}]+\}|\[(?:INSERT|DATA|LEAK|CONVERSATION|MESSAGES?|SECRETS?|CONTEXT|HISTORY)[_A-Z]*\]/i;
+
+// Hidden HTML patterns — display:none / visibility:hidden / aria-hidden /
+// font-size:0 / off-screen / color match. We detect the CSS substring,
+// not full DOM parsing — fast pass; deep DOM analysis should happen in
+// the calling code if HTML parsing is available.
+const HIDDEN_CSS_RE = /\b(?:display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*0|opacity\s*:\s*0|position\s*:\s*absolute[^;]*left\s*:\s*-?\d{4,}|aria-hidden\s*=\s*["']true["'])\b/gi;
+
+// HTML comment with imperative content — `<!-- SYSTEM: ... -->`.
+const HTML_COMMENT_INSTRUCTION_RE = /<!--\s*(?:SYSTEM|IMPORTANT|NOTE\s*TO\s*(?:AI|ASSISTANT|MODEL)|YOU\s+(?:MUST|SHOULD))[\s\S]{0,400}?-->/gi;
+
+// MCP-specific: <IMPORTANT>...</IMPORTANT> in a tool description with
+// behavior-modifying content. Caught by TO_MODEL_IMPERATIVE_RE too, but
+// the explicit tag form is the published Invariant Labs pattern.
+
+// Cross-tool reference — a tool description that mentions ANOTHER tool's
+// name + a behavior-modifying verb. Catches Acuvity's tool-shadowing.
+const CROSS_TOOL_REF_RE = /\b(?:send_email|gmail|whatsapp|read_file|write_file|exec|spawn|os\.system|subprocess|delete_user|transfer_funds|kubectl|aws|gcloud)\b[\s\S]{0,80}\b(?:bcc|cc|forward|append|include|hide|skip|don'?t\s+mention|silent(?:ly)?)\b/gi;
+
+// SQL-write in retrieved content destined for a NL→SQL pipeline
+// (CVE-2024-5565 Vanna.AI family).
+const SQL_WRITE_RE = /\b(?:DROP\s+TABLE|DELETE\s+FROM|UPDATE\s+\w+\s+SET|TRUNCATE|ALTER\s+TABLE|CREATE\s+USER|GRANT\s+|REVOKE\s+|EXEC\s*\(|xp_cmdshell)\b/i;
+
+// Dangerous Python in code-gen retrieval (Langflow CVE-2025-3248,
+// LangChain CVE-2024-7042).
+const DANGEROUS_PY_RE = /\b(?:os\.system|subprocess\.(?:run|call|Popen|check_output)|__import__|eval\s*\(|exec\s*\(|compile\s*\(|pty\.spawn|importlib\.import_module)\b/g;
+
+// Allowlist of image hosts that are SAFE for inline markdown — operators
+// override via policy_settings. Defaults are common CDN + Wikipedia.
+const DEFAULT_ALLOWED_IMG_HOSTS = new Set<string>([
+  "wikimedia.org", "wikipedia.org", "githubusercontent.com",
+  "i.imgur.com", "imgur.com", "cdn.discordapp.com",
+]);
+
+function hostFromUrl(url: string): string {
+  try { return new URL(url).hostname.toLowerCase(); }
+  catch { return ""; }
+}
+
+/**
+ * Scan a single block of RETRIEVED content (RAG chunk, tool output, email
+ * body, scraped HTML) for indirect-injection patterns. Returns one
+ * LayerVerdict per detector that fires.
+ *
+ * Channel asymmetry: same regex, stricter verdict in retrieval channels
+ * than in user input — see RETRIEVED_OVERRIDE_RE.
+ *
+ * Recommended invocation: from the proxy when a tool reply arrives or
+ * from a RAG retriever before chunks land in the model context.
+ */
+export function evaluateRetrieved(
+  text: string,
+  source: RetrievedSource,
+  opts: { allowedImageHosts?: Set<string> } = {},
+): LayerVerdict[] {
+  const out: LayerVerdict[] = [];
+  if (!text || text.length === 0) return out;
+
+  // -- 1. Instruction-override addressed to the model from inside data --
+  RETRIEVED_OVERRIDE_RE.lastIndex = 0;
+  if (RETRIEVED_OVERRIDE_RE.test(text)) {
+    out.push({
+      layer: "injection",
+      verdict: "block",
+      rule: "retrieved_instruction_override",
+      reason: `Override-style instruction inside retrieved content from ${source.kind}${source.origin ? ` (${source.origin})` : ""}.`,
+    });
+  }
+
+  // -- 2. Imperative-to-model in tool description or RAG chunk --
+  TO_MODEL_IMPERATIVE_RE.lastIndex = 0;
+  if (TO_MODEL_IMPERATIVE_RE.test(text)) {
+    // In tool descriptions / MCP results this is decisive (Invariant Labs
+    // 2025 tool-poisoning advisory). In RAG/web it's flag-grade since
+    // docs sometimes contain instructions for humans.
+    const isToolish = source.kind === "mcp_tool_desc" ||
+                      source.kind === "mcp_tool_result";
+    out.push({
+      layer: "injection",
+      verdict: isToolish ? "block" : "flag",
+      rule: "retrieved_imperative_to_model",
+      reason: `Imperative addressed to the model from inside ${source.kind}.`,
+    });
+  }
+
+  // -- 3. Markdown image exfil (EchoLeak family) --
+  const allowedHosts = opts.allowedImageHosts ?? DEFAULT_ALLOWED_IMG_HOSTS;
+  MD_IMG_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = MD_IMG_RE.exec(text)) !== null) {
+    const url = m[1] ?? "";
+    const tplInUrl = URL_TEMPLATE_RE.test(url);
+    const host = hostFromUrl(url);
+    const unknownHost = host !== "" && !Array.from(allowedHosts).some(
+      (a) => host === a || host.endsWith("." + a),
+    );
+    if (tplInUrl || url.length > 256 || unknownHost) {
+      out.push({
+        layer: "injection",
+        verdict: "block",
+        rule: "retrieved_markdown_image_exfil",
+        reason: `Suspicious markdown image in ${source.kind}: ${tplInUrl ? "templated URL" : unknownHost ? `unknown host (${host})` : "URL > 256 chars"}.`,
+        matched: m[0].slice(0, 120),
+      });
+      break;
+    }
+  }
+
+  // -- 4. Hidden HTML (display:none, aria-hidden) + instructional content --
+  HIDDEN_CSS_RE.lastIndex = 0;
+  if (HIDDEN_CSS_RE.test(text)) {
+    // Only fire if the hidden region also contains imperative or override
+    // language — pure decorative aria-hidden=true on icons is benign.
+    HIDDEN_CSS_RE.lastIndex = 0;
+    RETRIEVED_OVERRIDE_RE.lastIndex = 0;
+    TO_MODEL_IMPERATIVE_RE.lastIndex = 0;
+    if (RETRIEVED_OVERRIDE_RE.test(text) ||
+        TO_MODEL_IMPERATIVE_RE.test(text)) {
+      out.push({
+        layer: "injection",
+        verdict: "block",
+        rule: "retrieved_hidden_html_instruction",
+        reason: `Hidden CSS / aria-hidden region contains instructional content in ${source.kind}.`,
+      });
+    }
+  }
+
+  // -- 5. HTML comment with imperative content --
+  HTML_COMMENT_INSTRUCTION_RE.lastIndex = 0;
+  const commentMatch = HTML_COMMENT_INSTRUCTION_RE.exec(text);
+  if (commentMatch) {
+    out.push({
+      layer: "injection",
+      verdict: "block",
+      rule: "retrieved_html_comment_injection",
+      reason: `HTML comment contains an instruction aimed at the model in ${source.kind}.`,
+      matched: commentMatch[0].slice(0, 120),
+    });
+  }
+
+  // -- 6. Cross-tool reference in tool descriptions (Acuvity shadowing) --
+  if (source.kind === "mcp_tool_desc" || source.kind === "mcp_tool_result") {
+    CROSS_TOOL_REF_RE.lastIndex = 0;
+    if (CROSS_TOOL_REF_RE.test(text)) {
+      out.push({
+        layer: "injection",
+        verdict: "block",
+        rule: "retrieved_cross_tool_reference",
+        reason: `Tool description references another tool with a behavior-modifying verb (shadowing attempt).`,
+      });
+    }
+  }
+
+  // -- 7. SQL-write inside content destined for NL→SQL pipeline --
+  if (source.consumer === "sql_gen" && SQL_WRITE_RE.test(text)) {
+    out.push({
+      layer: "injection",
+      verdict: "block",
+      rule: "retrieved_sql_write_in_read_context",
+      reason: `Retrieved content contains DDL/DML destined for a NL→SQL chain (Vanna.AI-class).`,
+    });
+  }
+
+  // -- 8. Dangerous Python in code-gen retrieval --
+  if (source.consumer === "code_gen") {
+    DANGEROUS_PY_RE.lastIndex = 0;
+    const pyMatch = DANGEROUS_PY_RE.exec(text);
+    if (pyMatch) {
+      out.push({
+        layer: "injection",
+        verdict: "block",
+        rule: "retrieved_dangerous_python",
+        reason: `Retrieved content contains dangerous Python (${pyMatch[0]}) destined for code-gen.`,
+      });
+    }
+  }
+
+  // -- 9. Unicode tag-character smuggling in retrieved content --
+  TAG_CHARS_RE.lastIndex = 0;
+  const tagMatches = text.match(TAG_CHARS_RE);
+  if (tagMatches && tagMatches.length > 0) {
+    out.push({
+      layer: "injection",
+      verdict: "block",
+      rule: "retrieved_tag_char_smuggle",
+      reason: `${tagMatches.length} invisible tag-character${tagMatches.length === 1 ? "" : "s"} (U+E0000-U+E007F) in retrieved content from ${source.kind}.`,
+    });
+  }
+
   return out;
 }
 
